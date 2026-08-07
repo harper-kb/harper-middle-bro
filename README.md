@@ -21,6 +21,12 @@ Claim the keyless Clerk app later with `npx clerk auth login` (or the in-app “
 
 SQLite DB is created at `data/underwriter-desk.db` on first load (gitignored) and seeded automatically.
 
+## Fresh clone notes (collaborators)
+
+- `npm install` then `npm run dev` is the whole setup — the SQLite database creates and seeds itself on first boot. No migrations to run.
+- `.env.local` is gitignored, so a fresh clone has no Clerk keys. On first `npm run dev`, Clerk enters keyless development mode and provisions a dev instance automatically — sign-up works out of the box. To share one Clerk app across the team instead, pass the `.env.local` file directly (never commit it).
+- `data/verified-contacts.local.json` (the real underwriter contact list) is private and gitignored. Without it the Contacts page shows an empty list, which is expected. If you need it, request the file directly — it must never be committed.
+
 ## Surfaces
 
 | Route | Purpose |
@@ -82,4 +88,4 @@ Fictional accounts mapped to Harper commercial-lines carriers and coverages (GL,
 
 ## Stack
 
-Next.js (App Router) · TypeScript · Tailwind · better-sqlite3 · local only, no auth
+Next.js (App Router) · TypeScript · Tailwind · better-sqlite3 · Clerk (standalone dev app) · local only

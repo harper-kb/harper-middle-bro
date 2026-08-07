@@ -1,0 +1,1117 @@
+@import "tailwindcss";
+
+:root {
+  /* French-modern: cool pierre, encre, or pâle — not warm cream / terracotta */
+  /* Harper brand accent — verified from the letterforms of
+     https://www.harperinsure.com/harper_name_logo.svg (fill="#FF6D63"). */
+  --harper-orange: #ff6d63;
+  --ink: #1a2c36;
+  --navy: #1a2c36;
+  --muted: #7a8790;
+  --pierre: #f4f3f0;
+  --paper: #fbfaf8;
+  --gold: #9c8f78;
+  --coral: #c45c4a;
+  --sand: #ebe8e2;
+  --background: var(--pierre);
+  --foreground: var(--ink);
+  --rule: rgba(26, 44, 54, 0.08);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+body {
+  background:
+    radial-gradient(ellipse 70% 45% at 0% 0%, rgba(156, 143, 120, 0.12), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 100% 10%, rgba(26, 44, 54, 0.05), transparent 50%),
+    var(--pierre);
+  color: var(--ink);
+  font-family: var(--font-body), "Segoe UI", system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.font-display {
+  font-family: var(--font-display), "Times New Roman", serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.eyebrow {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 0.15rem 0.65rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.surface-card {
+  border-radius: 1rem;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--paper) 92%, white);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 12px 40px rgba(26, 44, 54, 0.04);
+}
+
+.field {
+  width: 100%;
+  border-radius: 0.85rem;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  color: var(--ink);
+  outline: none;
+}
+
+.field:focus {
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+  box-shadow: 0 0 0 3px rgba(156, 143, 120, 0.18);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--ink);
+  padding: 0.5rem 1.1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: white;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--ink) 88%, var(--coral));
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink);
+  transition: background 0.15s ease;
+}
+
+.btn-ghost:hover {
+  background: var(--sand);
+}
+
+/* ——— Desk sidebar ———
+   Nav owns page offset: when the fixed sidebar is in the DOM, pad the body
+   on lg+ so every page's <main> clears it without any page-file edits. */
+@media (min-width: 1024px) {
+  body:has(.desk-sidebar) {
+    padding-left: 16.5rem;
+  }
+}
+
+/* An active red alert pushes the whole desk down so the strip never covers
+   content; the fixed sidebar drops below it too. */
+body:has(.red-alert-banner) {
+  padding-top: 2.25rem;
+}
+
+body:has(.red-alert-banner) .desk-sidebar {
+  top: 2.25rem;
+}
+
+.life-map {
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 20%, rgba(196, 92, 74, 0.18), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 85% 70%, rgba(156, 143, 120, 0.12), transparent 50%),
+    linear-gradient(160deg, #121c22 0%, #1a2c36 45%, #0e161b 100%);
+}
+
+.life-edge {
+  stroke-dasharray: 6 8;
+  animation: life-dash 2.4s linear infinite;
+}
+
+.life-edge-line {
+  background: linear-gradient(90deg, rgba(196, 92, 74, 0.25), #c45c4a);
+  animation: life-shimmer 2s ease-in-out infinite;
+}
+
+.life-pulse {
+  animation: life-pulse 2.8s ease-in-out infinite;
+}
+
+.life-star {
+  animation: life-twinkle 3.5s ease-in-out infinite;
+}
+
+@keyframes life-dash {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+@keyframes life-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes life-shimmer {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes life-twinkle {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.inbox-pulse {
+  animation: inbox-pulse 0.7s ease-out 2;
+}
+
+/* ——— AI Desk (Additional Insured mastery) ——— */
+
+.glass {
+  border: 1px solid rgba(26, 44, 54, 0.08);
+  background: color-mix(in srgb, var(--paper) 78%, white);
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 18px 50px rgba(26, 44, 54, 0.06);
+}
+
+.queue-card {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.queue-card:hover {
+  transform: translateY(-1px);
+}
+
+.queue-card-active {
+  border-color: color-mix(in srgb, var(--gold) 60%, transparent);
+  box-shadow: 0 0 0 3px rgba(156, 143, 120, 0.16), 0 14px 34px rgba(26, 44, 54, 0.08);
+}
+
+.rise-in {
+  animation: rise-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.doc-chip {
+  cursor: grab;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.doc-chip:active {
+  cursor: grabbing;
+}
+
+.doc-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(26, 44, 54, 0.1);
+}
+
+.dropzone {
+  border: 1.5px dashed rgba(26, 44, 54, 0.18);
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.dropzone-hot {
+  border-color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 10%, var(--paper));
+  transform: scale(1.01);
+}
+
+.check-dot {
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+}
+
+.tick-pop {
+  animation: tick-pop 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+}
+
+@keyframes tick-pop {
+  from {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.pace-bar {
+  background: linear-gradient(90deg, var(--gold), var(--coral));
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ——— Terms relay + certificate desk ——— */
+
+.pay-card {
+  background:
+    radial-gradient(ellipse 70% 120% at 0% 0%, rgba(156, 143, 120, 0.22), transparent 60%),
+    linear-gradient(150deg, #16242c 0%, #1a2c36 55%, #101b21 100%);
+  color: white;
+}
+
+.pay-link {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  word-break: break-all;
+}
+
+.mark-reject {
+  border-radius: 0.25rem;
+  background: rgba(196, 92, 74, 0.16);
+  box-shadow: inset 0 -1.5px 0 rgba(196, 92, 74, 0.55);
+  padding: 0.05rem 0.15rem;
+}
+
+.mark-warn {
+  border-radius: 0.25rem;
+  background: rgba(156, 143, 120, 0.2);
+  box-shadow: inset 0 -1.5px 0 rgba(156, 143, 120, 0.6);
+  padding: 0.05rem 0.15rem;
+}
+
+.field-bad {
+  border-color: rgba(196, 92, 74, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(196, 92, 74, 0.12) !important;
+}
+
+.acord-box {
+  border: 1px solid var(--rule);
+  border-radius: 0.6rem;
+  background: var(--paper);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.acord-box-bad {
+  border-color: rgba(196, 92, 74, 0.45);
+  background: rgba(196, 92, 74, 0.04);
+}
+
+.flag-toggle {
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* ——— Trace (decision evidence) ——— */
+
+.trace-shell {
+  background:
+    radial-gradient(ellipse 55% 40% at 8% 0%, rgba(156, 143, 120, 0.18), transparent 55%),
+    radial-gradient(ellipse 40% 35% at 95% 8%, rgba(26, 44, 54, 0.07), transparent 50%),
+    linear-gradient(180deg, #f7f5f1 0%, var(--pierre) 40%, #efece6 100%);
+}
+
+.trace-shell-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 42vh;
+  background:
+    linear-gradient(105deg, transparent 40%, rgba(196, 92, 74, 0.04) 55%, transparent 70%);
+  animation: trace-wash 14s ease-in-out infinite alternate;
+}
+
+@keyframes trace-wash {
+  from {
+    opacity: 0.45;
+    transform: translateX(-2%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(2%);
+  }
+}
+
+.trace-empty-callout {
+  max-width: 36rem;
+  border-left: 2px solid var(--gold);
+  padding: 0.85rem 0 0.85rem 1.15rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.trace-stage {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.65) inset,
+    0 28px 80px rgba(26, 44, 54, 0.08);
+  background: var(--paper);
+  animation: desk-tour-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.trace-ledger-row {
+  border-bottom: 1px solid var(--rule);
+}
+
+.trace-ledger-row:hover {
+  background: color-mix(in srgb, var(--sand) 55%, transparent);
+}
+
+.trace-ledger-row-on {
+  background: color-mix(in srgb, var(--sand) 70%, white);
+}
+
+.trace-ledger-mark {
+  position: absolute;
+  left: 0;
+  top: 0.85rem;
+  bottom: 0.85rem;
+  width: 2px;
+  background: var(--coral);
+  animation: trace-mark-in 220ms ease-out both;
+}
+
+@keyframes trace-mark-in {
+  from {
+    transform: scaleY(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.trace-path-plane .life-map {
+  border: none;
+  border-radius: 1.15rem;
+  box-shadow: 0 18px 48px rgba(16, 26, 32, 0.35);
+}
+
+.trace-transport {
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  padding: 0.2rem;
+}
+
+.trace-transport-btn {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 1rem;
+  color: var(--ink);
+  transition: background 0.15s ease;
+}
+
+.trace-transport-btn:hover:not(:disabled) {
+  background: var(--sand);
+}
+
+.trace-transport-play {
+  min-width: 4.5rem;
+  border-radius: 999px;
+  background: var(--ink);
+  padding: 0.4rem 0.9rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: white;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.trace-transport-play:hover {
+  background: color-mix(in srgb, var(--ink) 88%, var(--coral));
+}
+
+.trace-spine {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-left: 1px solid var(--rule);
+  margin-left: 0.55rem;
+  padding-left: 0;
+}
+
+.trace-spine-item {
+  position: relative;
+}
+
+.trace-spine-btn {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 0.85rem;
+  padding: 0.55rem 0.75rem 0.55rem 1.1rem;
+  text-align: left;
+  color: var(--muted);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.trace-spine-btn::before {
+  content: "";
+  position: absolute;
+  left: -3.5px;
+  top: 0.95rem;
+  height: 6px;
+  width: 6px;
+  border-radius: 999px;
+  background: var(--sand);
+  box-shadow: 0 0 0 2px var(--paper);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.trace-spine-btn.past::before {
+  background: var(--gold);
+}
+
+.trace-spine-btn.on {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--sand) 45%, transparent);
+}
+
+.trace-spine-btn.on::before {
+  background: var(--coral);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--coral) 25%, white);
+}
+
+.trace-spine-label {
+  flex: 1;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.trace-spine-model {
+  color: var(--gold);
+  font-size: 0.65rem;
+}
+
+.trace-step {
+  animation: step-in 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.trace-node {
+  cursor: pointer;
+  transition: filter 0.18s ease, opacity 0.18s ease;
+}
+
+.trace-node:hover {
+  filter: brightness(1.22);
+}
+
+.trace-node:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 8px rgba(226, 199, 137, 0.8));
+}
+
+.trace-node-on {
+  filter: drop-shadow(0 0 12px rgba(226, 199, 137, 0.45));
+}
+
+.step-in {
+  animation: step-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.spine-seg {
+  transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.stamp {
+  animation: stamp-in 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+
+@keyframes stamp-in {
+  from {
+    transform: scale(1.15) rotate(-2deg);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+.desk-tour-panel {
+  animation: desk-tour-in 280ms ease-out both;
+}
+
+.carrier-desk {
+  background:
+    linear-gradient(180deg, #f7f5f1 0%, var(--pierre) 45%, #efece6 100%);
+}
+
+@keyframes desk-tour-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes inbox-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(196, 92, 74, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 18px rgba(196, 92, 74, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(196, 92, 74, 0);
+  }
+}
+
+/* ——— ACORD 25 sheet — the real form's structure, house type kept subtle ——— */
+.acord {
+  --acord-line: #3d474e;
+  font-size: 8px;
+  line-height: 1.3;
+  color: #14181b;
+  border: 1px solid var(--acord-line);
+}
+
+.acord-box {
+  border: 1px solid var(--acord-line);
+}
+
+.acord-lbl {
+  font-size: 6.3px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #2a3238;
+  line-height: 1.25;
+}
+
+/* Inline form input — looks like the form, hints editability on screen only */
+.acord-in {
+  display: block;
+  width: 100%;
+  border: none;
+  outline: none;
+  border-radius: 1px;
+  background: rgba(156, 143, 120, 0.09);
+  font: inherit;
+  font-size: 8.5px;
+  color: #14181b;
+  padding: 0 2px;
+  min-height: 10px;
+}
+
+.acord-in:focus {
+  background: rgba(156, 143, 120, 0.25);
+}
+
+/* Locked to the schedule of record — plain tabular text, no input tint.
+   Review/confirm/reject tints (declared later) still win over this. */
+.acord-in.acord-ro {
+  background: transparent;
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acord-ck.acord-ro {
+  cursor: default;
+}
+
+/* Screen-only sheet magnification; paper always prints at 100%. */
+@media print {
+  .sheet-zoom {
+    zoom: 1 !important;
+  }
+}
+
+.acord-ta {
+  display: block;
+  width: 100%;
+  border: none;
+  outline: none;
+  border-radius: 1px;
+  background: rgba(156, 143, 120, 0.09);
+  font: inherit;
+  font-size: 8.5px;
+  line-height: 1.4;
+  color: #14181b;
+  padding: 1px 2px;
+  resize: none;
+}
+
+.acord-ta:focus {
+  background: rgba(156, 143, 120, 0.25);
+}
+
+/* Area review tints — screen affordances only.
+   is-review: the area under active review, extracted values lit up.
+   is-ok: inside a confirmed area, a whisper of green.
+   is-bad: carries a verifier reject. */
+.acord-in.is-review,
+.acord-ta.is-review,
+.acord-ck.is-review,
+.acord-ycell.is-review {
+  background: rgba(217, 164, 65, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(217, 164, 65, 0.45);
+}
+
+.acord-in.is-ok,
+.acord-ta.is-ok,
+.acord-ck.is-ok,
+.acord-ycell.is-ok {
+  background: rgba(16, 133, 78, 0.07);
+}
+
+.acord-in.is-bad,
+.acord-ta.is-bad,
+.acord-ck.is-bad,
+.acord-ycell.is-bad {
+  background: rgba(196, 92, 74, 0.18);
+}
+
+/* ACORD checkbox — a small bordered square, ✓ only when the schedule backs it */
+.acord-ck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border: 1px solid var(--acord-line);
+  background: white;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  color: #14181b;
+  cursor: pointer;
+}
+
+.acord-ycell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 14px;
+  border: none;
+  background: rgba(156, 143, 120, 0.09);
+  font-size: 8px;
+  font-weight: 700;
+  color: #14181b;
+  cursor: pointer;
+}
+
+.acord-grid {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.acord-grid th,
+.acord-grid td {
+  border: 1px solid var(--acord-line);
+  padding: 1px 3px;
+  vertical-align: top;
+  text-align: left;
+}
+
+.acord-grid th {
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1.15;
+}
+
+/* DocuSign-style stamped script signature */
+.acord-sig {
+  font-family: "Snell Roundhand", "Savoye LET", "Segoe Script",
+    "Brush Script MT", "Apple Chancery", cursive;
+  font-size: 17px;
+  font-style: italic;
+  color: #1b2a5e;
+  transform: rotate(-2deg);
+  display: inline-block;
+  padding-bottom: 1px;
+}
+
+/* The pasted-signature stamp: bordered box + "Digitally Applied" caption,
+   identical on every issue. The border prints — that's the point. */
+.sig-stamp {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: 1.2px solid #1b2a5e;
+  border-radius: 3px;
+  padding: 2px 10px 3px 8px;
+  background: rgba(27, 42, 94, 0.035);
+}
+
+.sig-stamp .acord-sig {
+  transform: rotate(-1deg);
+  line-height: 1.05;
+}
+
+.sig-caption {
+  font-size: 6px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #1b2a5e;
+  line-height: 1.2;
+}
+
+/* Printing a certificate outputs only the sheet — clean paper, no chrome. */
+@media print {
+  body {
+    background: white;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .cert-sheet,
+  .cert-sheet * {
+    visibility: visible;
+  }
+  .cert-sheet {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+    min-width: 0 !important;
+  }
+  /* Edit affordances never print — the paper shows the filled form only */
+  .no-print {
+    display: none !important;
+  }
+  .acord {
+    --acord-line: #000;
+  }
+  .acord-in,
+  .acord-ta,
+  .acord-ycell,
+  .acord-in.is-review,
+  .acord-ta.is-review,
+  .acord-ck.is-review,
+  .acord-ycell.is-review,
+  .acord-in.is-ok,
+  .acord-ta.is-ok,
+  .acord-ck.is-ok,
+  .acord-ycell.is-ok,
+  .acord-in.is-bad,
+  .acord-ta.is-bad,
+  .acord-ck.is-bad,
+  .acord-ycell.is-bad {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .acord-in::placeholder,
+  .acord-ta::placeholder {
+    color: transparent;
+  }
+  /* The signature stamp keeps its border on paper; only the tint goes. */
+  .sig-stamp {
+    background: transparent !important;
+  }
+}
+
+/* ——— Trace zoom hierarchy (overview → ticket → decision → step) ——— */
+
+.trace-zoom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.trace-zoom-crumb {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 0.3rem 0.7rem;
+  color: var(--muted);
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.trace-zoom-crumb:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--sand) 55%, transparent);
+}
+
+.trace-zoom-crumb.on {
+  color: var(--ink);
+  border-color: var(--rule);
+  background: var(--paper);
+  font-weight: 600;
+}
+
+.trace-zoom-sep {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.trace-ov-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.trace-ov-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  padding: 0.28rem 0.65rem;
+  color: var(--ink);
+  transition: border-color 0.15s ease, background 0.15s ease,
+    transform 0.15s ease;
+}
+
+.trace-ov-dot:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--coral) 55%, var(--rule));
+  background: color-mix(in srgb, var(--sand) 45%, white);
+  transform: translateY(-1px);
+}
+
+.trace-ov-dot:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.trace-ov-bead {
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+/* The fast-path gold ring — issued off the blanket form, no market touch */
+.trace-ov-dot.fp .trace-ov-bead {
+  box-shadow: 0 0 0 2px rgba(226, 199, 137, 0.9);
+}
+
+.trace-ov-bead-needs_you {
+  background: var(--coral);
+}
+
+.trace-ov-bead-waiting {
+  background: var(--gold);
+}
+
+/* Greens match the PathMap outcome tone, not a new palette */
+.trace-ov-bead-ready {
+  background: #6f9a86;
+}
+
+.trace-ov-bead-delivered {
+  background: #3c5c4d;
+}
+
+/* ——— Operator presence (Nav active dot + account rail) ———
+   Green while the desk sees input, amber once it goes quiet. The dot
+   keeps its color in `color` too so the pulse ring can use currentColor. */
+
+.presence-dot {
+  transition: background-color 0.45s ease, box-shadow 0.45s ease;
+}
+
+.presence-dot-active {
+  color: #2f9e6e;
+  background: #2f9e6e;
+  animation: presence-pulse 2.4s ease-in-out infinite;
+}
+
+.presence-dot-idle {
+  color: #d9a441;
+  background: #d9a441;
+  animation: presence-pulse 5s ease-in-out infinite;
+}
+
+@keyframes presence-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3.5px color-mix(in srgb, currentColor 14%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presence-dot-active,
+  .presence-dot-idle {
+    animation: none;
+    box-shadow: 0 0 0 2.5px color-mix(in srgb, currentColor 18%, transparent);
+  }
+}
+
+/* ——— Desk-wide interaction polish (additive) ——— */
+
+/* Keyboard users get the same ring everywhere the mouse gets a hover. */
+.btn-primary:focus-visible,
+.btn-ghost:focus-visible,
+.chip:focus-visible,
+.field:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--gold) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* Subtle press states so clicks feel acknowledged. */
+.btn-primary:active {
+  transform: scale(0.985);
+}
+
+.btn-ghost:active {
+  background: color-mix(in srgb, var(--sand) 85%, white);
+}
+
+a.chip,
+button.chip {
+  transition: border-color 0.15s ease, color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+a.chip:hover,
+button.chip:hover {
+  border-color: color-mix(in srgb, var(--gold) 55%, var(--rule));
+}
+
+/* Clickable rows/cards: subtle bg shift + press state, one recipe. */
+.row-link {
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.row-link:hover {
+  background: color-mix(in srgb, var(--sand) 55%, transparent);
+}
+
+.row-link:active {
+  background: color-mix(in srgb, var(--sand) 80%, transparent);
+}
+
+.row-link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--gold) 70%, transparent);
+  outline-offset: -2px;
+}
+
+/* Smooth <details> disclosure: rotate the marker, ease the reveal. */
+details.disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+details.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.disclosure > summary .disclosure-caret {
+  display: inline-block;
+  transition: transform 0.18s ease;
+}
+
+details.disclosure[open] > summary .disclosure-caret {
+  transform: rotate(90deg);
+}
+
+details.disclosure[open] > *:not(summary) {
+  animation: rise-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ——— DeskSection: collapsible section shell (see DeskSection.tsx) ——— */
+.desk-section {
+  border: 1px solid var(--rule);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--paper) 92%, white);
+}
+
+.desk-section > summary {
+  border-radius: 1rem;
+}
+
+.desk-section[open] > summary {
+  border-radius: 1rem 1rem 0 0;
+}
+
+.desk-section > summary:hover {
+  background: color-mix(in srgb, var(--sand) 45%, transparent);
+}
+
+.desk-section > summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--gold) 70%, transparent);
+  outline-offset: -2px;
+}
+
+/* Ledger row groups: a lane rendered as rows, not a column of cards. */
+.ledger-group > summary {
+  border-top: 1px solid var(--rule);
+}
+
+.ledger-group:first-of-type > summary {
+  border-top: none;
+}

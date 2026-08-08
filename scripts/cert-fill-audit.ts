@@ -46,7 +46,12 @@ import type { Account, Policy } from "../src/lib/types";
 
 /** Run from the repo root (as `npx tsx scripts/cert-fill-audit.ts` does). */
 const ROOT = process.cwd();
-const DB_PATH = path.join(ROOT, "data", "underwriter-desk.db");
+// Honors DESK_DATA_DIR so an audit of a downloaded volume snapshot reads the
+// same record the desk does, rather than a stale local database.
+const DB_PATH = path.join(
+  process.env.DESK_DATA_DIR ?? path.join(ROOT, "data"),
+  "underwriter-desk.db",
+);
 const REPORT_PATH = path.join(ROOT, "docs", "cert-fill-report.md");
 
 /** Fixed audit holder — pass-through data, never a claim. */

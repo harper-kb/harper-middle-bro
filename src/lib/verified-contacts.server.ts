@@ -1,6 +1,6 @@
 import "server-only";
 import fs from "fs";
-import path from "path";
+import { dataPath } from "./data-dir";
 import committed from "./verified-contacts.data.json";
 import type { VerifiedContact } from "./verified-contacts";
 
@@ -14,11 +14,7 @@ import type { VerifiedContact } from "./verified-contacts";
  * never pads the list.
  */
 
-const LOCAL_PATH = path.join(
-  process.cwd(),
-  "data",
-  "verified-contacts.local.json",
-);
+const LOCAL_PATH = dataPath("verified-contacts.local.json");
 
 let cache: VerifiedContact[] | null = null;
 

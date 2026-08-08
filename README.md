@@ -46,11 +46,19 @@ Render Dashboard → **New** → **Blueprint** → pick this repo. `render.yaml`
 
 ### Auth: only invited people get in
 
-The hosted instance uses the same standalone Clerk app, with sign-up locked down:
+The hosted instance uses the same standalone Clerk app, with sign-up locked down. One command does the restriction, the allowlist, and the invitation emails, then reads Clerk back to prove it took:
 
-1. Clerk Dashboard → **Restrictions** → set sign-up mode to **Restricted**. Only people holding an invitation can create an account; everyone else sees a message saying they need one.
-2. Optionally enable the **Allowlist** and add `@harperinsure.com` so only company addresses can ever sign up. Enabling the allowlist with no entries blocks all sign-ups.
-3. Clerk Dashboard → **Users** → **Invite** for each teammate.
+```bash
+export CLERK_SECRET_KEY=sk_test_...          # Clerk Dashboard → API keys
+npx tsx scripts/clerk-lockdown.ts \
+  --allow @harperinsure.com \
+  --invite first@harperinsure.com --invite second@harperinsure.com
+# prints a plan and changes nothing; add --apply to execute
+```
+
+It restricts sign-up to the allowlist, adds each identifier, and sends one invitation per address. Re-running is safe — entries that already exist are reported, not duplicated.
+
+The Dashboard equivalent, if you would rather click: **Restrictions** → sign-up mode **Restricted**, enable **Allowlist** and add `@harperinsure.com`, then **Users** → **Invite** per teammate. Note that the Dashboard's Restricted toggle has no Backend API field, so the script uses the allowlist restriction instead — the same outcome by a different lever. Enabling an allowlist with no entries blocks every sign-up, so add entries in the same pass.
 
 Both keys are read at runtime, so rotating the Clerk app is a secret change plus a restart — not a rebuild. Development keys (`pk_test`/`sk_test`) work on a `.fly.dev` or `.onrender.com` host and are capped at 100 users, which is what makes this possible without owning a domain. Production keys (`pk_live`) require a domain you control, so those come with a custom domain later.
 

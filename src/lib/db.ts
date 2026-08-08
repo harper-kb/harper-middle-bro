@@ -154,7 +154,10 @@ function migrate(db: Database.Database) {
       name TEXT NOT NULL,
       dba TEXT,
       industry TEXT NOT NULL,
+      address1 TEXT,
+      city TEXT,
       state TEXT NOT NULL,
+      zip TEXT,
       primary_uw_id TEXT NOT NULL REFERENCES underwriters(id),
       backup_uw_id TEXT REFERENCES underwriters(id),
       notes TEXT,
@@ -288,6 +291,19 @@ function migrate(db: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS decisions_ticket ON decisions(ticket_id);
     CREATE INDEX IF NOT EXISTS decisions_message ON decisions(message_id);
+
+    -- Address verification cache: one row per (normalized address, provider).
+    -- Repeat certificate opens read the cached verdict instead of re-hitting
+    -- the geocoder. Only real verdicts are cached; outages never are.
+    CREATE TABLE IF NOT EXISTS address_verifications (
+      address_key TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      status TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      matched_address TEXT,
+      standardized_json TEXT,
+      checked_at TEXT NOT NULL
+    );
   `);
 
   ensureColumn(db, "underwriters", "channel_primary", "channel_primary TEXT");
@@ -309,6 +325,9 @@ function migrate(db: Database.Database) {
   ensureColumn(db, "tickets", "sr_number", "sr_number TEXT");
   ensureColumn(db, "accounts", "status", "status TEXT NOT NULL DEFAULT 'active'");
   ensureColumn(db, "accounts", "payment_received_at", "payment_received_at TEXT");
+  ensureColumn(db, "accounts", "address1", "address1 TEXT");
+  ensureColumn(db, "accounts", "city", "city TEXT");
+  ensureColumn(db, "accounts", "zip", "zip TEXT");
   ensureColumn(db, "tickets", "named_on_policy", "named_on_policy INTEGER NOT NULL DEFAULT 0");
   ensureColumn(db, "tickets", "fast_path_basis", "fast_path_basis TEXT");
   ensureColumn(db, "operators", "role", "role TEXT NOT NULL DEFAULT 'operator'");
@@ -414,8 +433,8 @@ function seedIfEmpty(db: Database.Database) {
     )
   `);
   const insertAcct = db.prepare(`
-    INSERT INTO accounts (id, name, dba, industry, state, primary_uw_id, backup_uw_id, notes, status, payment_received_at)
-    VALUES (@id, @name, @dba, @industry, @state, @primaryUwId, @backupUwId, @notes, @status, @paymentReceivedAt)
+    INSERT INTO accounts (id, name, dba, industry, address1, city, state, zip, primary_uw_id, backup_uw_id, notes, status, payment_received_at)
+    VALUES (@id, @name, @dba, @industry, @address1, @city, @state, @zip, @primaryUwId, @backupUwId, @notes, @status, @paymentReceivedAt)
   `);
   const insertPol = db.prepare(`
     INSERT INTO policies (
@@ -438,7 +457,10 @@ function seedIfEmpty(db: Database.Database) {
         name: a.name,
         dba: a.dba,
         industry: a.industry,
+        address1: a.addressLine1,
+        city: a.city,
         state: a.state,
+        zip: a.zip,
         primaryUwId: a.primaryUwId,
         backupUwId: a.backupUwId,
         notes: a.notes,
@@ -488,13 +510,16 @@ function syncAccountsAndPolicies(db: Database.Database) {
       channel_note = excluded.channel_note
   `);
   const upsertAcct = db.prepare(`
-    INSERT INTO accounts (id, name, dba, industry, state, primary_uw_id, backup_uw_id, notes, status, payment_received_at)
-    VALUES (@id, @name, @dba, @industry, @state, @primaryUwId, @backupUwId, @notes, @status, @paymentReceivedAt)
+    INSERT INTO accounts (id, name, dba, industry, address1, city, state, zip, primary_uw_id, backup_uw_id, notes, status, payment_received_at)
+    VALUES (@id, @name, @dba, @industry, @address1, @city, @state, @zip, @primaryUwId, @backupUwId, @notes, @status, @paymentReceivedAt)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       dba = excluded.dba,
       industry = excluded.industry,
+      address1 = excluded.address1,
+      city = excluded.city,
       state = excluded.state,
+      zip = excluded.zip,
       primary_uw_id = excluded.primary_uw_id,
       backup_uw_id = excluded.backup_uw_id,
       notes = excluded.notes
@@ -533,7 +558,10 @@ function syncAccountsAndPolicies(db: Database.Database) {
         name: a.name,
         dba: a.dba,
         industry: a.industry,
+        address1: a.addressLine1,
+        city: a.city,
         state: a.state,
+        zip: a.zip,
         primaryUwId: a.primaryUwId,
         backupUwId: a.backupUwId,
         notes: a.notes,
@@ -1191,7 +1219,10 @@ function mapAccount(row: Record<string, unknown>): Account {
     name: row.name as string,
     dba: (row.dba as string) ?? null,
     industry: row.industry as string,
+    addressLine1: (row.address1 as string | null) ?? null,
+    city: (row.city as string | null) ?? null,
     state: row.state as string,
+    zip: (row.zip as string | null) ?? null,
     primaryUwId: (row.primary_uw_id as string) ?? (row.primaryUwId as string),
     backupUwId:
       (row.backup_uw_id as string | null) ??
@@ -3139,6 +3170,68 @@ export function recordIntakeAck(intakeId: string, ackBody: string): void {
   getDb()
     .prepare(`UPDATE intake_events SET ack_sent_at = ?, ack_body = ? WHERE id = ?`)
     .run(new Date().toISOString(), ackBody, intakeId);
+}
+
+// ————————————————— Address Verification Cache —————————————————
+
+/**
+ * Cached verdict for one (normalized address, provider) pair. Repeat
+ * certificate opens read this instead of re-hitting the geocoder. The
+ * provider is part of the key so a Census verdict is never re-labeled as
+ * Google when a GOOGLE_MAPS_API_KEY appears later.
+ */
+export interface CachedAddressVerification {
+  provider: string;
+  status: string;
+  reason: string;
+  matchedAddress: string | null;
+  standardizedJson: string | null;
+  checkedAt: string;
+}
+
+export function getCachedAddressVerification(
+  addressKey: string,
+): CachedAddressVerification | null {
+  const row = getDb()
+    .prepare(`SELECT * FROM address_verifications WHERE address_key = ?`)
+    .get(addressKey) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    provider: row.provider as string,
+    status: row.status as string,
+    reason: row.reason as string,
+    matchedAddress: (row.matched_address as string | null) ?? null,
+    standardizedJson: (row.standardized_json as string | null) ?? null,
+    checkedAt: row.checked_at as string,
+  };
+}
+
+export function saveAddressVerification(
+  addressKey: string,
+  v: Omit<CachedAddressVerification, "checkedAt">,
+): void {
+  getDb()
+    .prepare(
+      `INSERT INTO address_verifications
+         (address_key, provider, status, reason, matched_address, standardized_json, checked_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(address_key) DO UPDATE SET
+         provider = excluded.provider,
+         status = excluded.status,
+         reason = excluded.reason,
+         matched_address = excluded.matched_address,
+         standardized_json = excluded.standardized_json,
+         checked_at = excluded.checked_at`,
+    )
+    .run(
+      addressKey,
+      v.provider,
+      v.status,
+      v.reason,
+      v.matchedAddress,
+      v.standardizedJson,
+      new Date().toISOString(),
+    );
 }
 
 export type {

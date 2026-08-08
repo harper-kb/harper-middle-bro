@@ -155,6 +155,21 @@ export function buildSuggestions(
     });
   }
 
+  // Insured mailing address — pulled off the account record. Only shown
+  // when the record carries a street line; a bare city/state claims nothing.
+  const a = packet.account;
+  if (a.addressLine1) {
+    out.push({
+      id: "insured.addr1",
+      group: "Insured",
+      label: "Insured Address",
+      display: [a.addressLine1, a.city, `${a.state} ${a.zip ?? ""}`.trim()]
+        .filter(Boolean)
+        .join(", "),
+      source: "account record",
+    });
+  }
+
   for (const ins of packet.insurers) {
     // Verified brands print the issuing company's legal name off the NAIC
     // registry; unverified ones print the policy-record brand, NAIC blank.

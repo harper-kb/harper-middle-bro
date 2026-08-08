@@ -155,7 +155,11 @@ export interface Account {
   name: string;
   dba: string | null;
   industry: string;
+  /** Mailing address on the account record — feeds the certificate's INSURED box. */
+  addressLine1: string | null;
+  city: string | null;
   state: string;
+  zip: string | null;
   primaryUwId: string;
   backupUwId: string | null;
   notes: string | null;

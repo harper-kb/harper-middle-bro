@@ -63,6 +63,9 @@ interface ManifestAccount {
   nameNote?: string;
   state: string;
   city?: string;
+  /** Street line from the production companies record, when captured. */
+  address1?: string;
+  zip?: string;
   industry: string;
   deals: ManifestDeal[];
   documents: ManifestDocument[];
@@ -134,8 +137,8 @@ db.prepare(
 db.prepare(`DELETE FROM accounts WHERE id LIKE 'acct-real-%'`).run();
 
 const insertAccount = db.prepare(`
-  INSERT INTO accounts (id, name, dba, industry, state, primary_uw_id, backup_uw_id, notes, status, payment_received_at)
-  VALUES (@id, @name, NULL, @industry, @state, @uw, NULL, @notes, @status, NULL)
+  INSERT INTO accounts (id, name, dba, industry, address1, city, state, zip, primary_uw_id, backup_uw_id, notes, status, payment_received_at)
+  VALUES (@id, @name, NULL, @industry, @address1, @city, @state, @zip, @uw, NULL, @notes, @status, NULL)
 `);
 const insertPolicy = db.prepare(`
   INSERT INTO policies (id, account_id, policy_number, carrier, coverages_json, effective_date, expiration_date, premium_cents)
@@ -212,11 +215,17 @@ async function run() {
     }
     if (acct.nameNote) noteParts.push(acct.nameNote);
 
+    // Address is copied exactly as the manifest carries it — street and ZIP
+    // stay NULL when production never captured them. Blank beats wrong: the
+    // certificate's INSURED box prints only what the record actually states.
     insertAccount.run({
       id: accountId,
       name: acct.name,
       industry: acct.industry,
+      address1: acct.address1 ?? null,
+      city: acct.city ?? null,
       state: acct.state,
+      zip: acct.zip ?? null,
       uw: accountUwId(acct.deals),
       notes: noteParts.join(" "),
       status: bound.length > 0 ? "active" : "pre_bind",

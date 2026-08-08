@@ -51,8 +51,10 @@ import type { Account, Policy } from "@/lib/types";
 import { CarrierLogo } from "./CarrierLogo";
 import {
   AddressStatusChip,
+  InsuredAddressChip,
   addressGateOpen,
   useAddressCheck,
+  useInsuredAddressCheck,
   type Check,
 } from "./ContactValidation";
 import type { AddressVerdict } from "@/lib/validate-contact";
@@ -2285,6 +2287,24 @@ function AcordSheet({
     year: "numeric",
   });
   const insured = packet.sections[0]?.draft.insuredName ?? packet.account.name;
+
+  // INSURED box address — defaults straight off the account record, editable
+  // like every header field. The effective (override-aware) value feeds the
+  // verifier so the chip always describes what is actually on the sheet.
+  const acct = packet.account;
+  const insuredAddr1 = effStr(ctx.overrides, "insured.addr1", acct.addressLine1 ?? "");
+  const insuredCity = effStr(ctx.overrides, "insured.city", acct.city ?? "");
+  const insuredState = effStr(ctx.overrides, "insured.state", acct.state);
+  const insuredZip = effStr(ctx.overrides, "insured.zip", acct.zip ?? "");
+  // Only a street line is verifiable; a bare city/state claims nothing.
+  const insuredOneline = insuredAddr1.trim()
+    ? [insuredAddr1, insuredCity, `${insuredState} ${insuredZip}`.trim()]
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join(", ")
+    : "";
+  const insuredCheck = useInsuredAddressCheck(insuredOneline);
+
   const letters = ["A", "B", "C", "D", "E", "F"];
 
   return (
@@ -2343,14 +2363,27 @@ function AcordSheet({
             </div>
           </div>
           <div className="border-t border-[var(--acord-line)] px-1.5 py-0.5">
-            <p className="acord-lbl">INSURED</p>
+            <div className="flex flex-wrap items-center justify-between gap-1">
+              <p className="acord-lbl">INSURED</p>
+              <span className="no-print">
+                <InsuredAddressChip
+                  check={insuredCheck}
+                  onApplyVerified={(s) => {
+                    ctx.setOverride("insured.addr1", s.line1);
+                    ctx.setOverride("insured.city", s.city);
+                    ctx.setOverride("insured.state", s.state);
+                    ctx.setOverride("insured.zip", s.zip);
+                  }}
+                />
+              </span>
+            </div>
             <In id="insured.name" def={insured} ctx={ctx} className="font-semibold" />
-            <In id="insured.addr1" def="" ctx={ctx} ph=" " />
+            <In id="insured.addr1" def={acct.addressLine1 ?? ""} ctx={ctx} ph=" " />
             <In id="insured.addr2" def="" ctx={ctx} ph=" " />
             <div className="flex gap-1">
-              <In id="insured.city" def="" ctx={ctx} className="flex-1" ph=" " />
-              <In id="insured.state" def="" ctx={ctx} className="w-8 text-center" ph=" " />
-              <In id="insured.zip" def="" ctx={ctx} className="w-14 text-center" ph=" " />
+              <In id="insured.city" def={acct.city ?? ""} ctx={ctx} className="flex-1" ph=" " />
+              <In id="insured.state" def={acct.state} ctx={ctx} className="w-8 text-center" ph=" " />
+              <In id="insured.zip" def={acct.zip ?? ""} ctx={ctx} className="w-14 text-center" ph=" " />
             </div>
           </div>
         </div>

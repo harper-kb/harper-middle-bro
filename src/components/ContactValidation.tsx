@@ -7,6 +7,7 @@ import {
   formatStandardized,
   type AddressVerdict,
   type EmailVerdict,
+  type StandardizedAddress,
 } from "@/lib/validate-contact";
 
 /**
@@ -101,6 +102,24 @@ export function useEmailCheck(raw: string): Check<EmailVerdict> {
 export function useAddressCheck(raw: string): Check<AddressVerdict> {
   return useDebouncedCheck<AddressVerdict>(
     "/api/validate/address",
+    "address",
+    raw,
+    (detail) => ({
+      status: "unavailable",
+      provider: "unreachable",
+      reason: `Validation Unavailable — ${detail}`,
+    }),
+  );
+}
+
+/**
+ * The certificate INSURED-box check — same debounce contract, but against
+ * the cached, Google-preferred endpoint (Google Address Validation when a
+ * GOOGLE_MAPS_API_KEY is configured, US Census Bureau geocoder otherwise).
+ */
+export function useInsuredAddressCheck(raw: string): Check<AddressVerdict> {
+  return useDebouncedCheck<AddressVerdict>(
+    "/api/validate/insured-address",
     "address",
     raw,
     (detail) => ({
@@ -263,6 +282,74 @@ export function AddressStatusChip({
       return (
         <span className={BAD} title={v.reason}>
           ✗ Address Not Found
+        </span>
+      );
+    case "unavailable":
+      return <RetryChip reason={v.reason} onRetry={check.retry} />;
+  }
+}
+
+/** Human name of the verifier that actually ran — never claimed, always reported. */
+function providerLabel(provider: string): string {
+  switch (provider) {
+    case "google":
+      return "Google";
+    case "census":
+      return "US Census Geocoder";
+    case "smarty":
+      return "Smarty";
+    default:
+      return provider;
+  }
+}
+
+/**
+ * INSURED-box verification chip. States plainly which verifier answered
+ * ("Verified — Google" / "Verified — US Census Geocoder") and offers the
+ * one-click "Use Verified Address" when the provider returned a corrected
+ * or standardized variant. Renders nothing while the field is empty.
+ */
+export function InsuredAddressChip({
+  check,
+  onApplyVerified,
+}: {
+  check: Check<AddressVerdict>;
+  onApplyVerified?: (standardized: StandardizedAddress) => void;
+}) {
+  if (!check.value) return null;
+  if (check.phase !== "done") {
+    return <span className={WAIT}>Verifying Address…</span>;
+  }
+  const v = check.verdict!;
+  switch (v.status) {
+    case "verified":
+      return (
+        <span className={OK} title={v.matchedAddress ?? v.reason}>
+          ✓ Verified — {providerLabel(v.provider)}
+        </span>
+      );
+    case "corrected":
+      return (
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <span className={OK} title={v.reason}>
+            ✓ Matched — {providerLabel(v.provider)}
+          </span>
+          {v.standardized && onApplyVerified && (
+            <button
+              type="button"
+              onClick={() => onApplyVerified(v.standardized!)}
+              className={FIX}
+              title={v.matchedAddress ?? formatStandardized(v.standardized)}
+            >
+              Use Verified Address
+            </button>
+          )}
+        </span>
+      );
+    case "unverifiable":
+      return (
+        <span className={BAD} title={v.reason}>
+          ✗ Unverified
         </span>
       );
     case "unavailable":

@@ -262,6 +262,40 @@ export async function validateAddress(address: string): Promise<AddressVerdict> 
   }
 }
 
+/**
+ * The certificate's INSURED-box verifier. Explicit provider preference:
+ * Google Address Validation whenever GOOGLE_MAPS_API_KEY is set, the US
+ * Census Bureau geocoder otherwise. The verdict's `provider` field records
+ * which one actually ran, and the UI labels it exactly that way — "Verified
+ * — Google" is never claimed off a Census answer.
+ */
+export function insuredAddressAdapterName(): string {
+  return process.env.GOOGLE_MAPS_API_KEY ? "google" : "census";
+}
+
+export async function validateInsuredAddress(
+  address: string,
+): Promise<AddressVerdict> {
+  const adapter = ADAPTERS[insuredAddressAdapterName()];
+  const oneline = address.replace(/\s+/g, " ").trim();
+  if (!oneline) {
+    return {
+      status: "unverifiable",
+      provider: adapter.name,
+      reason: "Empty Address",
+    };
+  }
+  try {
+    return await adapter.validate(oneline);
+  } catch (e) {
+    return {
+      status: "unavailable",
+      provider: adapter.name,
+      reason: `Validation Unavailable — ${e instanceof Error ? e.message : "network error"}`,
+    };
+  }
+}
+
 /* ————————————————————————— Email ————————————————————————— */
 
 /** DNS answers that are real negative verdicts, not outages. */

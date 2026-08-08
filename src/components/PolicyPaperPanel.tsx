@@ -125,7 +125,7 @@ export function PolicyPaperPanel({
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <div>
                   <p className="font-mono text-xs text-[var(--coral)]">
-                    {policy.policyNumber}
+                    {policy.policyNumber.trim() || "—"}
                   </p>
                   <h3 className="font-display text-lg leading-tight text-[var(--ink)]">
                     {policy.carrier}
@@ -209,16 +209,23 @@ export function PolicyPaperPanel({
                           <span className="text-[var(--muted)]">{line.label}</span>
                           <span
                             className={`shrink-0 font-mono tabular-nums ${
-                              line.value === "Excluded"
+                              line.value === "Excluded" || line.value === ""
                                 ? "text-[var(--muted)] opacity-70"
                                 : line.value === "Included"
                                   ? "italic text-[var(--ink)]"
                                   : "font-semibold text-[var(--ink)]"
                             }`}
+                            title={
+                              line.value === ""
+                                ? "The dec does not state this line — the certificate box prints blank."
+                                : undefined
+                            }
                           >
                             {line.value === "Included" || line.value === "Excluded"
                               ? line.value
-                              : `$ ${line.value}`}
+                              : line.value === ""
+                                ? "—"
+                                : `$ ${line.value}`}
                           </span>
                         </li>
                       ))}

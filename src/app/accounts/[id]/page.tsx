@@ -235,7 +235,16 @@ export default async function AccountDetailPage({
                     key={p.id}
                     className="border-b border-[var(--navy)]/5"
                   >
-                    <td className="px-4 py-3 font-medium">{p.policyNumber}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {p.policyNumber.trim() || (
+                        <span
+                          className="text-[var(--muted)]"
+                          title="No policy number on the schedule of record."
+                        >
+                          —
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       {slug ? (
                         <Link
@@ -260,6 +269,11 @@ export default async function AccountDetailPage({
                 })}
               </tbody>
             </table>
+            {account.policies.length === 0 ? (
+              <p className="px-4 py-10 text-center text-sm text-[var(--muted)]">
+                No policies on file for this account.
+              </p>
+            ) : null}
           </div>
         </section>
 

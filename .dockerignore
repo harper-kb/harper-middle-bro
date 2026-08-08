@@ -1,0 +1,22 @@
+# Built or installed inside the image
+node_modules
+.next
+*.tsbuildinfo
+
+# The desk's local record and private overlays. The hosted instance reads these
+# from its mounted volume; they must never be baked into an image.
+data
+underwriter-desk.db*
+.env*
+.clerk
+
+# Not needed at build or runtime
+.git
+.gitignore
+.cursor
+.vscode
+.shots
+docs
+*.md
+.DS_Store
+npm-debug.log*

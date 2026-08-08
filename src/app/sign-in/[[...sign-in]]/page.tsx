@@ -23,7 +23,7 @@ export default function SignInPage() {
         }}
       />
       <Link href="/" className="text-xs text-[var(--muted)] underline">
-        ← Back to Sandbox
+        ← Back To Sandbox
       </Link>
     </div>
   );

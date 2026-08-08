@@ -1,7 +1,10 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
+// Plain path test — createRouteMatcher is deprecated in this Clerk release.
+const PUBLIC_ROUTE = /^\/sign-(?:in|up)(?:\/.*)?$/;
+const isPublicRoute = (req: { nextUrl: { pathname: string } }) =>
+  PUBLIC_ROUTE.test(req.nextUrl.pathname);
 
 export default clerkMiddleware(
   async (auth, req) => {

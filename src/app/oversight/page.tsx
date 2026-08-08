@@ -252,7 +252,7 @@ export default async function OversightPage({
               <li className="px-4 py-10 text-center text-sm text-[var(--muted)]">
                 Nothing to oversee yet.{" "}
                 <Link href="/" className="underline">
-                  Send from Sandbox
+                  Send From Sandbox
                 </Link>
                 .
               </li>

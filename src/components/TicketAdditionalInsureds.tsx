@@ -21,7 +21,7 @@ export function TicketAdditionalInsureds({
           href={`/accounts/${accountId}`}
           className="text-xs underline decoration-[var(--rule)] underline-offset-4 hover:text-[var(--ink)]"
         >
-          Account file →
+          Account File →
         </Link>
       </div>
 

@@ -28,7 +28,7 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: PRODUCT_NAME,
   description:
-    "Commercial lines sandbox — portal & email routing, UW desk, auto-approve ≤ $500",
+    "Commercial lines service desk — portal and email routing, underwriter communications, automatic approval at or below $500.",
 };
 
 export default function RootLayout({

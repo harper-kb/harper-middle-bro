@@ -2,6 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { CERT_FORMS } from "./acord25";
+import { assertLearnableCorrection } from "./cert-corrections";
+import {
+  invalidatePreparedForAccount,
+  migrateCertLedger,
+} from "./cert-ledger";
 import {
   deleteCertHolder,
   deletePlacementRule,
@@ -23,6 +28,13 @@ const SECTION_KEYS = new Set(
   Object.values(CERT_FORMS).flatMap((f) => f.sections.map((s) => s.key)),
 );
 
+/** A placement change reshapes the sheet — pending prepared certs are dead. */
+function invalidatePrepared(accountId: string, reason: string) {
+  const db = getIntelligenceDb();
+  migrateCertLedger(db);
+  invalidatePreparedForAccount(db, accountId, reason);
+}
+
 /**
  * Operator corrected a policy's placement: persist the rule (policyId →
  * section) so this render and every future render of the account's
@@ -37,6 +49,10 @@ export async function correctPlacementAction(formData: FormData) {
   if (!SECTION_KEYS.has(sectionKey)) {
     throw new Error(`"${sectionKey}" is not a section on any certificate form.`);
   }
+  // Learning boundary: a placement correction is a routing-class rule —
+  // the only endorsement-adjacent thing the desk may teach — and the gate
+  // throws on anything else before a row can land.
+  assertLearnableCorrection("placement");
   const operator = await getSessionOperator();
   upsertPlacementRule(getIntelligenceDb(), {
     accountId,
@@ -45,6 +61,7 @@ export async function correctPlacementAction(formData: FormData) {
     movedFrom,
     correctedBy: operator?.displayName ?? "Desk",
   });
+  invalidatePrepared(accountId, "Placement Rule Changed");
   revalidatePath(`/accounts/${accountId}`);
 }
 
@@ -57,7 +74,10 @@ export async function removePlacementRuleAction(formData: FormData) {
   const db = getIntelligenceDb();
   // Only rules on this account can be removed through this form.
   const owned = listPlacementRules(db, accountId).some((r) => r.id === ruleId);
-  if (owned) deletePlacementRule(db, ruleId);
+  if (owned) {
+    deletePlacementRule(db, ruleId);
+    invalidatePrepared(accountId, "Placement Rule Removed");
+  }
   revalidatePath(`/accounts/${accountId}`);
 }
 
@@ -75,6 +95,10 @@ export async function addCertHolderAction(formData: FormData) {
   const ticketId = String(formData.get("ticketId") ?? "").trim() || null;
   if (!accountId) throw new Error("Missing account.");
   if (!name) throw new Error("A holder needs a name.");
+  // Learning boundary: saved holders are formatting-class (name + address
+  // carried verbatim) — the gate documents and enforces that nothing here
+  // can ever pre-fill a coverage fact.
+  assertLearnableCorrection("holder_rail");
   await getSessionOperator();
   insertCertHolder(getIntelligenceDb(), { accountId, ticketId, name, address });
   revalidatePath(`/accounts/${accountId}`);

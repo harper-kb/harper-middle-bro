@@ -2,6 +2,9 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { recordCoiDecisionAction } from "@/lib/actions";
+import type { CertCheckResult } from "@/lib/cert-checks";
+import { issueTicketCertificateAction } from "@/lib/cert-issue";
+import { CertChecksPanel } from "./CertChecksPanel";
 import {
   FLAG_LABELS,
   buildDraftFromPolicy,
@@ -73,6 +76,11 @@ export function CoiVerifier({
   const [upload, setUpload] = useState<UploadInfo | null>(null);
   const [source, setSource] = useState<"upload" | "coverage" | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // Canonical registry results from the last issuance attempt, plus any
+  // override reasons the operator has entered for the retry.
+  const [checkResults, setCheckResults] = useState<CertCheckResult[] | null>(null);
+  const [checkOverrides, setCheckOverrides] = useState<Record<string, string>>({});
+  const [issuedCertId, setIssuedCertId] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const set = useMemo(() => getPolicyFormSet(thread.policy), [thread.policy]);
@@ -159,19 +167,40 @@ export function CoiVerifier({
 
   function decide(decision: "issued" | "rejected") {
     if (!effective || !verdict) return;
-    const fd = new FormData();
-    fd.set("threadId", thread.id);
-    fd.set("decision", decision);
-    fd.set(
-      "summary",
-      [
-        `File: ${fileName}`,
-        upload ? `Received As: ${upload.original}` : "Built From: Coverage Tab",
-        "",
-        renderCoiSummary(effective, verdict),
-      ].join("\n"),
-    );
     startTransition(async () => {
+      let certLine = "";
+      if (decision === "issued") {
+        // The single send path: the canonical check registry runs server-side
+        // at this moment (red alert, in-force, endorsement backing, snapshot)
+        // and the attempt is persisted whether it passes or blocks. There is
+        // no way to record an issued certificate without a ledger row.
+        const outcome = await issueTicketCertificateAction({
+          accountId: thread.accountId,
+          policyId: thread.policyId,
+          ticketId: thread.ticketId,
+          draft: effective,
+          checkOverrides: Object.entries(checkOverrides)
+            .filter(([, reason]) => reason.trim())
+            .map(([checkId, reason]) => ({ checkId, reason: reason.trim() })),
+        });
+        setCheckResults(outcome.results);
+        if (!outcome.issued) return;
+        setIssuedCertId(outcome.certId ?? null);
+        certLine = `Ledger: ${outcome.certId} · Snapshot ${outcome.snapshotDigest?.slice(0, 12)}`;
+      }
+      const fd = new FormData();
+      fd.set("threadId", thread.id);
+      fd.set("decision", decision);
+      fd.set(
+        "summary",
+        [
+          `File: ${fileName}`,
+          upload ? `Received As: ${upload.original}` : "Built From: Coverage Tab",
+          ...(certLine ? [certLine] : []),
+          "",
+          renderCoiSummary(effective, verdict),
+        ].join("\n"),
+      );
       await recordCoiDecisionAction(fd);
       window.dispatchEvent(new Event("uw-desk-inbox-refresh"));
     });
@@ -511,6 +540,20 @@ export function CoiVerifier({
             )}
           </div>
 
+          {checkResults && (
+            <div className="px-5 pb-4">
+              <p className="eyebrow mb-2">Presend Checks — Canonical Registry</p>
+              <CertChecksPanel
+                results={checkResults}
+                overrides={checkOverrides}
+                onOverrideChange={(id, reason) =>
+                  setCheckOverrides((m) => ({ ...m, [id]: reason }))
+                }
+                disabled={pending || decided}
+              />
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-3 border-t border-[var(--rule)] px-5 py-4">
             <button
               type="button"
@@ -520,9 +563,13 @@ export function CoiVerifier({
             >
               {!operator
                 ? "Sign In To Issue"
-                : verdict.okToIssue
-                  ? "Issue Certificate"
-                  : `Blocked — ${verdict.rejects.length} To Fix`}
+                : issuedCertId
+                  ? "Issued & On The Ledger"
+                  : verdict.okToIssue
+                    ? checkResults
+                      ? "Retry Issuance"
+                      : "Issue Certificate"
+                    : `Blocked — ${verdict.rejects.length} To Fix`}
             </button>
             <button
               type="button"

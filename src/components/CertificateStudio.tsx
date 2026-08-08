@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import type { CertCheckResult } from "@/lib/cert-checks";
+import {
+  issueCertificateAction,
+  prepareCertificateAction,
+} from "@/lib/cert-issue";
+import { CertChecksPanel } from "./CertChecksPanel";
 import type {
   Acord25Sheet,
   CertFormDef,
@@ -137,6 +143,8 @@ interface RunDoneCert {
   description: string;
   requesterEmail: string | null;
   signedOn: string;
+  /** Ledger id — every run certificate went through the single send path */
+  certId: string;
 }
 
 interface RunState {
@@ -275,6 +283,26 @@ export function CertificateStudio({
     endorsementTickets.find((t) => t.id === unlockTicketId) ?? null;
   const coverageLocked = unlockTicket == null;
 
+  // ——— Issuance state: the single send path ———
+  // The sheet renders in SPECIMEN mode (diagonal watermark baked into the
+  // artifact) until the server-side issuance function has run the canonical
+  // check registry and recorded the certificate on the ledger — and only for
+  // the exact inputs that were issued. Any edit after issuance is a new,
+  // un-issued artifact and the watermark returns.
+  const [issuing, startIssuance] = useTransition();
+  const [issued, setIssued] = useState<{
+    certId: string;
+    digest: string;
+    key: string;
+    issuedAt: string;
+  } | null>(null);
+  const [checkResults, setCheckResults] = useState<CertCheckResult[] | null>(null);
+  const [checkOverrides, setCheckOverrides] = useState<Record<string, string>>({});
+  const [preparedInfo, setPreparedInfo] = useState<{
+    id: string;
+    expiresAt: string;
+  } | null>(null);
+
   const form = CERT_FORMS[formKey];
   const chosen = policies.filter((p) => selected.includes(p.id));
 
@@ -314,7 +342,27 @@ export function CertificateStudio({
     setSigned(false);
     setRun(null);
     setWizardOpen(true);
+    setIssued(null);
+    setCheckResults(null);
+    setPreparedInfo(null);
   }, [placementsSig]);
+
+  // Identity of the exact artifact on screen. The clean (non-specimen)
+  // render exists only while this key matches what the ledger issued.
+  const inputsKey = useMemo(
+    () =>
+      JSON.stringify([
+        [...selected].sort(),
+        formKey,
+        holderName.trim(),
+        holderAddress.trim(),
+        overrides,
+        placementsSig,
+      ]),
+    [selected, formKey, holderName, holderAddress, overrides, placementsSig],
+  );
+  const isIssuedRender = issued != null && issued.key === inputsKey;
+  const specimen = !isIssuedRender;
 
   const suggestions = useMemo(
     () => (packet && sheet ? buildSuggestions(sheet, packet) : []),
@@ -436,6 +484,9 @@ export function CertificateStudio({
     setSigned(false);
     setRun(null);
     setWizardOpen(true);
+    setIssued(null);
+    setCheckResults(null);
+    setPreparedInfo(null);
   }
   function toggle(id: string) {
     setSelected((prev) =>
@@ -533,26 +584,95 @@ export function CertificateStudio({
         e.address.trim() === holderAddress.trim(),
     )?.key ?? null;
 
+  // ——— The single send path, from the studio's side ———
+  // Issuance always happens server-side: the exact inputs on screen go to
+  // `issueCertificateAction`, which re-resolves against the schedule of
+  // record, freezes the fact snapshot, and runs the canonical check
+  // registry. The client only learns the outcome — there is no client-side
+  // way to mark a certificate issued.
+  function overrideRequests() {
+    return Object.entries(checkOverrides)
+      .filter(([, reason]) => reason.trim())
+      .map(([checkId, reason]) => ({ checkId, reason: reason.trim() }));
+  }
+  function issueNow(path: "studio" | "run", onIssued?: (certId: string) => void) {
+    if (!canPrint || issuing) return;
+    const key = inputsKey;
+    startIssuance(async () => {
+      const outcome = await issueCertificateAction({
+        accountId: account.id,
+        policyIds: selected,
+        formKey,
+        holderName,
+        holderAddress,
+        overrides,
+        checkOverrides: overrideRequests(),
+        path,
+      });
+      setCheckResults(outcome.results);
+      if (outcome.issued && outcome.certId) {
+        setIssued({
+          certId: outcome.certId,
+          digest: outcome.snapshotDigest ?? "",
+          key,
+          issuedAt: outcome.issuedAt ?? "",
+        });
+        onIssued?.(outcome.certId);
+      }
+    });
+  }
+  // Pre-bind accounts prepare, never issue: the snapshot freezes now under a
+  // TTL, and any upstream fact change invalidates it before send.
+  function prepareNow() {
+    if (issuing || !packet) return;
+    startIssuance(async () => {
+      const res = await prepareCertificateAction({
+        accountId: account.id,
+        policyIds: selected,
+        formKey,
+        holderName,
+        holderAddress,
+        overrides,
+      });
+      setPreparedInfo({ id: res.preparedId, expiresAt: res.expiresAt });
+    });
+  }
+  const canPrepare =
+    preBind &&
+    packet != null &&
+    allReviewed &&
+    clean &&
+    holderName.trim().length > 0 &&
+    holderAddressOk;
+
   // ——— Batch run: shared areas confirmed once, then holder by holder ———
   function startRun() {
     if (rail.length === 0 || preBind || !packet) return;
     setRun({ queue: rail, idx: 0, done: [] });
     loadHolder(rail[0]);
   }
-  // The current certificate is confirmed and signed — snapshot exactly what
-  // is on the sheet (holder + description), then swap the next holder in.
+  // The current certificate is confirmed and signed — it goes through the
+  // same issuance function as a single certificate (no batch rail around the
+  // registry), and only an issued outcome advances the run.
   function advanceRun() {
-    if (!run || !canPrint || !packet || !sheet) return;
-    const snapshot: RunDoneCert = {
-      holderName,
-      holderAddress,
-      description: effStr(overrides, "desc", certDescription(packet, sheet)),
-      requesterEmail: run.queue[run.idx]?.requesterEmail ?? null,
-      signedOn: new Date().toISOString().slice(0, 10),
-    };
-    const nextIdx = run.idx + 1;
-    setRun({ ...run, idx: nextIdx, done: [...run.done, snapshot] });
-    if (nextIdx < run.queue.length) loadHolder(run.queue[nextIdx]);
+    if (!run || !canPrint || !packet || !sheet || issuing) return;
+    const description = effStr(overrides, "desc", certDescription(packet, sheet));
+    const requesterEmail = run.queue[run.idx]?.requesterEmail ?? null;
+    const snapshotHolderName = holderName;
+    const snapshotHolderAddress = holderAddress;
+    issueNow("run", (certId) => {
+      const done: RunDoneCert = {
+        holderName: snapshotHolderName,
+        holderAddress: snapshotHolderAddress,
+        description,
+        requesterEmail,
+        signedOn: new Date().toISOString().slice(0, 10),
+        certId,
+      };
+      const nextIdx = run.idx + 1;
+      setRun({ ...run, idx: nextIdx, done: [...run.done, done] });
+      if (nextIdx < run.queue.length) loadHolder(run.queue[nextIdx]);
+    });
   }
 
   // The blanket AI basis on the chosen schedule, if any — cited in the run
@@ -660,18 +780,64 @@ export function CertificateStudio({
               done={signed}
               active={canSign && !signed}
             />
+            <StepPill
+              n={3}
+              label={isIssuedRender ? "Issued" : "Issue"}
+              done={isIssuedRender}
+              active={canPrint && !isIssuedRender}
+            />
+            {preBind ? (
+              <button
+                type="button"
+                onClick={prepareNow}
+                disabled={!canPrepare || issuing}
+                className="btn-primary disabled:opacity-45"
+                title={
+                  canPrepare
+                    ? "Freeze the fact snapshot under a TTL — issuance waits for payment"
+                    : `Blocked — ${blockedReasons.join(", ")}`
+                }
+              >
+                {issuing
+                  ? "Preparing…"
+                  : preparedInfo
+                    ? "Prepared ✓ — Re-Prepare"
+                    : "Prepare Certificate"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => issueNow("studio")}
+                disabled={!canPrint || issuing || isIssuedRender}
+                className="btn-primary disabled:opacity-45"
+                title={
+                  isIssuedRender
+                    ? "This exact certificate is on the ledger"
+                    : canPrint
+                      ? "Run the presend registry and record the certificate on the ledger"
+                      : `Blocked — ${blockedReasons.join(", ")}`
+                }
+              >
+                {issuing
+                  ? "Running Presend Checks…"
+                  : isIssuedRender
+                    ? "Issued & On The Ledger"
+                    : canPrint
+                      ? "Issue Certificate"
+                      : `Blocked — ${blockedReasons.join(" · ")}`}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => window.print()}
-              disabled={!canPrint}
-              className="btn-primary disabled:opacity-45"
+              className="btn-ghost"
               title={
-                canPrint
-                  ? "Print or save as PDF"
-                  : `Blocked — ${blockedReasons.join(", ")}`
+                specimen
+                  ? "Prints with the Specimen — Not Issued watermark; only an issued render prints clean"
+                  : "Print or save the issued certificate as PDF"
               }
             >
-              {canPrint ? "Print / Save PDF" : `Blocked — ${blockedReasons.join(" · ")}`}
+              {specimen ? "Print Specimen" : "Print / Save PDF"}
             </button>
           </div>
         )}
@@ -684,7 +850,7 @@ export function CertificateStudio({
               run={run}
               accountName={account.name}
               formNumber={form.formNumber}
-              canAdvance={canPrint}
+              canAdvance={canPrint && !issuing}
               canPrint={canPrint}
               blockedReasons={blockedReasons}
               blanketBasis={blanketBasis}
@@ -697,6 +863,37 @@ export function CertificateStudio({
               }
               onCancel={() => setRun(null)}
             />
+          )}
+
+          {(checkResults || isIssuedRender || preparedInfo) && (
+            <div className="rounded-xl border border-[var(--rule)] bg-white p-3">
+              <p className="eyebrow">Presend Checks — Canonical Registry</p>
+              {isIssuedRender && issued && (
+                <p className="mt-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-800">
+                  Issued & On The Ledger — {issued.certId} · Snapshot{" "}
+                  <span className="font-mono">{issued.digest.slice(0, 12)}</span>
+                </p>
+              )}
+              {preparedInfo && (
+                <p className="mt-1.5 rounded-lg border border-amber-600/25 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-800">
+                  Prepared — Snapshot Frozen, TTL To{" "}
+                  {preparedInfo.expiresAt.slice(0, 16).replace("T", " ")}. Any
+                  Upstream Fact Change Invalidates It.
+                </p>
+              )}
+              {checkResults && (
+                <div className="mt-2">
+                  <CertChecksPanel
+                    results={checkResults}
+                    overrides={checkOverrides}
+                    onOverrideChange={(id, reason) =>
+                      setCheckOverrides((m) => ({ ...m, [id]: reason }))
+                    }
+                    disabled={issuing}
+                  />
+                </div>
+              )}
+            </div>
           )}
 
           <NextInsuranceAdvisory carriers={chosen.map((p) => p.carrier)} />
@@ -816,6 +1013,7 @@ export function CertificateStudio({
                   sheet={sheet}
                   form={form}
                   ctx={ctx}
+                  specimen={specimen}
                   accountId={account.id}
                   ruleByPolicy={ruleByPolicy}
                   holderName={holderName}
@@ -1612,8 +1810,9 @@ function RunPanel({
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
           This holder is on the sheet. Confirm the Certificate Holder and
-          Description areas, apply the signature, print — then Add To Run
-          swaps in the next holder. Shared areas stay confirmed.
+          Description areas, apply the signature — Issue runs the presend
+          registry and records the certificate on the ledger before the next
+          holder swaps in. Shared areas stay confirmed.
         </p>
         {run.done.length > 0 && (
           <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
@@ -1636,14 +1835,14 @@ function RunPanel({
             disabled={!canAdvance}
             title={
               canAdvance
-                ? "Snapshot this certificate into the run"
+                ? "Run the presend registry, record the certificate on the ledger, then advance"
                 : `Blocked — ${blockedReasons.join(", ")}`
             }
             className="btn-primary w-full text-[11px] disabled:opacity-45"
           >
             {run.idx + 1 < total
-              ? "Add To Run — Next Holder"
-              : "Add To Run — Finish"}
+              ? "Issue & Next Holder"
+              : "Issue & Finish Run"}
           </button>
         </div>
       </div>
@@ -1683,7 +1882,7 @@ function RunPanel({
         </button>
       </div>
       <p className="mt-1 text-[13px] font-semibold text-[var(--ink)]">
-        {run.done.length} Certificate{run.done.length === 1 ? "" : "s"} Signed
+        {run.done.length} Certificate{run.done.length === 1 ? "" : "s"} Issued
         {blanketBasis ? ` — Blanket Basis ${blanketBasis}` : ""}
       </p>
       <ul className="mt-2 space-y-1.5">
@@ -1697,7 +1896,7 @@ function RunPanel({
                 {c.holderName}
               </p>
               <p className="text-[9.5px] text-[var(--muted)]">
-                Signed {mdy(c.signedOn)}
+                Issued {mdy(c.signedOn)} · <span className="font-mono">{c.certId}</span>
               </p>
             </div>
             <button
@@ -2251,6 +2450,7 @@ function AcordSheet({
   sheet,
   form,
   ctx,
+  specimen,
   accountId,
   ruleByPolicy,
   holderName,
@@ -2268,6 +2468,8 @@ function AcordSheet({
   sheet: Acord25Sheet;
   form: CertFormDef;
   ctx: SheetCtx;
+  /** Non-issued rendering — the Specimen watermark bakes into the artifact */
+  specimen: boolean;
   accountId: string;
   ruleByPolicy: Map<string, PlacementRuleView>;
   holderName: string;
@@ -2308,7 +2510,21 @@ function AcordSheet({
   const letters = ["A", "B", "C", "D", "E", "F"];
 
   return (
-    <div className="cert-sheet acord min-w-[720px] bg-white p-3 shadow-sm">
+    <div
+      className="cert-sheet acord relative min-w-[720px] bg-white p-3 shadow-sm"
+      data-render-mode={specimen ? "specimen" : "issued"}
+    >
+      {/* One renderer, two output modes: every non-issued rendering carries
+          the diagonal Specimen mark inside the sheet itself, so a screenshot,
+          a saved PDF, or a print can never pass as issued paper. Only the
+          ledger-recorded issuance renders clean. */}
+      {specimen && (
+        <div className="cert-watermark" aria-hidden="true">
+          <span>Specimen — Not Issued</span>
+          <span>Specimen — Not Issued</span>
+          <span>Specimen — Not Issued</span>
+        </div>
+      )}
       {/* Header: logo · title · date */}
       <div className="acord-box flex items-stretch">
         <div className="w-[18%] border-r border-[var(--acord-line)] px-2 py-1">

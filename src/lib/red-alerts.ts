@@ -1,6 +1,10 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
+import {
+  invalidatePreparedForAccount,
+  migrateCertLedger,
+} from "./cert-ledger";
 import { getIntelligenceDb } from "./policy-intelligence";
 
 /**
@@ -180,6 +184,12 @@ export function raiseRedAlert(input: {
       input.raisedBy,
       new Date().toISOString(),
     );
+  // A red alert is an upstream fact change: any certificate prepared before
+  // it cannot ride out the stand-down. Kill pending prepared artifacts now;
+  // the send-moment registry check blocks anything else.
+  const handle = db();
+  migrateCertLedger(handle);
+  invalidatePreparedForAccount(handle, input.accountId, "Red Alert Raised");
   const row = db()
     .prepare(`${SELECT_JOINED} WHERE r.id = ?`)
     .get(id) as Record<string, unknown>;

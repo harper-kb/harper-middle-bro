@@ -1,6 +1,10 @@
 import "server-only";
 import type Database from "better-sqlite3";
 import { CARRIER_INTEL, carrierSlug } from "./carriers";
+import {
+  invalidatePreparedForAccount,
+  migrateCertLedger,
+} from "./cert-ledger";
 import { COTERIE_FORMS } from "./carrier-forms-coterie";
 import {
   documentKindFromConvention,
@@ -1223,6 +1227,7 @@ export function attachCoterieScheduleFromLibrary(
     });
   });
   tx();
+  invalidatePreparedCertsForPolicy(db, policyId, "Schedule Of Record Replaced");
 }
 
 /**
@@ -1308,6 +1313,25 @@ export function attachIscSchedule(
     if (parsed.writer) setWriter.run(parsed.writer, policyId);
   });
   tx();
+  invalidatePreparedCertsForPolicy(db, policyId, "Schedule Of Record Replaced");
+}
+
+/**
+ * A schedule replacement is an upstream fact change: any certificate
+ * prepared before it must not send. The cert ledger owns the prepared rows;
+ * it has no import back into this module, so the static import is safe.
+ */
+function invalidatePreparedCertsForPolicy(
+  db: Database.Database,
+  policyId: string,
+  reason: string,
+) {
+  const row = db
+    .prepare(`SELECT account_id FROM policies WHERE id = ?`)
+    .get(policyId) as { account_id: string } | undefined;
+  if (!row) return;
+  migrateCertLedger(db);
+  invalidatePreparedForAccount(db, row.account_id, reason);
 }
 
 export { carrierSlug, endorsementKindLabel };

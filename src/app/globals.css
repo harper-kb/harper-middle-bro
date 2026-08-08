@@ -874,6 +874,49 @@ body:has(.red-alert-banner) .desk-sidebar {
   }
 }
 
+/* ——— Specimen watermark — one renderer, two output modes ———
+   Every non-issued rendering carries the diagonal Specimen mark baked into
+   the artifact: it lives inside .cert-sheet, so a screenshot, a saved PDF,
+   or a print all carry it. Only the issuance path renders clean. */
+
+.cert-watermark {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-around;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.cert-watermark span {
+  transform: rotate(-27deg);
+  white-space: nowrap;
+  font-family: var(--font-display, Georgia), serif;
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(190, 24, 60, 0.17);
+  text-align: center;
+  line-height: 1.1;
+}
+
+@media print {
+  /* The mark prints with the sheet — specimen paper stays specimen paper. */
+  .cert-watermark {
+    display: flex !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .cert-watermark span {
+    color: rgba(190, 24, 60, 0.22) !important;
+  }
+}
+
 /* ——— Trace zoom hierarchy (overview → ticket → decision → step) ——— */
 
 .trace-zoom {

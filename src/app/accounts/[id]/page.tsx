@@ -13,7 +13,9 @@ import {
   listTickets,
 } from "@/lib/db";
 import { CertificateStudio } from "@/components/CertificateStudio";
+import { CertificateLedgerPanel } from "@/components/CertificateLedgerPanel";
 import { CertVerifyPanel } from "@/components/CertVerifyPanel";
+import { getAccountCertLedger } from "@/lib/cert-ledger-reads";
 import { CoverageFloat } from "@/components/CoverageFloat";
 import { RedAlertPanel } from "@/components/RedAlertPanel";
 import { buildCoverageSummary } from "@/lib/coverage-summary";
@@ -122,6 +124,9 @@ export default async function AccountDetailPage({
 
   // Red alerts — active stand-down first, resolved history behind it.
   const redAlerts = listRedAlertsForAccount(account.id);
+
+  // Certificate ledger — issued paper, supersede chain, blocked attempts.
+  const certLedger = getAccountCertLedger(account.id);
 
   return (
     <>
@@ -306,6 +311,15 @@ export default async function AccountDetailPage({
             savedHolders={savedHolders}
             endorsementTickets={endorsementTickets}
           />
+          <div className="mt-4">
+            <CertificateLedgerPanel
+              accountId={account.id}
+              certs={certLedger.certs}
+              attempts={certLedger.attempts}
+              notices={certLedger.notices}
+              prepared={certLedger.prepared}
+            />
+          </div>
           <div className="mt-4">
             <CertVerifyPanel
               account={account}

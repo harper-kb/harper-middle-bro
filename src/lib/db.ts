@@ -834,12 +834,22 @@ function backfillThreadTickets(db: Database.Database) {
   );
   const stamp = db.prepare(`UPDATE threads SET ticket_id = ? WHERE id = ?`);
 
+  const existing = db.prepare(`SELECT 1 FROM tickets WHERE id = ?`);
+
   const tx = db.transaction(() => {
     for (const { id } of orphans) {
       const thread = getThreadDetail(id);
       if (!thread) continue;
       const request = summarizeRequest(thread);
       const ticketId = `tkt-${thread.id.slice(0, 8)}`;
+
+      // A redeployed volume can already hold this ticket while the thread
+      // lost its stamp (or predates stamping). Re-adopt the ticket instead
+      // of re-inserting — a duplicate insert aborts the whole boot chain.
+      if (existing.get(ticketId)) {
+        stamp.run(ticketId, thread.id);
+        continue;
+      }
 
       insert.run({
         id: ticketId,

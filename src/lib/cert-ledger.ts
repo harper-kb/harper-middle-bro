@@ -367,12 +367,14 @@ export function issueCert(
     // One active certificate per (holder, requirement): the newest issuance
     // supersedes anything active, and the chain links to the most recent
     // prior certificate for the requirement even when it was revoked — the
-    // corrected certificate must point at the paper it replaces.
+    // corrected certificate must point at the paper it replaces. Same-instant
+    // ties break on rowid (monotonic insertion order), never on the random
+    // UUID id, so lineage is deterministic.
     const prior = db
       .prepare(
         `SELECT id, status FROM cert_issued
          WHERE account_id = ? AND requirement_key = ?
-         ORDER BY issued_at DESC, id DESC LIMIT 1`,
+         ORDER BY issued_at DESC, rowid DESC LIMIT 1`,
       )
       .get(input.accountId, input.requirementKey) as
       | { id: string; status: IssuedCertStatus }

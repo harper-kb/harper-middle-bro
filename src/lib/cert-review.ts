@@ -5,8 +5,15 @@ import {
   type ResolvedSection,
   type SectionDef,
 } from "./acord25";
+import { evaluateKnowledgeForCertSection } from "./carrier-knowledge";
 import type { CertificatePacket, CertSection } from "./certificate";
-import { verifyCoi, type CoiDraft, type CoiFinding, type CoiFlags } from "./coi";
+import {
+  FLAG_LABELS,
+  verifyCoi,
+  type CoiDraft,
+  type CoiFinding,
+  type CoiFlags,
+} from "./coi";
 import { limitMode, type LimitSlot, type PolicyFormSet } from "./forms";
 import { NAIC_SOURCE } from "./naic";
 import type { Account } from "./types";
@@ -567,6 +574,25 @@ export function verifyEditedSheet(input: {
       carrier: si.feeder.policy.carrier,
     };
 
+    // A referenced policy with no number on the schedule of record renders
+    // an honest blank — permitted (underreporting), but the operator must
+    // see it before the sheet reads all-green.
+    if (!si.ref.policyNumber.trim()) {
+      push(
+        ctx,
+        {
+          id: `policy-number-missing-${si.sec}`,
+          severity: "warn",
+          field: "policy",
+          title: "Policy Number Missing From Schedule Of Record",
+          detail:
+            "A certificate holder cannot act on paper citing no policy number.",
+          fix: "Record the policy number on the schedule of record, or issue knowingly blank.",
+        },
+        `${si.sec}.policyNumber`,
+      );
+    }
+
     // Dates: blank or unreadable can't be compared to the policy term.
     const parseDate = (fieldId: string, raw: string, kind: "eff" | "exp") => {
       const fallbackIso =
@@ -639,6 +665,35 @@ export function verifyEditedSheet(input: {
       // Description wording is checked once, against every selected schedule.
       if (f.field === "description") continue;
       push(ctx, f, fieldIdForFinding(f, si.sec, si.rs, si.ref.insurerLetter));
+    }
+
+    // Carrier knowledge gate — the same registry merge certificate.ts applies
+    // to the packet: a provision an enforceable knowledge entry forbids on a
+    // matching policy rejects here, so the review rail shows the wall the
+    // one-door issuance check enforces.
+    for (const hit of evaluateKnowledgeForCertSection({
+      policy: si.feeder.policy,
+      flags: draft.flags,
+      account: { state: account.state, industry: account.industry },
+    })) {
+      const finding: CoiFinding = {
+        id: `carrier-knowledge-${hit.entry.id}`,
+        severity: "reject",
+        field: "flags",
+        title: `Forbidden By Carrier Knowledge — ${hit.entry.title}`,
+        detail: `${FLAG_LABELS[hit.flag]} cannot attach to ${si.feeder.policy.carrier} ${si.feeder.policy.policyNumber}. ${hit.entry.detail} [Carrier Knowledge: ${hit.entry.id}]`,
+        fix: `Remove the ${FLAG_LABELS[hit.flag]} provision from this line. ${hit.entry.consequence}`,
+      };
+      push(
+        ctx,
+        finding,
+        fieldIdForFinding(
+          { ...finding, id: `flag-${hit.flag}` },
+          si.sec,
+          si.rs,
+          si.ref.insurerLetter,
+        ),
+      );
     }
   };
 

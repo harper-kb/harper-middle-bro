@@ -19,7 +19,80 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
 Claim the keyless Clerk app later with `npx clerk auth login` (or the in-app “Configure your application” prompt) so it appears in your Clerk Dashboard.
 
-SQLite DB is created at `data/underwriter-desk.db` on first load (gitignored) and seeded automatically.
+SQLite DB is created at `data/underwriter-desk.db` on first load (gitignored) and seeded automatically. Set `DESK_DATA_DIR` to keep it somewhere else — that is how the hosted instance points at its volume.
+
+## Shared deployment (the portal)
+
+The desk can run as one hosted instance so invited teammates sign in at a URL instead of running it locally. Everything it persists — the SQLite database, filed document bytes, and the private contact overlays — lives under a single directory, so hosting is one container plus one mounted volume.
+
+`DESK_DATA_DIR` points at that volume (`/data` in the image). Unset, it falls back to `./data`, so local development is untouched.
+
+**One instance, always.** The record is SQLite on the volume, and a volume attaches to exactly one machine. Scaling up means a second volume, which means a second empty desk serving half your traffic — so never scale this app past one machine. Deploys therefore stop the machine and start the replacement: a few seconds of downtime, and the data survives. Booting on an existing volume is idempotent — the seed pass adopts what is already there instead of re-inserting it.
+
+### Deploy on Fly.io
+
+```bash
+fly launch --no-deploy --copy-config --name harper-middle-bro
+fly volumes create desk_data --region sjc --size 1
+fly secrets set NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_... CLERK_SECRET_KEY=sk_test_...
+fly deploy
+```
+
+`fly.toml` mounts the volume at `/data`, keeps exactly one always-warm machine, retains volume snapshots for 14 days, and health-checks `/api/health`.
+
+### Deploy on Render
+
+**Merge to the default branch first.** A Blueprint service with no `branch` field tracks the repo's *default* branch, not the branch you happened to pick in the dashboard. Until `render.yaml` and the `Dockerfile` are on `main`, Render builds a commit that has neither.
+
+Then: Render Dashboard → **New** → **Blueprint** → pick this repo → fill in the two Clerk keys when prompted. `render.yaml` describes the same image with a 1 GB disk at `/data` on the `starter` plan, and validates against Render's published Blueprint schema.
+
+Worth knowing before you click:
+
+- **A disk requires a paid instance type**, and it pins the service to one instance — which is what this app needs anyway.
+- **A disk also disables zero-downtime deploys.** Render stops the old instance before starting the new one, so every deploy is a few seconds of downtime. That is the safeguard that stops two versions writing to one SQLite file, so it is a feature here.
+- **`starter` is 512 MB of RAM, and that is enough.** Measured: the server peaks around 135 MB serving traffic, and the heaviest computation in the app — building every certificate across all 19 sheets — peaks near 100 MB. Moving to `standard` buys headroom, not correctness.
+- **Render snapshots the disk daily** and keeps snapshots for at least seven days, restorable from the service's Disks page. (Fly's config retains 14 days.)
+- **The Clerk keys are prompted for only on first creation.** Updating an existing Blueprint ignores `sync: false` variables, so later key rotation is a manual edit in the dashboard.
+- **Render turns environment variables into Docker build arguments.** That would be a way to bake `CLERK_SECRET_KEY` into an image, so this `Dockerfile` deliberately declares no `ARG` and reads both keys at runtime only.
+- Auto-deploy defaults to on, so pushes to the tracked branch redeploy — and briefly interrupt the desk. Set `autoDeployTrigger: off` in `render.yaml` if you would rather deploy by hand.
+
+### Auth: only invited people get in
+
+The hosted instance uses the same standalone Clerk app, with sign-up locked down. One command does the restriction, the allowlist, and the invitation emails, then reads Clerk back to prove it took:
+
+```bash
+export CLERK_SECRET_KEY=sk_test_...          # Clerk Dashboard → API keys
+npx tsx scripts/clerk-lockdown.ts \
+  --allow @harperinsure.com \
+  --invite first@harperinsure.com --invite second@harperinsure.com
+# prints a plan and changes nothing; add --apply to execute
+```
+
+It restricts sign-up to the allowlist, adds each identifier, and sends one invitation per address. Re-running is safe — entries that already exist are reported, not duplicated. Any step that fails is reported per line and the command exits non-zero, so a half-applied gate cannot look like a clean one.
+
+Without `--apply` it only prints the plan, and without a key it prints the plan offline — so you can check the address list before a credential exists anywhere.
+
+The Dashboard equivalent, if you would rather click: **Restrictions** → sign-up mode **Restricted**, enable **Allowlist** and add `@harperinsure.com`, then **Users** → **Invite** per teammate. Note that the Dashboard's Restricted toggle has no Backend API field, so the script uses the allowlist restriction instead — the same outcome by a different lever. Enabling an allowlist with no entries blocks every sign-up, so add entries in the same pass.
+
+Both keys are read at runtime, so rotating the Clerk app is a secret change plus a restart — not a rebuild. Development keys (`pk_test`/`sk_test`) work on a `.fly.dev` or `.onrender.com` host and are capped at 100 users, which is what makes this possible without owning a domain. Production keys (`pk_live`) require a domain you control, so those come with a custom domain later.
+
+### The private contact overlay
+
+`data/verified-contacts.local.json` is gitignored and never enters the image. Without it the Contacts page is empty, which is correct. To load it on the hosted instance, copy it onto the volume rather than into the repo:
+
+```bash
+fly ssh sftp shell -a harper-middle-bro
+# at the sftp prompt:
+#   cd /data
+#   put /absolute/path/to/verified-contacts.local.json verified-contacts.local.json
+fly apps restart -a harper-middle-bro
+```
+
+The SFTP session connects as root, so the uploaded file lands root-owned; the restart is what makes it readable, because the entrypoint takes ownership of the data directory before dropping privileges.
+
+### Health
+
+`GET /api/health` is public and returns 200 only when the data volume is mounted and writable; it returns 503 otherwise, so a machine with a broken volume is pulled from rotation instead of serving a desk that cannot save anything.
 
 ## Fresh clone notes (collaborators)
 
@@ -88,4 +161,4 @@ Fictional accounts mapped to Harper commercial-lines carriers and coverages (GL,
 
 ## Stack
 
-Next.js (App Router) · TypeScript · Tailwind · better-sqlite3 · Clerk (standalone dev app) · local only
+Next.js (App Router) · TypeScript · Tailwind · better-sqlite3 · Clerk (standalone dev app) · runs locally or as one container on one volume

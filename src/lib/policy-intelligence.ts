@@ -26,8 +26,9 @@ import type { IscParseResult } from "./isc-intake";
 import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs";
+import { dataPath } from "./data-dir";
 
-const FILES_DIR = path.join(process.cwd(), "data", "files");
+const FILES_DIR = dataPath("files");
 
 export interface CarrierRecord {
   id: string;

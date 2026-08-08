@@ -1,6 +1,6 @@
 import "server-only";
 import fs from "fs";
-import path from "path";
+import { dataPath } from "./data-dir";
 import committed from "./carrier-inboxes.data.json";
 import type { CarrierServiceInbox } from "./carrier-inboxes";
 
@@ -14,11 +14,7 @@ import type { CarrierServiceInbox } from "./carrier-inboxes";
  * inboxes; the desk never pads the list.
  */
 
-const LOCAL_PATH = path.join(
-  process.cwd(),
-  "data",
-  "carrier-inboxes.local.json",
-);
+const LOCAL_PATH = dataPath("carrier-inboxes.local.json");
 
 let cache: CarrierServiceInbox[] | null = null;
 

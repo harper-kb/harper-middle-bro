@@ -1,6 +1,5 @@
 import Database from "better-sqlite3";
 import fs from "fs";
-import path from "path";
 import { randomUUID } from "crypto";
 import { SEED_ACCOUNTS, SEED_POLICIES, SEED_UNDERWRITERS } from "./seed";
 import { SEED_ACCOUNT_GRANTS, SEED_OPERATORS } from "./operators-seed";
@@ -18,6 +17,7 @@ import {
   canAutoApprove,
 } from "./agent";
 import { channelLabel, resolveChannel } from "./channels";
+import { DATA_DIR, dataPath } from "./data-dir";
 import { endOfLocalDayIso, startOfLocalDayIso } from "./dates";
 import {
   renderEmailBody,
@@ -77,8 +77,7 @@ import { iscParseAttachable, parseIscDec } from "./isc-intake";
 import type { DeskDocument } from "./documents";
 import type { QuoteSample } from "./price-guidance";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "underwriter-desk.db");
+const DB_PATH = dataPath("underwriter-desk.db");
 
 let dbInstance: Database.Database | null = null;
 

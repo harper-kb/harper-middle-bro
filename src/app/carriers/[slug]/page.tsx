@@ -14,6 +14,7 @@ import {
   placementPathLabel,
 } from "@/lib/market-path";
 import { getSessionOperator } from "@/lib/session";
+import { serviceInboxesForCarrier } from "@/lib/carrier-inboxes.server";
 import { isUselessMailbox } from "@/lib/verified-contacts";
 import { verifiedContactsForCarrier } from "@/lib/verified-contacts.server";
 
@@ -41,6 +42,7 @@ export default async function CarrierDeskPage({
   const endtForms = forms.filter((f) => f.kind !== "coverage");
   const path = placementPathFor(carrier.kind as CarrierIntel["kind"]);
   const verified = verifiedContactsForCarrier(carrier.name);
+  const serviceInboxes = serviceInboxesForCarrier(carrier.name);
   const serviceEmail =
     carrier.serviceEmail && !isUselessMailbox(carrier.serviceEmail)
       ? carrier.serviceEmail
@@ -165,6 +167,42 @@ export default async function CarrierDeskPage({
                   View All On Contacts
                 </Link>
               )}
+            </section>
+          )}
+
+          {serviceInboxes.length > 0 && (
+            <section className="mt-12 border-t border-[var(--rule)] pt-8">
+              <p className="eyebrow">Service Inboxes</p>
+              <h2 className="mt-1 font-display text-2xl text-[var(--ink)]">
+                {serviceInboxes.length} Functional Mailbox
+                {serviceInboxes.length === 1 ? "" : "es"}
+              </h2>
+              <p className="mt-2 max-w-2xl text-xs text-[var(--muted)]">
+                Carrier desks rather than named underwriters — support,
+                payments, submissions, and similar functional mailboxes.
+              </p>
+              <ul className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+                {serviceInboxes.map((inbox) => (
+                  <li
+                    key={`${inbox.sourceId}-${inbox.email}`}
+                    className="flex flex-wrap items-baseline justify-between gap-2 py-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-[var(--ink)]">
+                        {inbox.purpose}
+                      </p>
+                      {inbox.notes && (
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">
+                          {inbox.notes}
+                        </p>
+                      )}
+                    </div>
+                    <span className="break-all font-mono text-xs text-[var(--muted)]">
+                      {inbox.email}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </section>
           )}
 

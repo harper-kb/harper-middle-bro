@@ -9,6 +9,7 @@ import {
   placementPathLabel,
 } from "@/lib/market-path";
 import { getSessionOperator } from "@/lib/session";
+import { listCarrierServiceInboxes } from "@/lib/carrier-inboxes.server";
 import { VERIFIED_CONTACTS_SOURCE } from "@/lib/verified-contacts";
 import { listVerifiedContacts } from "@/lib/verified-contacts.server";
 
@@ -26,6 +27,22 @@ export default async function ContactsPage({
     typeof sp.path === "string" ? sp.path : "all";
   const operator = await getSessionOperator();
   const verifiedContacts = listVerifiedContacts();
+  const serviceInboxes = listCarrierServiceInboxes().filter((c) => {
+    if (!q) return true;
+    return (
+      c.email.toLowerCase().includes(q) ||
+      c.carrier.toLowerCase().includes(q) ||
+      c.purpose.toLowerCase().includes(q) ||
+      (c.notes?.toLowerCase().includes(q) ?? false)
+    );
+  });
+
+  const inboxesByCarrier = new Map<string, typeof serviceInboxes>();
+  for (const c of serviceInboxes) {
+    const list = inboxesByCarrier.get(c.carrier) ?? [];
+    list.push(c);
+    inboxesByCarrier.set(c.carrier, list);
+  }
 
   const underwriters = verifiedContacts.filter((c) => {
     if (pathFilter !== "all") {
@@ -176,6 +193,52 @@ export default async function ContactsPage({
                 <span className="text-[var(--gold)]">
                   NEXT / Hiscox / Thimble · no named underwriter verified
                 </span>
+              </div>
+            </DeskSection>
+          </div>
+        )}
+
+        {tab !== "carriers" && serviceInboxes.length > 0 && (
+          <div className="mb-6">
+            <DeskSection
+              title="Carrier Service Inboxes"
+              summary={`${serviceInboxes.length} Inboxes · ${inboxesByCarrier.size} Carriers`}
+            >
+              <p className="mb-4 text-xs leading-relaxed text-[var(--muted)]">
+                Functional carrier mailboxes — support, payments, submissions,
+                and other desks. Kept separate from named underwriters.
+              </p>
+              <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+                {[...inboxesByCarrier.entries()]
+                  .sort((a, b) => a[0].localeCompare(b[0]))
+                  .map(([carrierName, inboxes]) => (
+                    <div key={carrierName}>
+                      <p className="text-sm font-semibold text-[var(--ink)]">
+                        {carrierName}
+                      </p>
+                      <ul className="mt-1.5 space-y-1.5">
+                        {inboxes.map((inbox) => (
+                          <li
+                            key={`${inbox.sourceId}-${inbox.email}`}
+                            className="text-xs"
+                          >
+                            <span className="text-[var(--muted)]">
+                              {inbox.purpose} ·{" "}
+                            </span>
+                            <span className="break-all font-mono text-[var(--ink)]">
+                              {inbox.email}
+                            </span>
+                            {inbox.notes && (
+                              <span className="text-[var(--muted)]">
+                                {" "}
+                                — {inbox.notes}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
               </div>
             </DeskSection>
           </div>

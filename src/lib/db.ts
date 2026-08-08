@@ -3048,7 +3048,8 @@ export function escalateTicket(input: {
   dueBy?: string | null;
 }): TicketDetail {
   const now = new Date();
-  const dueBy = input.dueBy ?? endOfLocalDayIso(now.toISOString());
+  // Default promise: the manager gets to it by end of the flagging day.
+  const dueBy = input.dueBy ?? endOfLocalDayIso();
   getDb()
     .prepare(
       `UPDATE tickets SET

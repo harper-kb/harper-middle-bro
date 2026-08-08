@@ -15,14 +15,18 @@ export function isCreatedToday(iso: string): boolean {
   return isoToLocalDateKey(iso) === localDateKey();
 }
 
+/** Accepts "YYYY-MM-DD" or a full ISO timestamp — only the date part counts. */
+function toDateKey(input?: string): string {
+  if (!input) return localDateKey();
+  return input.includes("T") ? isoToLocalDateKey(input) : input;
+}
+
 export function startOfLocalDayIso(dateKey?: string): string {
-  const key = dateKey ?? localDateKey();
-  const [y, m, d] = key.split("-").map(Number);
+  const [y, m, d] = toDateKey(dateKey).split("-").map(Number);
   return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
 }
 
 export function endOfLocalDayIso(dateKey?: string): string {
-  const key = dateKey ?? localDateKey();
-  const [y, m, d] = key.split("-").map(Number);
+  const [y, m, d] = toDateKey(dateKey).split("-").map(Number);
   return new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
 }

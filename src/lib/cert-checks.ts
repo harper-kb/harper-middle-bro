@@ -1,3 +1,4 @@
+import { evaluateKnowledgeForCertSection } from "./carrier-knowledge";
 import type { CoiFlags } from "./coi";
 import type { PolicyFormSet } from "./forms";
 import { findEndorsement } from "./forms";
@@ -280,6 +281,35 @@ export const CERT_CHECK_REGISTRY: CertCheckDef[] = [
               ctx.endorsementClaims.length === 0
                 ? "No endorsement boxes claimed."
                 : "Every claimed endorsement is backed by a fully identified, in-standing form.",
+          }
+        : { ok: false, detail: problems.join(" ") };
+    },
+  },
+  {
+    id: "carrier-knowledge-restrictions",
+    name: "Carrier Knowledge Restrictions",
+    description:
+      "Enforceable carrier-knowledge registry entries gate every claimed provision: a status a carrier will never grant (e.g. Additional Insured on an ISC excess line) cannot attach to the certificate. A failure cites the knowledge entry id and title and cannot be overridden — the restriction is the carrier's, not the desk's.",
+    severity: "blocking",
+    overridable: false,
+    evaluate: (ctx) => {
+      const problems: string[] = [];
+      for (const claim of ctx.endorsementClaims) {
+        for (const hit of evaluateKnowledgeForCertSection({
+          policy: claim.policy,
+          flags: { [claim.flag]: true },
+          account: { state: ctx.account.state, industry: ctx.account.industry },
+        })) {
+          problems.push(
+            `${claim.policy.policyNumber}: ${hit.entry.title} — ${hit.entry.detail} [Carrier Knowledge: ${hit.entry.id}]`,
+          );
+        }
+      }
+      return problems.length === 0
+        ? {
+            ok: true,
+            detail:
+              "No claimed provision is forbidden by the carrier knowledge registry.",
           }
         : { ok: false, detail: problems.join(" ") };
     },

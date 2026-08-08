@@ -12,11 +12,16 @@
  *      isc-co-contractors-lease-no-10-day-noc.
  *   3. A 30-day Notice of Cancellation on ISC routes normally — no
  *      knowledge block.
+ *   4. The canonical issuance gate consumes the registry: an Additional
+ *      Insured claim against an ISC excess line attempted through
+ *      performCertIssuance blocks on carrier-knowledge-restrictions,
+ *      non-overridable, citing the entry id (in-memory ledger).
  *
  * Plus registry hygiene: required fields, unique ids, and the rule that only
  * committed entries can be enforceable. Exit 1 on any FAIL.
  */
 
+import Database from "better-sqlite3";
 import {
   CARRIER_KNOWLEDGE,
   evaluateKnowledgeForCertSection,
@@ -25,6 +30,9 @@ import {
   knowledgeForCarrier,
 } from "../src/lib/carrier-knowledge";
 import { buildCertificatePacket } from "../src/lib/certificate";
+import { migrateCertLedger } from "../src/lib/cert-ledger";
+import { performCertIssuance } from "../src/lib/cert-issuance-core";
+import { buildDraftFromPolicy } from "../src/lib/coi";
 import { evaluateBlanketFastPath } from "../src/lib/fast-path";
 import { verifyBeforeSend } from "../src/lib/verify";
 import type { PolicyFormSet } from "../src/lib/forms";
@@ -371,6 +379,106 @@ console.log("\nControl — 30-Day NOC On ISC Routes Normally");
     aiOnGl.okToSend &&
       aiOnGl.issues.every((i) => i.id !== "isc-excess-no-additional-insured"),
     JSON.stringify(aiOnGl.issues.map((i) => `${i.id}:${i.severity}`)),
+  );
+}
+
+// ——— 5. Issuance gate — the canonical check registry runs carrier knowledge ———
+console.log("\nIssuance Gate — Canonical Registry Consumes Carrier Knowledge");
+{
+  const ledger = new Database(":memory:");
+  migrateCertLedger(ledger);
+
+  // The past mistake, attempted through the one door: an Additional Insured
+  // claim against the ISC excess line, with the blanket AI form on the
+  // schedule so no other check masks the block.
+  const draft = buildDraftFromPolicy({
+    account,
+    policy: excessPolicy,
+    holderName: "Palm Court HOA",
+    holderAddress: "1 Palm Court, Austin, TX",
+    set: excessSetWithAi,
+  });
+  draft.flags.additionalInsured = true;
+
+  const blocked = performCertIssuance({
+    db: ledger,
+    operator: "Harness Operator",
+    path: "ticket",
+    account,
+    policies: [excessPolicy],
+    formSets: { [excessPolicy.id]: excessSetWithAi },
+    holderName: draft.holderName,
+    holderAddress: draft.holderAddress,
+    artifact: { kind: "draft", draft },
+    redAlertActive: false,
+    holderAiRecords: [],
+    scheduleSources: [],
+    // An override request on the knowledge check must change nothing.
+    checkOverrides: [
+      { checkId: "carrier-knowledge-restrictions", reason: "client insists" },
+    ],
+  });
+  const kc = blocked.results.find((r) => r.id === "carrier-knowledge-restrictions");
+  check(
+    "performCertIssuance blocks, attempt row names carrier-knowledge-restrictions",
+    !blocked.issued &&
+      blocked.attempt.blockedCheckIds.includes("carrier-knowledge-restrictions"),
+    JSON.stringify(blocked.attempt.blockedCheckIds),
+  );
+  check(
+    "The failed check cites the knowledge entry id and is non-overridable despite the override request",
+    kc?.status === "fail" &&
+      kc.overridable === false &&
+      kc.detail.includes("isc-excess-no-additional-insured"),
+    JSON.stringify(kc),
+  );
+
+  // Control: the same claim on ISC General Liability passes the knowledge
+  // check — the registry blocks the carrier's restriction, nothing wider.
+  const glSet: PolicyFormSet = {
+    coverages: [
+      { code: "GL", label: "General Liability", form: "CG 00 01", edition: "04 13" },
+    ],
+    limits: [{ slot: "gl_each_occurrence", amountCents: 1_000_000_00 }],
+    endorsements: [
+      {
+        form: "CG 20 10",
+        edition: "04 13",
+        title: "Additional Insured — Blanket",
+        kind: "ai",
+        scope: "blanket",
+      },
+    ],
+  };
+  const glDraft = buildDraftFromPolicy({
+    account,
+    policy: glPolicy,
+    holderName: "Palm Court HOA",
+    holderAddress: "1 Palm Court, Austin, TX",
+    set: glSet,
+  });
+  glDraft.flags.additionalInsured = true;
+  const control = performCertIssuance({
+    db: ledger,
+    operator: "Harness Operator",
+    path: "ticket",
+    account,
+    policies: [glPolicy],
+    formSets: { [glPolicy.id]: glSet },
+    holderName: glDraft.holderName,
+    holderAddress: glDraft.holderAddress,
+    artifact: { kind: "draft", draft: glDraft },
+    redAlertActive: false,
+    holderAiRecords: [],
+    scheduleSources: [],
+  });
+  check(
+    "Same claim on ISC General Liability passes the knowledge check",
+    control.results.find((r) => r.id === "carrier-knowledge-restrictions")
+      ?.status === "pass",
+    JSON.stringify(
+      control.results.filter((r) => r.status === "fail").map((r) => r.id),
+    ),
   );
 }
 

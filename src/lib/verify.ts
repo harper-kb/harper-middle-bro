@@ -1,3 +1,4 @@
+import { evaluateKnowledgeForRequest } from "./carrier-knowledge";
 import type { Account, Policy, RequestTypeId, Underwriter } from "./types";
 
 export type VerifySeverity = "ok" | "warn" | "block";
@@ -86,8 +87,29 @@ export function verifyBeforeSend(input: {
   policy: Policy;
   requestType: RequestTypeId;
   carrierDesks: Underwriter[];
+  /** Request wording — carrier-knowledge matchers read it (e.g. a 10-day notice ask) */
+  wording?: string;
 }): VerifyResult {
   const issues: VerifyIssue[] = [];
+
+  // Carrier knowledge gate: enforceable registry entries (ISC excess takes
+  // no Additional Insured; ISC Colorado contractors/lease has no 10-day
+  // notice for non-payment) block or warn before anything reaches the
+  // market. The issue id is the registry entry id — the block cites its
+  // knowledge entry as the reason.
+  for (const hit of evaluateKnowledgeForRequest({
+    requestType: input.requestType,
+    wording: input.wording ?? "",
+    policy: input.policy,
+    account: { state: input.account.state, industry: input.account.industry },
+  })) {
+    issues.push({
+      id: hit.entry.id,
+      severity: hit.entry.severity === "blocker" ? "block" : "warn",
+      title: hit.entry.title,
+      detail: `${hit.entry.detail} ${hit.entry.consequence} [Carrier Knowledge: ${hit.entry.id}]`,
+    });
+  }
   const { uw, source } = matchUnderwriterToPolicy(
     input.account,
     input.policy,

@@ -16,6 +16,7 @@ import {
   listUnderwriters,
   markAccountPaymentReceived,
   recordClientTerms,
+  recordCarrierKnowledgeBlock,
   recordCoiDecision,
   recordPaymentCleared,
   recordSendOutcome,
@@ -31,6 +32,7 @@ import {
   getRequestType,
   primaryRequestType,
 } from "./catalog";
+import { evaluateKnowledgeForRequest } from "./carrier-knowledge";
 import { buildTicketDraft } from "./draft";
 import { evaluateBlanketFastPath } from "./fast-path";
 import { getPolicyFormSet } from "./forms";
@@ -123,6 +125,47 @@ export async function createTicketAction(formData: FormData) {
   // The ticket still files — work is tracked, nothing pushes.
   const redAlert = getActiveRedAlertForAccount(accountId);
 
+  // Carrier knowledge gate: enforceable registry blockers (e.g. ISC excess
+  // lines take no Additional Insured; ISC Colorado contractors/lease has no
+  // 10-day notice for non-payment) are evaluated at intake and recorded as a
+  // decision trace — the block cites the knowledge entry (id + title) and
+  // the send path enforces it server-side.
+  const knowledgeBlockers = ticket.policies.flatMap((p) =>
+    evaluateKnowledgeForRequest({
+      requestType,
+      wording,
+      policy: p,
+      account: {
+        state: ticket.account.state,
+        industry: ticket.account.industry,
+      },
+    }).filter((h) => h.entry.severity === "blocker"),
+  );
+  if (knowledgeBlockers.length > 0) {
+    const policy = ticket.policies[0];
+    recordCarrierKnowledgeBlock({
+      ticketId: ticket.id,
+      requestLabel: getRequestType(requestType).label,
+      policy: {
+        policyNumber: policy.policyNumber,
+        carrier: policy.carrier,
+        coverages: policy.coverages,
+      },
+      account: {
+        name: ticket.account.name,
+        state: ticket.account.state,
+        industry: ticket.account.industry,
+      },
+      hits: knowledgeBlockers.map((h) => ({
+        id: h.entry.id,
+        title: h.entry.title,
+        detail: h.entry.detail,
+        consequence: h.entry.consequence,
+        severity: h.entry.severity,
+      })),
+    });
+  }
+
   // Blanket fast path first: if the paper already grants this and the holder
   // accepts wording, there is no market ask — the cert goes straight to
   // Ready To Issue with the form cited. A holder who must be named on the
@@ -137,6 +180,10 @@ export async function createTicketAction(formData: FormData) {
           policy: p,
           formSet: getPolicyFormSet(p),
         })),
+        account: {
+          state: ticket.account.state,
+          industry: ticket.account.industry,
+        },
       });
   if (fast.eligible) {
     applyBlanketFastPath(ticket.id, {

@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CarrierIntelligence } from "@/components/CarrierIntelligence";
 import { IscMarketPanel } from "@/components/IscMarketPanel";
 import { Nav } from "@/components/Nav";
+import { knowledgeForCarrier } from "@/lib/carrier-knowledge";
+import { addCarrierKnowledgeAction } from "@/lib/carrier-knowledge-actions";
 import { kindLabel, type CarrierIntel } from "@/lib/carriers";
 import { getCarrierTheme } from "@/lib/carrier-theme";
-import { getCarrierDesk, listAccounts } from "@/lib/db";
+import {
+  getCarrierDesk,
+  listAccounts,
+  listOperatorCarrierKnowledge,
+} from "@/lib/db";
 import { folderLabel } from "@/lib/documents";
 import { endorsementKindLabel, type EndorsementKind } from "@/lib/forms";
 import { formatMoney } from "@/lib/format";
@@ -48,6 +55,10 @@ export default async function CarrierDeskPage({
       ? carrier.serviceEmail
       : null;
   const isIsc = slug === "isc";
+  const intelligence = knowledgeForCarrier(
+    carrier.name,
+    listOperatorCarrierKnowledge(carrier.name),
+  );
 
   return (
     <>
@@ -97,6 +108,13 @@ export default async function CarrierDeskPage({
               {serviceEmail && <span>{serviceEmail}</span>}
             </div>
           </header>
+
+          <CarrierIntelligence
+            carrierName={carrier.name}
+            entries={intelligence}
+            accent={theme.accent}
+            addAction={addCarrierKnowledgeAction}
+          />
 
           {isIsc && (
             <IscMarketPanel

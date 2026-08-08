@@ -67,6 +67,7 @@ export function buildTicketDraft(input: {
     policy,
     requestType: ticket.requestType,
     carrierDesks,
+    wording: ticket.wording,
   });
   const underwriter = verify.matchedUw;
 

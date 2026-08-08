@@ -11,11 +11,13 @@ import {
   getIntakeEvent,
   getTicketDetail,
   grantAccountAccess,
+  recordCarrierKnowledgeBlock,
   recordIntakeAck,
   resolveEscalation,
   revokeAccountAccess,
   setOperatorRole,
 } from "./db";
+import { evaluateKnowledgeForRequest } from "./carrier-knowledge";
 import { getRequestType } from "./catalog";
 import { evaluateBlanketFastPath } from "./fast-path";
 import { getPolicyFormSet } from "./forms";
@@ -164,6 +166,46 @@ export async function confirmIntakeTicketAction(formData: FormData) {
     operatorId: operator.id,
   });
 
+  // Carrier knowledge gate — same doctrine as the new-ticket form: a
+  // registry blocker at intake is recorded as a decision trace citing the
+  // entry, and the send path enforces it server-side.
+  const effectiveWording = wording || event.body;
+  const knowledgeBlockers = ticket.policies.flatMap((p) =>
+    evaluateKnowledgeForRequest({
+      requestType,
+      wording: effectiveWording,
+      policy: p,
+      account: {
+        state: ticket.account.state,
+        industry: ticket.account.industry,
+      },
+    }).filter((h) => h.entry.severity === "blocker"),
+  );
+  if (knowledgeBlockers.length > 0) {
+    const policy = ticket.policies[0];
+    recordCarrierKnowledgeBlock({
+      ticketId: ticket.id,
+      requestLabel: getRequestType(requestType).label,
+      policy: {
+        policyNumber: policy.policyNumber,
+        carrier: policy.carrier,
+        coverages: policy.coverages,
+      },
+      account: {
+        name: ticket.account.name,
+        state: ticket.account.state,
+        industry: ticket.account.industry,
+      },
+      hits: knowledgeBlockers.map((h) => ({
+        id: h.entry.id,
+        title: h.entry.title,
+        detail: h.entry.detail,
+        consequence: h.entry.consequence,
+        severity: h.entry.severity,
+      })),
+    });
+  }
+
   // Same fast-path doctrine as the new-ticket form: blanket wording already
   // on the paper means no market touch. An active red alert stands the
   // account down — the ticket files, nothing pushes.
@@ -171,12 +213,16 @@ export async function confirmIntakeTicketAction(formData: FormData) {
     ? ({ eligible: false, reason: "red_alert" } as const)
     : evaluateBlanketFastPath({
         requestType,
-        wording: wording || event.body,
+        wording: effectiveWording,
         namedOnPolicyRequired,
         policies: ticket.policies.map((p) => ({
           policy: p,
           formSet: getPolicyFormSet(p),
         })),
+        account: {
+          state: ticket.account.state,
+          industry: ticket.account.industry,
+        },
       });
   if (fast.eligible) {
     applyBlanketFastPath(ticket.id, {

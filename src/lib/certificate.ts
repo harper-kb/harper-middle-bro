@@ -1,6 +1,8 @@
+import { evaluateKnowledgeForCertSection } from "./carrier-knowledge";
 import {
   buildDraftFromPolicy,
   verifyCoi,
+  FLAG_LABELS,
   type CoiDraft,
   type CoiFinding,
   type CoiFlags,
@@ -153,6 +155,31 @@ export function buildCertificatePacket(input: {
     );
 
   const rejects = withContext("reject");
+
+  // Carrier knowledge gate: a provision forbidden by an enforceable registry
+  // entry (ISC excess lines take no Additional Insured) must never attach to
+  // a matching section. The reject is visible and cites the entry id + title
+  // — the block reason travels with the packet record.
+  for (const s of sections) {
+    for (const hit of evaluateKnowledgeForCertSection({
+      policy: s.policy,
+      flags: s.draft.flags,
+      account: { state: input.account.state, industry: input.account.industry },
+    })) {
+      rejects.push({
+        policyNumber: s.policy.policyNumber,
+        carrier: s.policy.carrier,
+        finding: {
+          id: `carrier-knowledge-${hit.entry.id}`,
+          severity: "reject",
+          field: "flags",
+          title: `Forbidden By Carrier Knowledge — ${hit.entry.title}`,
+          detail: `${FLAG_LABELS[hit.flag]} cannot attach to ${s.policy.carrier} ${s.policy.policyNumber}. ${hit.entry.detail} [Carrier Knowledge: ${hit.entry.id}]`,
+          fix: `Remove the ${FLAG_LABELS[hit.flag]} provision from this line. ${hit.entry.consequence}`,
+        },
+      });
+    }
+  }
 
   // More carriers than the form's six insurer lines: the extra carrier's
   // sections would cite an insurer the sheet can't print. Refuse to issue —

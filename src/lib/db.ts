@@ -73,6 +73,16 @@ import {
   type CarrierRecord,
 } from "./policy-intelligence";
 import { registerPolicyFormLoader } from "./policy-store";
+import {
+  insertOperatorKnowledgeEntry,
+  listOperatorKnowledgeEntries,
+  migrateCarrierKnowledgeTable,
+} from "./carrier-knowledge-store";
+import type {
+  CarrierKnowledgeEntry,
+  KnowledgeKind,
+  KnowledgeSeverity,
+} from "./carrier-knowledge";
 import { iscParseAttachable, parseIscDec } from "./isc-intake";
 import type { DeskDocument } from "./documents";
 import type { QuoteSample } from "./price-guidance";
@@ -92,6 +102,7 @@ function getDb(): Database.Database {
   migrate(db);
   ensureColumn(db, "operators", "clerk_user_id", "clerk_user_id TEXT");
   migrateIntelligenceTables(db);
+  migrateCarrierKnowledgeTable(db);
   seedIfEmpty(db);
   syncAccountsAndPolicies(db);
   syncUnderwriterChannels(db);
@@ -2041,6 +2052,7 @@ export function createAndSendThread(input: {
     policy,
     requestType: input.requestType,
     carrierDesks: desks,
+    wording: input.details,
   });
 
   if (!verify.okToSend) {
@@ -2048,9 +2060,7 @@ export function createAndSendThread(input: {
       .filter((i) => i.severity === "block")
       .map((i) => i.title)
       .join("; ");
-    throw new Error(
-      `Cannot send — fix quote/account mismatch first: ${blockers}`,
-    );
+    throw new Error(`Cannot send — blocked before send: ${blockers}`);
   }
   if (verify.needsAck && !input.ackWarnings) {
     throw new Error(
@@ -2733,6 +2743,96 @@ export function resetDatabase() {
 }
 
 // ——— Policy intelligence public API ———
+
+// ————————————————— Carrier Knowledge —————————————————
+
+/** Operator-added knowledge entries for one carrier (never enforceable). */
+export function listOperatorCarrierKnowledge(
+  carrier?: string,
+): CarrierKnowledgeEntry[] {
+  return listOperatorKnowledgeEntries(getDb(), carrier);
+}
+
+/**
+ * File a knowledge entry the desk just learned. Renders as a card on the
+ * carrier page immediately; it can warn but never hard-block — enforcement
+ * rules move into the committed registry through code review.
+ */
+export function addOperatorCarrierKnowledge(input: {
+  carrier: string;
+  writingCompany?: string | null;
+  coverageLine?: string | null;
+  industryVertical?: string | null;
+  state?: string | null;
+  kind: KnowledgeKind;
+  severity: Extract<KnowledgeSeverity, "warning" | "note">;
+  title: string;
+  detail: string;
+  consequence?: string | null;
+  source: string;
+  createdBy?: string | null;
+}): CarrierKnowledgeEntry {
+  return insertOperatorKnowledgeEntry(getDb(), input);
+}
+
+/**
+ * A carrier-knowledge blocker stopped a request before the market saw it.
+ * Recorded as a decision trace on the ticket so the block is auditable:
+ * which entry, what it forbids, and what the request asked for.
+ */
+export function recordCarrierKnowledgeBlock(input: {
+  ticketId: string;
+  requestLabel: string;
+  policy: { policyNumber: string; carrier: string; coverages: string[] };
+  account: { name: string; state: string; industry: string };
+  hits: {
+    id: string;
+    title: string;
+    detail: string;
+    consequence: string;
+    severity: string;
+  }[];
+}): void {
+  if (input.hits.length === 0) return;
+  const db = getDb();
+  const now = new Date().toISOString();
+  const first = input.hits[0];
+  insertDecision(db, {
+    ticketId: input.ticketId,
+    kind: "certificate",
+    author: "ai",
+    headline: `Carrier Knowledge Block — ${first.title}`,
+    summary: `${input.requestLabel} on ${input.policy.carrier} ${input.policy.policyNumber} stopped by the carrier knowledge registry (${input.hits
+      .map((h) => h.id)
+      .join(", ")}). Nothing went to the market.`,
+    steps: input.hits.map((hit, i) => ({
+      id: `carrier-knowledge-${hit.id}-${i}`,
+      label: "Carrier Knowledge Gate",
+      rule: "Enforceable registry entries encode what a carrier will never grant. A matching blocker stops the request before the desk promises anything or touches the market.",
+      inputs: [
+        { label: "Knowledge Entry", value: `${hit.id} — ${hit.title}` },
+        { label: "Request", value: input.requestLabel },
+        {
+          label: "Policy",
+          value: `${input.policy.carrier} ${input.policy.policyNumber} (${input.policy.coverages.join(", ")})`,
+        },
+        {
+          label: "Account Scope",
+          value: `${input.account.name} — ${input.account.industry}, ${input.account.state}`,
+        },
+        { label: "What The Registry Says", value: hit.detail },
+        { label: "Why It Matters", value: hit.consequence },
+      ],
+      outcome:
+        hit.severity === "blocker"
+          ? "Blocked — non-overridable"
+          : "Warned — needs operator acknowledgment",
+      verdict: hit.severity === "blocker" ? "block" : "warn",
+      source: "rule",
+    })),
+    createdAt: now,
+  });
+}
 
 export function getCarrierDesk(slug: string): {
   carrier: CarrierRecord;

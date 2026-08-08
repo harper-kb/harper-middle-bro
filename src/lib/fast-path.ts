@@ -1,3 +1,4 @@
+import { evaluateKnowledgeForRequest } from "./carrier-knowledge";
 import {
   findBlanketForm,
   type EndorsementForm,
@@ -51,6 +52,15 @@ export type FastPathDecision =
         /** An active red alert stands the whole account down — callers refuse
             the fast path before evaluating the schedule at all. */
         | "red_alert";
+    }
+  | {
+      eligible: false;
+      /** A carrier-knowledge blocker forbids granting this on the target
+          policy (e.g. ISC excess lines cannot take Additional Insured
+          status) — the entry id + title are the block reason. */
+      reason: "carrier_knowledge";
+      entry: { id: string; title: string; detail: string };
+      policy: Policy;
     };
 
 export function evaluateBlanketFastPath(input: {
@@ -58,6 +68,8 @@ export function evaluateBlanketFastPath(input: {
   wording: string;
   namedOnPolicyRequired: boolean;
   policies: { policy: Policy; formSet: PolicyFormSet }[];
+  /** Account scope for carrier-knowledge matchers (state / vertical rules) */
+  account?: { state: string; industry: string } | null;
 }): FastPathDecision {
   const kind = blanketKindFor(input.requestType);
   if (!kind) return { eligible: false, reason: "not_wording_kind" };
@@ -68,14 +80,37 @@ export function evaluateBlanketFastPath(input: {
 
   for (const { policy, formSet } of input.policies) {
     const form = findBlanketForm(formSet, kind);
-    if (form) {
+    if (!form) continue;
+
+    // Carrier knowledge gate: a blanket form on paper that cannot take the
+    // status (ISC excess + Additional Insured) is a hard stop, not a grant —
+    // the schedule being wrong in the past is exactly the rework this
+    // prevents.
+    const blocker = evaluateKnowledgeForRequest({
+      requestType: input.requestType,
+      wording: input.wording,
+      policy,
+      account: input.account,
+    }).find((h) => h.entry.severity === "blocker");
+    if (blocker) {
       return {
-        eligible: true,
-        form,
+        eligible: false,
+        reason: "carrier_knowledge",
+        entry: {
+          id: blocker.entry.id,
+          title: blocker.entry.title,
+          detail: blocker.entry.detail,
+        },
         policy,
-        basis: `Blanket Applies — ${form.form} ${form.edition} On ${policy.policyNumber} — Wording Only, No Quote Needed`,
       };
     }
+
+    return {
+      eligible: true,
+      form,
+      policy,
+      basis: `Blanket Applies — ${form.form} ${form.edition} On ${policy.policyNumber} — Wording Only, No Quote Needed`,
+    };
   }
   return { eligible: false, reason: "no_blanket" };
 }

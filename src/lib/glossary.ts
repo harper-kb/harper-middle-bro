@@ -119,6 +119,14 @@ export const GLOSSARY: GlossarySection[] = [
           "Usually premium-bearing — operators commonly see a flat charge near $100.",
       },
       {
+        term: "Notice Of Cancellation",
+        abbreviation: "NOC",
+        definition:
+          "An endorsement obligating the carrier to notify a named party a set number of days before cancelling the policy. The day count varies: 30-day notice is the common contract ask; a 10-day notice typically applies to cancellation for non-payment of premium.",
+        onTheDesk:
+          "Not every market offers every day count everywhere — ISC does not offer the 10-day non-payment notice in the contractors/lease vertical in Colorado, so the desk blocks that promise before it is made.",
+      },
+      {
         term: "Additional Named Insured",
         abbreviation: "ANI",
         definition:
@@ -198,6 +206,22 @@ export const GLOSSARY: GlossarySection[] = [
         onTheDesk: null,
       },
       {
+        term: "Excess Liability",
+        abbreviation: null,
+        definition:
+          "Coverage that sits above a primary liability policy and pays after the underlying limits are exhausted. Often written together with or as umbrella liability.",
+        onTheDesk:
+          "Excess lines carry their own endorsement rules — on ISC paper an excess line cannot take Additional Insured status, and the desk enforces that in code.",
+      },
+      {
+        term: "Writing Company",
+        abbreviation: null,
+        definition:
+          "The licensed insurance company whose paper the policy actually issues on, identified by its NAIC code. When the market is a Managing General Agent (MGA), the writing company sits behind the brand — the declarations page governs which one.",
+        onTheDesk:
+          "The certificate's INSURER line prints the writing company and its verified NAIC code, never the MGA.",
+      },
+      {
         term: "General Liability",
         abbreviation: "GL",
         definition:
@@ -254,6 +278,14 @@ export const GLOSSARY: GlossarySection[] = [
           "The board where raw communications (emails, texts, calls) wait to become tickets. Distinct from the Ticket Queue, which holds established tickets being worked.",
         onTheDesk:
           "Nothing merges into an existing ticket without an operator's confirmation.",
+      },
+      {
+        term: "Carrier Intelligence",
+        abbreviation: null,
+        definition:
+          "The desk's registry of institutional knowledge per carrier, writing company, coverage line, industry vertical, and state — restrictions, state notes, past issues, and practice notes, each with a source and a recorded-on date.",
+        onTheDesk:
+          "Rendered as cards on every carrier desk page. Entries marked as enforced in code hard-block the matching request or certificate, citing the entry as the reason; operator-added entries warn but never silently enforce.",
       },
       {
         term: "Pre-Bind",

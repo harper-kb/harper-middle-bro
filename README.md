@@ -56,7 +56,9 @@ npx tsx scripts/clerk-lockdown.ts \
 # prints a plan and changes nothing; add --apply to execute
 ```
 
-It restricts sign-up to the allowlist, adds each identifier, and sends one invitation per address. Re-running is safe — entries that already exist are reported, not duplicated.
+It restricts sign-up to the allowlist, adds each identifier, and sends one invitation per address. Re-running is safe — entries that already exist are reported, not duplicated. Any step that fails is reported per line and the command exits non-zero, so a half-applied gate cannot look like a clean one.
+
+Without `--apply` it only prints the plan, and without a key it prints the plan offline — so you can check the address list before a credential exists anywhere.
 
 The Dashboard equivalent, if you would rather click: **Restrictions** → sign-up mode **Restricted**, enable **Allowlist** and add `@harperinsure.com`, then **Users** → **Invite** per teammate. Note that the Dashboard's Restricted toggle has no Backend API field, so the script uses the allowlist restriction instead — the same outcome by a different lever. Enabling an allowlist with no entries blocks every sign-up, so add entries in the same pass.
 

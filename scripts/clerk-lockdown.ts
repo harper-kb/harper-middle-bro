@@ -23,7 +23,9 @@
  * Prints a plan and changes nothing until you add --apply.
  */
 
-const API = "https://api.clerk.com/v1";
+// Overridable so the write path can be exercised against a stub instead of a
+// live Clerk instance. Unset, it is the real thing.
+const API = process.env.CLERK_API_BASE ?? "https://api.clerk.com/v1";
 
 interface Args {
   allow: string[];
@@ -91,16 +93,6 @@ function errorSummary(json: unknown): string {
 }
 
 async function main(): Promise<number> {
-  if (!secret) {
-    console.error(
-      "CLERK_SECRET_KEY is not set.\n" +
-        "This repo's Clerk app may still be keyless — claim it first with\n" +
-        "`npx clerk auth login`, then copy the secret key from the Clerk Dashboard\n" +
-        "(API keys) and export it here.",
-    );
-    return 1;
-  }
-
   let args: Args;
   try {
     args = parseArgs(process.argv.slice(2));
@@ -109,21 +101,37 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  /** Anything an invited person signs up with also belongs on the allowlist. */
-  const allowIdentifiers = [...new Set([...args.allow, ...args.invite])];
-
-  // Confirm the key works, and say which instance is about to change.
-  const instance = await call("GET", "/instance");
-  if (instance.status !== 200) {
+  if (!secret && args.apply) {
     console.error(
-      `Clerk rejected the secret key (HTTP ${instance.status}): ${errorSummary(instance.json)}`,
+      "CLERK_SECRET_KEY is not set, so there is nothing to apply.\n" +
+        "This repo's Clerk app may still be keyless — claim it first with\n" +
+        "`npx clerk auth login`, then copy the secret key from the Clerk Dashboard\n" +
+        "(API keys) and export it here. Drop --apply to see the plan without a key.",
     );
     return 1;
   }
-  const inst = instance.json as { id?: string; environment_type?: string };
-  console.log(
-    `Instance: ${inst.id ?? "unknown"} (${inst.environment_type ?? "unknown environment"})`,
-  );
+
+  /** Anything an invited person signs up with also belongs on the allowlist. */
+  const allowIdentifiers = [...new Set([...args.allow, ...args.invite])];
+
+  // Name the instance about to change, so nobody applies this to the wrong one.
+  // A plan needs no key; applying does.
+  if (secret) {
+    const instance = await call("GET", "/instance");
+    if (instance.status !== 200) {
+      console.error(
+        `Clerk rejected the secret key (HTTP ${instance.status}): ${errorSummary(instance.json)}`,
+      );
+      return 1;
+    }
+    const inst = instance.json as { id?: string; environment_type?: string };
+    console.log(
+      `Instance: ${inst.id ?? "unknown"} (${inst.environment_type ?? "unknown environment"})`,
+    );
+  } else {
+    console.log("Instance: unknown (no CLERK_SECRET_KEY — planning offline)");
+  }
+
   console.log(`Allowlist entries to add: ${allowIdentifiers.join(", ") || "(none)"}`);
   console.log(`Invitations to send:      ${args.invite.join(", ") || "(none)"}`);
 

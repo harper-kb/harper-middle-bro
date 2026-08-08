@@ -1,7 +1,17 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+
 # Harper Middle Bro — shared desk on Render (alternative to fly.toml).
 #
 # Use it: Render Dashboard -> New -> Blueprint -> pick this repo, then fill in
 # the two Clerk keys when prompted. A disk requires a paid instance type.
+#
+# This file must be on the repo's default branch before the Blueprint is
+# created: a service with no `branch` field tracks the default branch, not
+# whichever branch the Dashboard was pointed at.
+#
+# No `ARG` appears in the Dockerfile on purpose. Render exposes every
+# environment variable here as a Docker build argument, so a Dockerfile that
+# referenced CLERK_SECRET_KEY could bake it into the image.
 #
 # Both Clerk keys are read at runtime, so rotating the Clerk app means editing
 # them here and restarting — the image does not need rebuilding.

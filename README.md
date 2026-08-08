@@ -42,7 +42,19 @@ fly deploy
 
 ### Deploy on Render
 
-Render Dashboard → **New** → **Blueprint** → pick this repo. `render.yaml` describes the same image with a 1 GB disk at `/data`; fill in the two Clerk keys when prompted. A persistent disk requires a paid instance type.
+**Merge to the default branch first.** A Blueprint service with no `branch` field tracks the repo's *default* branch, not the branch you happened to pick in the dashboard. Until `render.yaml` and the `Dockerfile` are on `main`, Render builds a commit that has neither.
+
+Then: Render Dashboard → **New** → **Blueprint** → pick this repo → fill in the two Clerk keys when prompted. `render.yaml` describes the same image with a 1 GB disk at `/data` on the `starter` plan, and validates against Render's published Blueprint schema.
+
+Worth knowing before you click:
+
+- **A disk requires a paid instance type**, and it pins the service to one instance — which is what this app needs anyway.
+- **A disk also disables zero-downtime deploys.** Render stops the old instance before starting the new one, so every deploy is a few seconds of downtime. That is the safeguard that stops two versions writing to one SQLite file, so it is a feature here.
+- **`starter` is 512 MB of RAM, and that is enough.** Measured: the server peaks around 135 MB serving traffic, and the heaviest computation in the app — building every certificate across all 19 sheets — peaks near 100 MB. Moving to `standard` buys headroom, not correctness.
+- **Render snapshots the disk daily** and keeps snapshots for at least seven days, restorable from the service's Disks page. (Fly's config retains 14 days.)
+- **The Clerk keys are prompted for only on first creation.** Updating an existing Blueprint ignores `sync: false` variables, so later key rotation is a manual edit in the dashboard.
+- **Render turns environment variables into Docker build arguments.** That would be a way to bake `CLERK_SECRET_KEY` into an image, so this `Dockerfile` deliberately declares no `ARG` and reads both keys at runtime only.
+- Auto-deploy defaults to on, so pushes to the tracked branch redeploy — and briefly interrupt the desk. Set `autoDeployTrigger: off` in `render.yaml` if you would rather deploy by hand.
 
 ### Auth: only invited people get in
 

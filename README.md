@@ -19,7 +19,58 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
 Claim the keyless Clerk app later with `npx clerk auth login` (or the in-app “Configure your application” prompt) so it appears in your Clerk Dashboard.
 
-SQLite DB is created at `data/underwriter-desk.db` on first load (gitignored) and seeded automatically.
+SQLite DB is created at `data/underwriter-desk.db` on first load (gitignored) and seeded automatically. Set `DESK_DATA_DIR` to keep it somewhere else — that is how the hosted instance points at its volume.
+
+## Shared deployment (the portal)
+
+The desk can run as one hosted instance so invited teammates sign in at a URL instead of running it locally. Everything it persists — the SQLite database, filed document bytes, and the private contact overlays — lives under a single directory, so hosting is one container plus one mounted volume.
+
+`DESK_DATA_DIR` points at that volume (`/data` in the image). Unset, it falls back to `./data`, so local development is untouched.
+
+**One instance, always.** The record is SQLite on the volume, and a volume attaches to exactly one machine. Scaling up means a second volume, which means a second empty desk serving half your traffic — so never scale this app past one machine. Deploys therefore stop the machine and start the replacement: a few seconds of downtime, and the data survives. Booting on an existing volume is idempotent — the seed pass adopts what is already there instead of re-inserting it.
+
+### Deploy on Fly.io
+
+```bash
+fly launch --no-deploy --copy-config --name harper-middle-bro
+fly volumes create desk_data --region sjc --size 1
+fly secrets set NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_... CLERK_SECRET_KEY=sk_test_...
+fly deploy
+```
+
+`fly.toml` mounts the volume at `/data`, keeps exactly one always-warm machine, retains volume snapshots for 14 days, and health-checks `/api/health`.
+
+### Deploy on Render
+
+Render Dashboard → **New** → **Blueprint** → pick this repo. `render.yaml` describes the same image with a 1 GB disk at `/data`; fill in the two Clerk keys when prompted. A persistent disk requires a paid instance type.
+
+### Auth: only invited people get in
+
+The hosted instance uses the same standalone Clerk app, with sign-up locked down:
+
+1. Clerk Dashboard → **Restrictions** → set sign-up mode to **Restricted**. Only people holding an invitation can create an account; everyone else sees a message saying they need one.
+2. Optionally enable the **Allowlist** and add `@harperinsure.com` so only company addresses can ever sign up. Enabling the allowlist with no entries blocks all sign-ups.
+3. Clerk Dashboard → **Users** → **Invite** for each teammate.
+
+Both keys are read at runtime, so rotating the Clerk app is a secret change plus a restart — not a rebuild. Development keys (`pk_test`/`sk_test`) work on a `.fly.dev` or `.onrender.com` host and are capped at 100 users, which is what makes this possible without owning a domain. Production keys (`pk_live`) require a domain you control, so those come with a custom domain later.
+
+### The private contact overlay
+
+`data/verified-contacts.local.json` is gitignored and never enters the image. Without it the Contacts page is empty, which is correct. To load it on the hosted instance, copy it onto the volume rather than into the repo:
+
+```bash
+fly ssh sftp shell -a harper-middle-bro
+# at the sftp prompt:
+#   cd /data
+#   put /absolute/path/to/verified-contacts.local.json verified-contacts.local.json
+fly apps restart -a harper-middle-bro
+```
+
+The SFTP session connects as root, so the uploaded file lands root-owned; the restart is what makes it readable, because the entrypoint takes ownership of the data directory before dropping privileges.
+
+### Health
+
+`GET /api/health` is public and returns 200 only when the data volume is mounted and writable; it returns 503 otherwise, so a machine with a broken volume is pulled from rotation instead of serving a desk that cannot save anything.
 
 ## Fresh clone notes (collaborators)
 
@@ -88,4 +139,4 @@ Fictional accounts mapped to Harper commercial-lines carriers and coverages (GL,
 
 ## Stack
 
-Next.js (App Router) · TypeScript · Tailwind · better-sqlite3 · Clerk (standalone dev app) · local only
+Next.js (App Router) · TypeScript · Tailwind · better-sqlite3 · Clerk (standalone dev app) · runs locally or as one container on one volume

@@ -28,7 +28,12 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import { listAccounts } from "../src/lib/db";
-import { iscParseAttachable, parseIscDec } from "../src/lib/isc-intake";
+import {
+  classifyKind,
+  classifyScope,
+  iscParseAttachable,
+  parseIscDec,
+} from "../src/lib/isc-intake";
 import type { IscParseResult } from "../src/lib/isc-intake";
 import { attachIscSchedule, fileDocument } from "../src/lib/policy-intelligence";
 import type { DocumentKind } from "../src/lib/documents";
@@ -170,20 +175,69 @@ let policiesImported = 0;
 let docsWithBytes = 0;
 let docsMetadataOnly = 0;
 
-type PdfParseFn = (buffer: Buffer) => Promise<{ text: string }>;
-let pdfParse: PdfParseFn | null = null;
-async function getPdfParse(): Promise<PdfParseFn | null> {
-  if (pdfParse) return pdfParse;
+/**
+ * Extract PDF text as reading-order lines. pdf text streams come out in draw
+ * order, which scatters a dec page's label/value pairs; grouping items into
+ * rows by their Y coordinate (then sorting each row by X) reconstructs the
+ * lines the way the page reads, so "Policy No." and its value land on one
+ * line for parseIscDec.
+ */
+async function extractPdfLines(bytes: Buffer): Promise<string[]> {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const task = getDocument({ data: new Uint8Array(bytes), verbosity: 0 });
+  const doc = await task.promise;
+  const lines: string[] = [];
   try {
-    // @ts-expect-error — optional dependency, no bundled types
-    const mod = (await import("pdf-parse/lib/pdf-parse.js")) as unknown as {
-      default: PdfParseFn;
-    };
-    pdfParse = mod.default ?? (mod as unknown as PdfParseFn);
-    return pdfParse;
-  } catch {
-    return null;
+    for (let n = 1; n <= doc.numPages; n++) {
+      const page = await doc.getPage(n);
+      const tc = await page.getTextContent();
+      const items = (tc.items as { str?: string; transform?: number[] }[])
+        .filter((i) => typeof i.str === "string" && i.str.trim() && i.transform)
+        .map((i) => ({ str: i.str!.trim(), x: i.transform![4], y: i.transform![5] }));
+      const rows: { y: number; cells: { str: string; x: number }[] }[] = [];
+      for (const it of items.sort((a, b) => b.y - a.y || a.x - b.x)) {
+        const row = rows.find((r) => Math.abs(r.y - it.y) < 2.5);
+        if (row) row.cells.push(it);
+        else rows.push({ y: it.y, cells: [it] });
+      }
+      for (const r of rows) {
+        lines.push(
+          r.cells
+            .sort((a, b) => a.x - b.x)
+            .map((c) => c.str)
+            .join(" "),
+        );
+      }
+      lines.push(""); // page boundary
+    }
+  } finally {
+    await task.destroy();
   }
+  return lines;
+}
+
+/**
+ * The writers' dec pages carry a "LIST OF ADDITIONAL ENDORSEMENTS:" section
+ * whose entries are titles only — no form codes ("Additional Insured"). The
+ * schedule of record still lists them: form stays blank (never invented),
+ * kind/scope classified from the title alone, so an Additional Insured grant
+ * with unstated scope stays conservative on the fast path.
+ */
+function additionalEndorsementTitles(lines: string[]): string[] {
+  const start = lines.findIndex((l) =>
+    /^LIST OF ADDITIONAL ENDORSEMENTS:?$/i.test(l.trim()),
+  );
+  if (start < 0) return [];
+  const titles: string[] = [];
+  for (const raw of lines.slice(start + 1, start + 12)) {
+    const l = raw.trim();
+    if (!l) break; // page boundary — the list ends with its dec page
+    if (/\d+\s+of\s+\d+\s*$/.test(l)) break; // page footer
+    // Boilerplate around the list is shouted; titles are mixed-case.
+    if (!/[a-z]/.test(l) || /[$]/.test(l) || l.length > 120) continue;
+    titles.push(l);
+  }
+  return titles;
 }
 
 async function run() {
@@ -276,23 +330,35 @@ async function run() {
       // Dec-page parse: only from actual bytes, only onto ISC paper.
       const iscPolicyId = policyIdByCarrier.get("isc");
       if (bytes && isPolicyDoc && iscPolicyId) {
-        const parser = await getPdfParse();
-        if (!parser) {
-          console.warn(
-            `  [${acct.slug}] pdf-parse not installed — skipping dec parse for ${docMeta.filename}`,
-          );
-          continue;
-        }
-        let text = "";
+        let pdfLines: string[] = [];
         try {
-          text = (await parser(bytes)).text;
+          pdfLines = await extractPdfLines(bytes);
         } catch (err) {
           console.warn(
             `  [${acct.slug}] PDF text extraction failed for ${docMeta.filename}: ${String(err)}`,
           );
           continue;
         }
-        const parsed: IscParseResult = parseIscDec(text);
+        const parsed: IscParseResult = parseIscDec(pdfLines.join("\n"));
+        for (const title of additionalEndorsementTitles(pdfLines)) {
+          if (
+            parsed.endorsements.some(
+              (e) => e.title.toLowerCase() === title.toLowerCase(),
+            )
+          ) {
+            continue;
+          }
+          parsed.endorsements.push({
+            form: "",
+            edition: "",
+            title,
+            kind: classifyKind(title),
+            scope: classifyScope(title),
+          });
+          parsed.warnings.push(
+            `Additional endorsement "${title}" listed by title only — form code and scope must be read off the endorsement page.`,
+          );
+        }
         const boundIsc = bound.find((d) => d.carrier.toLowerCase() === "isc");
         const gate = iscParseAttachable(parsed, boundIsc?.policyNumber ?? "");
         const score: ParseScore = {
@@ -327,6 +393,14 @@ async function run() {
             sourceDocumentId: filed.id,
           });
           score.attached = true;
+          // The dec page governs: when the deal record never carried a
+          // policy number, the number printed on the attached dec fills it.
+          if (!boundIsc?.policyNumber?.trim() && parsed.policyNumber) {
+            db.prepare(`UPDATE policies SET policy_number = ? WHERE id = ?`).run(
+              parsed.policyNumber,
+              iscPolicyId,
+            );
+          }
         }
         parseScores.push(score);
       }

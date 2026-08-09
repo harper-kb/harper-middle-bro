@@ -127,8 +127,13 @@ const NAIC_RULES: NaicRule[] = [
  *   MSLA Bulletin 2023-24, SLTX insurer summary (E&S, AR domicile, AM Best A-)
  * - Sutton National 25798 — MO / CA / MS DOI directories, NY DFS, AM Best
  *   AMB 020625 (admitted, OK domicile, fka Unigard Indemnity)
+ * - Sutton Specialty 16848 — SLTX eligible-insurer list, FSLSO insurer
+ *   financials, OK DOI surplus-lines whitelist (E&S, OK domicile, Sutton
+ *   National Insurance Holdings, AM Best A)
  * - SiriusPoint America 38776 — AM Best AMB 002642, CA DOI, MS DOI
  *   (NY domicile, fka Sirius America Insurance Company)
+ * - SiriusPoint Specialty 16820 — FSLSO insurer financials, SLTX eligible
+ *   list, CO DOI nonadmitted-eligible list (E&S, NH domicile, SiriusPoint Ltd)
  * - Third Coast 10713 — AM Best AMB 011876, NAIC company listing, SLTX
  *   (WI domicile, AmeriTrust Group, AM Best A)
  */
@@ -144,9 +149,19 @@ export const ISC_WRITERS: readonly NaicIdentity[] = [
     note: "ISC (MGA) writer — Sutton National, admitted paper, Oklahoma domicile",
   },
   {
+    issuingCompany: "Sutton Specialty Insurance Company",
+    naic: "16848",
+    note: "ISC (MGA) writer — Sutton Specialty, E&S paper, Oklahoma domicile (Sutton National Insurance Holdings)",
+  },
+  {
     issuingCompany: "SiriusPoint America Insurance Company",
     naic: "38776",
     note: "ISC (MGA) writer — SiriusPoint America, New York domicile",
+  },
+  {
+    issuingCompany: "SiriusPoint Specialty Insurance Corporation",
+    naic: "16820",
+    note: "ISC (MGA) writer — SiriusPoint Specialty, E&S paper, New Hampshire domicile (SiriusPoint Ltd)",
   },
   {
     issuingCompany: "Third Coast Insurance Company",
@@ -168,7 +183,7 @@ export function identityForIssuingCompany(
   if (!n) return null;
   for (const w of ISC_WRITERS) {
     const full = w.issuingCompany.toLowerCase();
-    const distinctive = full.replace(/\s+insurance company$/, "");
+    const distinctive = full.replace(/\s+insurance (company|corporation)$/, "");
     if (n === full || n.includes(distinctive)) return w;
   }
   return null;

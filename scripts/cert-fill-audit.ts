@@ -6,8 +6,9 @@
  *   1. Loads policies + schedules DIRECTLY from SQLite (raw SQL — the same
  *      schedule of record the account page resolves), with the production
  *      fallback chain (DB rows → FORM_SETS → bare coverage codes).
- *   2. Builds the packet via buildCertificatePacket + resolveCertSheet —
- *      the exact pipeline the studio renders.
+ *   2. Builds the packet + sheet through the one-door assembler
+ *      buildFactSnapshot (cert-snapshot.ts) — the exact pipeline that serves
+ *      preparation and issuance — and checks digest determinism.
  *   3. Independently recomputes what every ACORD field SHOULD say from the
  *      raw rows (doctrine reimplemented here, not imported), and classifies
  *      each field: Filled Correct / Correctly Blank / Missed Fill /
@@ -23,12 +24,18 @@ import path from "node:path";
 import {
   CERT_FORMS,
   certDescription,
-  resolveCertSheet,
   type Acord25Sheet,
   type CertFormKey,
   type ResolvedLimit,
   type SectionDef,
 } from "../src/lib/acord25";
+import { evaluateKnowledgeForCertSection } from "../src/lib/carrier-knowledge";
+import {
+  blockingFailures,
+  runCertChecks,
+  type CertCheckContext,
+} from "../src/lib/cert-checks";
+import { buildFactSnapshot } from "../src/lib/cert-snapshot";
 import {
   buildCertificatePacket,
   type CertificatePacket,
@@ -53,6 +60,9 @@ const REPORT_PATH = path.join(ROOT, "docs", "cert-fill-report.md");
 const HOLDER_NAME = "Audit Holder LLC";
 const HOLDER_ADDRESS = "100 Main St, Springfield, IL 62701";
 
+/** Fixed snapshot clock so the one-door assembler is bit-deterministic. */
+const SNAPSHOT_AT = "2026-08-08T00:00:00.000Z";
+
 /* ————————————————— Raw SQLite loading (the schedule of record) ————————————————— */
 
 const db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
@@ -68,6 +78,7 @@ interface RawPolicyRow {
   premium_cents: number;
   quote_insured_name: string | null;
   quote_carrier: string | null;
+  issuing_carrier: string | null;
 }
 
 interface RawAccountRow {
@@ -75,7 +86,10 @@ interface RawAccountRow {
   name: string;
   dba: string | null;
   industry: string;
+  address1: string | null;
+  city: string | null;
   state: string;
+  zip: string | null;
   primary_uw_id: string;
   backup_uw_id: string | null;
   notes: string | null;
@@ -105,7 +119,8 @@ interface RawPartRow {
 
 const accounts = db
   .prepare(
-    `SELECT id, name, dba, industry, state, primary_uw_id, backup_uw_id, notes
+    `SELECT id, name, dba, industry, address1, city, state, zip,
+            primary_uw_id, backup_uw_id, notes
      FROM accounts ORDER BY id`,
   )
   .all() as RawAccountRow[];
@@ -138,6 +153,7 @@ function mapPolicy(row: RawPolicyRow): Policy {
     premiumCents: row.premium_cents,
     quoteInsuredName: row.quote_insured_name,
     quoteCarrier: row.quote_carrier,
+    issuingCarrier: row.issuing_carrier,
   };
 }
 
@@ -153,7 +169,10 @@ function mapAccount(row: RawAccountRow): Account {
     name: row.name,
     dba: row.dba,
     industry: row.industry,
+    addressLine1: row.address1,
+    city: row.city,
     state: row.state,
+    zip: row.zip,
     primaryUwId: row.primary_uw_id,
     backupUwId: row.backup_uw_id,
     notes: row.notes,
@@ -456,11 +475,26 @@ interface StaticCheck {
   ok: boolean;
 }
 
+const STUDIO_SRC = fs.readFileSync(
+  path.join(ROOT, "src", "components", "CertificateStudio.tsx"),
+  "utf8",
+);
+
+/**
+ * Insured-address auto-fill wiring, verified against the studio source: each
+ * INSURED box cell must default to its account-record field. A missing marker
+ * means the auto-fill regressed and the cell audits as a Missed Fill on every
+ * account that carries the value.
+ */
+const INSURED_ADDR_WIRING: Record<string, boolean> = {
+  "insured.addr1": STUDIO_SRC.includes('def={acct.addressLine1 ?? ""}'),
+  "insured.city": STUDIO_SRC.includes('def={acct.city ?? ""}'),
+  "insured.state": STUDIO_SRC.includes("def={acct.state}"),
+  "insured.zip": STUDIO_SRC.includes('def={acct.zip ?? ""}'),
+};
+
 function verifyStatics(): StaticCheck[] {
-  const src = fs.readFileSync(
-    path.join(ROOT, "src", "components", "CertificateStudio.tsx"),
-    "utf8",
-  );
+  const src = STUDIO_SRC;
   const wired = (marker: string) => src.includes(marker);
   const checks: StaticCheck[] = [
     { field: "producer.name", expected: PRODUCER.name, ok: wired("def={PRODUCER.name}") },
@@ -481,6 +515,16 @@ function verifyStatics(): StaticCheck[] {
       field: "date",
       expected: "render-time (new Date at render)",
       ok: /new Date\(\)\.toLocaleDateString/.test(src),
+    },
+    {
+      // One-door renderer: every non-issued rendering must carry the
+      // Specimen watermark inside the sheet itself.
+      field: "specimen.watermark",
+      expected: "single renderer, specimen mode watermarked",
+      ok:
+        wired('data-render-mode={specimen ? "specimen" : "issued"}') &&
+        wired("cert-watermark") &&
+        wired("Specimen — Not Issued"),
     },
   ];
   return checks;
@@ -524,6 +568,27 @@ function auditSheet(input: {
     gotInsured,
   );
 
+  // ——— Insured address (auto-fill from the account record) ———
+  // The studio defaults the INSURED box address cells straight off the
+  // account row; the wiring is verified against CertificateStudio.tsx source
+  // (INSURED_ADDR_WIRING). An account row with no street line yields honest
+  // blanks — the record is the schedule of record for the insured address.
+  const acct = input.account;
+  const addrCells: [string, string, string][] = [
+    ["insured.addr1", acct.addressLine1 ?? "", "accounts.address1"],
+    ["insured.city", acct.city ?? "", "accounts.city"],
+    ["insured.state", acct.state, "accounts.state"],
+    ["insured.zip", acct.zip ?? "", "accounts.zip"],
+  ];
+  for (const [field, expected, source] of addrCells) {
+    const wired = INSURED_ADDR_WIRING[field];
+    textCell(
+      { ...base("Header", field, `${source} (studio default, wiring-verified)`) },
+      expected,
+      wired ? expected : "",
+    );
+  }
+
   // ——— Holder (pass-through data) ———
   textCell(
     { ...base("Holder", "holder.name", "operator input (verbatim carry)") },
@@ -537,48 +602,55 @@ function auditSheet(input: {
   );
 
   // ——— Insurer block: letters, legal names, NAIC ———
-  const expectedLetters = new Map<string, string>();
+  // Letter doctrine: letters are shared per WRITING PAPER, not per brand.
+  // The paper key is the verified issuing company (dec-page writer wins over
+  // brand rules — `issuingCarrier` feeds `naicForPolicy`), else the brand.
+  // Two ISC policies on different writers are different insurers.
+  const expectedLetters = new Map<string, string>(); // paper key → letter
+  const paperOf = (p: Policy) =>
+    naicForPolicy(p.carrier, p.coverages, p.issuingCarrier)?.issuingCompany ??
+    p.carrier;
   for (const p of policies) {
-    if (!expectedLetters.has(p.carrier)) {
-      const idx = expectedLetters.size;
-      expectedLetters.set(p.carrier, "ABCDEF"[idx] ?? "");
+    const key = paperOf(p);
+    if (!expectedLetters.has(key)) {
+      expectedLetters.set(key, "ABCDEF"[expectedLetters.size] ?? "");
     }
   }
-  for (const [carrier, letter] of expectedLetters) {
+  for (const [paper, letter] of expectedLetters) {
+    const anchor = policies.find((p) => paperOf(p) === paper)!;
     const identity = naicForPolicy(
-      carrier,
-      policies.find((p) => p.carrier === carrier)?.coverages ?? [],
+      anchor.carrier,
+      anchor.coverages,
+      anchor.issuingCarrier,
     );
-    const got = packet.insurers.find((i) => i.carrier === carrier);
+    const gotIdx = [...expectedLetters.keys()].indexOf(paper);
+    const got = packet.insurers[gotIdx];
+    const src = identity
+      ? anchor.issuingCarrier
+        ? "naic.ts registry via policies.issuing_carrier (dec-page writer)"
+        : "naic.ts registry (verified issuing company)"
+      : "policy record brand (no verified NAIC identity)";
     textCell(
       {
         ...base(
           "Insurers",
-          `insurer.${letter || "∅"}.letter (${carrier})`,
-          "first-appearance order over policies (carrier, id)",
+          `insurer.${letter || "∅"}.letter (${paper})`,
+          "first-appearance order over papers (carrier, id)",
         ),
       },
       letter,
       got?.letter ?? "",
     );
     textCell(
-      {
-        ...base(
-          "Insurers",
-          `insurer.${letter || "∅"}.name (${carrier})`,
-          identity
-            ? "naic.ts registry (verified issuing company)"
-            : "policy record brand (no verified NAIC identity)",
-        ),
-      },
-      identity?.issuingCompany ?? carrier,
+      { ...base("Insurers", `insurer.${letter || "∅"}.name (${paper})`, src) },
+      identity?.issuingCompany ?? anchor.carrier,
       got?.issuingCompany ?? got?.carrier ?? "",
     );
     textCell(
       {
         ...base(
           "Insurers",
-          `insurer.${letter || "∅"}.naic (${carrier})`,
+          `insurer.${letter || "∅"}.naic (${paper})`,
           identity
             ? "naic.ts registry (verified)"
             : "unverified brand — NAIC must stay blank",
@@ -610,7 +682,7 @@ function auditSheet(input: {
       : [];
 
     // Identity cells.
-    const expLetter = expFeeder ? (expectedLetters.get(expFeeder.carrier) ?? "") : "";
+    const expLetter = expFeeder ? (expectedLetters.get(paperOf(expFeeder)) ?? "") : "";
     textCell(
       { ...base(secName, `${def.key}.insurerLetter`, "insurer letter map") },
       expLetter,
@@ -647,6 +719,35 @@ function auditSheet(input: {
       Boolean(expSet?.endorsements.some((e) => e.kind === "wos")),
       Boolean(rs.ref?.subrogationWaived),
     );
+
+    // Carrier-knowledge gate: a printed ADDL INSD box on a line an
+    // enforceable registry entry forbids (ISC excess takes no Additional
+    // Insured) is stronger than the paper — it must carry a visible packet
+    // reject naming the entry, or it is a critical wrong value.
+    if (expFeeder && rs.ref?.additionalInsured) {
+      const hits = evaluateKnowledgeForCertSection({
+        policy: { carrier: expFeeder.carrier, coverages: expFeeder.coverages },
+        flags: { additionalInsured: true },
+        account: { state: input.account.state, industry: input.account.industry },
+      });
+      for (const hit of hits) {
+        const rejected = packet.rejects.some(
+          (r) => r.finding.id === `carrier-knowledge-${hit.entry.id}`,
+        );
+        push({
+          ...base(
+            secName,
+            `${def.key}.addlInsd.knowledge.${hit.entry.id}`,
+            `carrier-knowledge.ts [${hit.entry.id}]`,
+          ),
+          cls: rejected ? "filled_correct" : "wrong_value",
+          expected: "visible packet reject blocking the forbidden provision",
+          got: rejected
+            ? "packet reject present (issuance blocked)"
+            : "[no reject — forbidden AI would ride out]",
+        });
+      }
+    }
 
     // Checkboxes — every box the blank form prints.
     const expChecks = expSet ? expectedChecks(def.key, expSet) : {};
@@ -745,7 +846,7 @@ function auditSheet(input: {
           }));
     textCell(
       { ...base("Additional Row", "other.insurerLetter", "insurer letter map") },
-      expectedLetters.get(p.carrier) ?? "",
+      expectedLetters.get(paperOf(p)) ?? "",
       other.ref?.insurerLetter ?? "",
     );
     textCell(
@@ -1021,6 +1122,172 @@ function checkDrift(): string[] {
   return notes;
 }
 
+/* ————————————————— Enforcement controls (synthetic probes) ————————————————— */
+
+interface ControlCheck {
+  label: string;
+  pass: boolean;
+  detail: string;
+}
+
+/**
+ * Negative controls: the data on the desk currently has no ISC excess line,
+ * so the carrier-knowledge gate never fires in the account audits above.
+ * These synthetic probes prove the detectors are live — an audit that can
+ * only pass is not an audit.
+ */
+function runControls(): ControlCheck[] {
+  const out: ControlCheck[] = [];
+  const probeAccount: Account = {
+    id: "probe-acct",
+    name: "Probe Account LLC",
+    dba: null,
+    industry: "General Contracting",
+    addressLine1: "1 Probe Way",
+    city: "Denver",
+    state: "TX",
+    zip: "75001",
+    primaryUwId: "uw-probe",
+    backupUwId: null,
+    notes: null,
+    status: "active",
+    paymentReceivedAt: null,
+  };
+  const probePolicy: Policy = {
+    id: "probe-isc-excess",
+    accountId: "probe-acct",
+    policyNumber: "ISC-XS-000001",
+    carrier: "ISC",
+    coverages: ["EXCESS_UMB"],
+    effectiveDate: "2026-01-01",
+    expirationDate: "2027-01-01",
+    premiumCents: 0,
+    quoteInsuredName: null,
+    quoteCarrier: null,
+    issuingCarrier: "Sutton National Insurance Company",
+  };
+  const probeSet: PolicyFormSet = {
+    coverages: [
+      {
+        code: "EXCESS_UMB",
+        label: "Excess Liability",
+        form: "XS 00 01",
+        edition: "01 26",
+      },
+    ],
+    limits: [{ slot: "umb_each_occurrence", amountCents: 100_000_000 }],
+    endorsements: [
+      {
+        form: "CG 20 10",
+        edition: "04 13",
+        title: "Additional Insured — Probe (should be forbidden)",
+        kind: "ai",
+      },
+    ],
+  };
+
+  // 1. Registry gate, direct: ISC + excess + AI claim → exactly the entry.
+  const directHits = evaluateKnowledgeForCertSection({
+    policy: { carrier: "ISC", coverages: ["EXCESS_UMB"] },
+    flags: { additionalInsured: true },
+    account: { state: "TX", industry: "General Contracting" },
+  });
+  out.push({
+    label: "Registry Gate Fires On ISC Excess + Additional Insured",
+    pass:
+      directHits.length === 1 &&
+      directHits[0].entry.id === "isc-excess-no-additional-insured",
+    detail: directHits.map((h) => h.entry.id).join(", ") || "[no hit]",
+  });
+
+  // 2. Same claim on Kinsale excess paper must NOT fire (the restriction is
+  //    ISC's, not a blanket excess rule).
+  const kinsaleHits = evaluateKnowledgeForCertSection({
+    policy: { carrier: "Kinsale", coverages: ["EXCESS_UMB"] },
+    flags: { additionalInsured: true },
+    account: { state: "TX", industry: "General Contracting" },
+  });
+  out.push({
+    label: "Registry Gate Silent On Kinsale Excess + Additional Insured",
+    pass: kinsaleHits.length === 0,
+    detail: kinsaleHits.map((h) => h.entry.id).join(", ") || "[no hit — correct]",
+  });
+
+  // 3. Packet gate: a packet built over an ISC excess schedule that carries
+  //    an AI endorsement must reject with the entry id and refuse to issue.
+  const probePacket = buildCertificatePacket({
+    account: probeAccount,
+    policies: [probePolicy],
+    formSets: { [probePolicy.id]: probeSet },
+    holderName: HOLDER_NAME,
+    holderAddress: HOLDER_ADDRESS,
+  });
+  const packetRejected = probePacket.rejects.some(
+    (r) => r.finding.id === "carrier-knowledge-isc-excess-no-additional-insured",
+  );
+  out.push({
+    label: "Packet Rejects Forbidden AI On ISC Excess (And Blocks Issue)",
+    pass: packetRejected && !probePacket.okToIssue,
+    detail: `rejects=[${probePacket.rejects.map((r) => r.finding.id).join(", ")}] okToIssue=${probePacket.okToIssue}`,
+  });
+
+  // 4. Presend registry (cert-checks.ts): the same claim through the
+  //    canonical check registry must fail Carrier Knowledge Restrictions,
+  //    and the check must be structurally non-overridable.
+  const ctx: CertCheckContext = {
+    account: probeAccount,
+    policies: [probePolicy],
+    holderName: HOLDER_NAME,
+    holderAddress: HOLDER_ADDRESS,
+    now: SNAPSHOT_AT,
+    verifierRejects: [],
+    redAlertActive: false,
+    endorsementClaims: [
+      { policy: probePolicy, set: probeSet, flag: "additionalInsured" },
+    ],
+    holderAiRecords: [],
+    requirementHolderName: null,
+    scheduleSources: [],
+    prepared: null,
+    currentDigest: "probe",
+  };
+  const results = runCertChecks({
+    ctx,
+    // An override attempt on the check must NOT clear it.
+    overrides: [
+      { checkId: "carrier-knowledge-restrictions", reason: "probe override" },
+    ],
+    operator: "audit-probe",
+  });
+  const kc = results.find((r) => r.id === "carrier-knowledge-restrictions");
+  const blocked = blockingFailures(results).some(
+    (r) => r.id === "carrier-knowledge-restrictions",
+  );
+  out.push({
+    label: "Presend Registry Fails Carrier Knowledge — Override Refused",
+    pass: Boolean(kc && kc.status === "fail" && !kc.overridable && blocked),
+    detail: kc
+      ? `status=${kc.status} overridable=${kc.overridable}`
+      : "[check missing from registry]",
+  });
+
+  // 5. Wrong-value detector liveness: a deliberately tampered limit must
+  //    classify as wrong_value by the same comparator the audit uses.
+  const tampered: RawLimitRow = {
+    slot: "gl_each_occurrence",
+    mode: "amount",
+    amount_cents: 100_000_000,
+    loc: null,
+  };
+  out.push({
+    label: "Wrong-Value Detector Flags A Tampered Limit",
+    pass: !sameResolved(tampered, { kind: "amount", cents: 200_000_000 }),
+    detail: "schedule $1,000,000 vs sheet $2,000,000 → mismatch detected",
+  });
+
+  return out;
+}
+
 /* ————————————————— SQLite spot checks (literal SQL, printed) ————————————————— */
 
 interface SpotCheck {
@@ -1096,6 +1363,35 @@ function runSpotChecks(
       fmtResolved(umb?.limits["eachOccurrence"]),
     );
   }
+  const sm = sheets.get("acct-summit");
+  if (sm) {
+    const row = q(
+      `SELECT issuing_carrier FROM policies WHERE id='pol-summit-gl'`,
+    );
+    const insurerA = sm.packet.insurers[0];
+    spot(
+      "Summit INSURER A NAIC (dec-page writer wins over ISC brand)",
+      "SELECT issuing_carrier FROM policies WHERE id='pol-summit-gl' — Sutton National → NAIC 25798",
+      row?.issuing_carrier === "Sutton National Insurance Company" ? "25798" : "[unexpected writer]",
+      insurerA?.naic ?? "[blank]",
+    );
+  }
+  const real = sheets.get("acct-real-924821");
+  if (real) {
+    const row = q(
+      `SELECT COUNT(*) AS n FROM policy_limits WHERE policy_id='pol-real-15443'`,
+    );
+    const gl = real.sheet.sections.find((s) => s.def.key === "gl");
+    const printedLimits = gl
+      ? Object.values(gl.limits).filter((v) => v != null).length
+      : -1;
+    spot(
+      "Real ISC Account Limit Count (dec-page schedule vs printed sheet)",
+      "SELECT COUNT(*) FROM policy_limits WHERE policy_id='pol-real-15443'",
+      String(row?.n ?? "[no row]"),
+      String(printedLimits),
+    );
+  }
   const ns30 = sheets.get("acct-northstar · ACORD 30");
   if (ns30) {
     const row = q(
@@ -1118,10 +1414,18 @@ const staticChecks = verifyStatics();
 const builtSheets = new Map<string, { packet: CertificatePacket; sheet: Acord25Sheet }>();
 const riskNotes: string[] = [];
 const sheetOrder: string[] = [];
+const digestNondeterminism: string[] = [];
+/** Accounts that cannot produce a certificate at all (zero policies). */
+const policyless: string[] = [];
+/** Real-account insurer lines printing the MGA brand (no writer recorded). */
+const mgaBrandLines: string[] = [];
 
 for (const acctRow of accounts) {
   const policies = (policiesFor.all(acctRow.id) as RawPolicyRow[]).map(mapPolicy);
-  if (policies.length === 0) continue;
+  if (policies.length === 0) {
+    policyless.push(acctRow.id);
+    continue;
+  }
   const account = mapAccount(acctRow);
 
   const rawSets = new Map<string, PolicyFormSet>();
@@ -1134,14 +1438,27 @@ for (const acctRow of accounts) {
     sourceByPolicy.set(p.id, source);
   }
 
-  const packet = buildCertificatePacket({
+  // One-door assembler: the same buildFactSnapshot call that serves
+  // preparation and issuance resolves the sheet here. Two builds with the
+  // same injected clock must produce the same digest (determinism).
+  const snapInput = {
     account,
     policies,
     formSets,
+    formKey: "acord25" as CertFormKey,
+    placements: {},
     holderName: HOLDER_NAME,
     holderAddress: HOLDER_ADDRESS,
-  });
-  const sheet = resolveCertSheet("acord25", packet.sections);
+    overrides: {},
+    takenAt: SNAPSHOT_AT,
+  };
+  const bundle = buildFactSnapshot(snapInput);
+  const rebuilt = buildFactSnapshot(snapInput);
+  if (bundle.snapshot.digest !== rebuilt.snapshot.digest) {
+    digestNondeterminism.push(acctRow.id);
+  }
+  const packet = bundle.packet;
+  const sheet = bundle.sheet;
   builtSheets.set(acctRow.id, { packet, sheet });
   sheetOrder.push(acctRow.id);
   auditSheet({
@@ -1160,7 +1477,7 @@ for (const acctRow of accounts) {
     /garage/i.test(coverageTextRaw(rawSets.get(p.id)!)),
   );
   if (hasGarage) {
-    const sheet30 = resolveCertSheet("acord30", packet.sections);
+    const sheet30 = buildFactSnapshot({ ...snapInput, formKey: "acord30" }).sheet;
     const id30 = `${acctRow.id} · ACORD 30`;
     builtSheets.set(id30, { packet, sheet: sheet30 });
     sheetOrder.push(id30);
@@ -1194,6 +1511,26 @@ for (const acctRow of accounts) {
         .join(", ")}.`,
     );
   }
+  // INSURER lines with no verified NAIC identity print the policy-record
+  // brand with a blank NAIC cell. Honest per doctrine, but when the brand is
+  // an MGA (ISC) the line names a non-insurer — flag it for writer intake.
+  for (const ins of packet.insurers) {
+    if (ins.naic == null && ins.carrier === "ISC") {
+      mgaBrandLines.push(`${acctRow.id} (letter ${ins.letter || "∅"})`);
+    }
+  }
+
+  // A policy with no policy number can never certify: the sheet's honest
+  // blank is correct, but the certificate is unissuable until the number
+  // lands on the record. Import-data finding, not a resolver bug.
+  for (const p of policies) {
+    if (!p.policyNumber.trim()) {
+      riskNotes.push(
+        `**${acctRow.id}** — policy \`${p.id}\` (${p.carrier}, ${p.effectiveDate} – ${p.expirationDate}) has a BLANK policy number in the schedule of record. The POLICY NUMBER cell prints honestly blank, but no holder accepts a certificate without one — fix the import row before this account needs paper.`,
+      );
+    }
+  }
+
   const bare = policies.filter((p) => sourceByPolicy.get(p.id) === "bare");
   if (bare.length > 0) {
     riskNotes.push(
@@ -1204,7 +1541,25 @@ for (const acctRow of accounts) {
   }
 }
 
+// Aggregated risk notes (once, not per account).
+if (mgaBrandLines.length > 0) {
+  riskNotes.push(
+    `**MGA brand on the INSURER line** — ${mgaBrandLines.length} sheet(s) print "ISC" with a blank NAIC cell because no dec-page writer is recorded (\`policies.issuing_carrier\` is empty). Honest per doctrine (never a guessed code), but ISC is an MGA, not an insurer — per carrier knowledge \`isc-writer-*\`, a certificate naming ISC on the INSURER line misidentifies the insurer. Record the writer at intake to resolve: ${mgaBrandLines.slice(0, 6).join(", ")}${mgaBrandLines.length > 6 ? `, +${mgaBrandLines.length - 6} more` : ""}.`,
+  );
+}
+if (policyless.length > 0) {
+  riskNotes.push(
+    `**No policies on record** — ${policyless.join(", ")}: no certificate can exist for these accounts; they are outside the fill audit.`,
+  );
+}
+if (digestNondeterminism.length > 0) {
+  riskNotes.push(
+    `**Snapshot digest nondeterminism** — same input produced different digests on: ${digestNondeterminism.join(", ")}. The one-door staleness clock cannot be trusted until fixed.`,
+  );
+}
+
 const driftNotes = checkDrift();
+const controls = runControls();
 const spotChecks = runSpotChecks(builtSheets);
 
 /* ————————————————— Scoreboard + report ————————————————— */
@@ -1257,7 +1612,7 @@ const out = (s = "") => lines.push(s);
 out(`# Certificate Fill Audit — ${today}`);
 out();
 out(
-  `Auditor: cert-fill-auditor · Pipeline under test: \`buildCertificatePacket\` → \`resolveCertSheet\` (ACORD 25 2025/12; ACORD 30 2016/03 for garage accounts) · Schedule of record: \`data/underwriter-desk.db\` read directly via SQL. Expected values are recomputed from raw rows independently of the resolver.`,
+  `Auditor: cert-fill-auditor · Pipeline under test: the one-door assembler \`buildFactSnapshot\` (\`cert-snapshot.ts\`) → \`buildCertificatePacket\` → \`resolveCertSheet\` (ACORD 25 2025/12; ACORD 30 2016/03 for garage accounts), plus the \`cert-checks.ts\` presend registry and the \`carrier-knowledge.ts\` enforcement gates · Schedule of record: \`data/underwriter-desk.db\` read directly via SQL. Expected values are recomputed from raw rows independently of the resolver.`,
 );
 out();
 
@@ -1268,10 +1623,22 @@ for (const id of sheetOrder) {
 }
 
 const accountsAudited = new Set(sheetOrder.map((s) => s.split(" · ")[0])).size;
+const realIds = new Set(
+  sheetOrder.filter((s) => s.startsWith("acct-real-")).map((s) => s.split(" · ")[0]),
+);
+const realScore = scoreFor(audits.filter((a) => a.sheetId.startsWith("acct-real-")));
+const fictionScore = scoreFor(audits.filter((a) => !a.sheetId.startsWith("acct-real-")));
 out(`## Headline`);
 out();
 out(
   `Of **${platform.total - platform.sp} fillable fields** across **${accountsAudited} accounts** (${sheetOrder.length} sheets), **${platform.fc} filled correctly**, **${platform.cb} correctly blank**, **${platform.mf} missed**, **${platform.wv} wrong**.`,
+);
+out();
+out(
+  `- **Fictional Seed Accounts** (${accountsAudited - realIds.size}): ${fictionScore.fc} filled correct, ${fictionScore.cb} correctly blank, ${fictionScore.mf} missed, ${fictionScore.wv} wrong — Fill Rate ${fillRate(fictionScore)}, Accuracy ${accuracy(fictionScore)}.`,
+);
+out(
+  `- **Real ISC Accounts** (\`acct-real-*\`, ${realIds.size} with policies): ${realScore.fc} filled correct, ${realScore.cb} correctly blank, ${realScore.mf} missed, ${realScore.wv} wrong — Fill Rate ${fillRate(realScore)}, Accuracy ${accuracy(realScore)}. Schedules are unattached by design; the promise under test is honest blanks, never invented values.`,
 );
 out();
 out(`- **Platform Fill Rate:** ${fillRate(platform)} (Filled Correct ÷ fields the schedule can back)`);
@@ -1329,6 +1696,23 @@ if (misses.length === 0 && wrongs.length === 0) {
   }
 }
 
+out(`## Enforcement Controls (Synthetic Probes)`);
+out();
+out(
+  `The live data carries no ISC excess line, so the carrier-knowledge gate never fires in the account audits — these synthetic probes prove the detectors and gates are live. A control failure is a critical finding.`,
+);
+out();
+out(`| Control | Verdict | Detail |`);
+out(`|---|---|---|`);
+for (const c of controls) {
+  out(`| ${c.label} | ${c.pass ? "Pass" : "**FAIL**"} | ${c.detail} |`);
+}
+out();
+out(
+  `- Snapshot digest determinism: ${digestNondeterminism.length === 0 ? `every sheet built twice with the same injected clock produced identical digests (${sheetOrder.length} sheets)` : `**FAILED** on ${digestNondeterminism.join(", ")}`}.`,
+);
+out();
+
 out(`## SQLite Spot Checks`);
 out();
 out(`Direct SQL against \`data/underwriter-desk.db\`, compared to the rendered sheet value — not trusting the lib end to end.`);
@@ -1368,7 +1752,10 @@ out(`- **Wrong Value** — the sheet shows something the schedule cannot back. C
 out(`- **Static/Producer** — brand constants (producer block, signature, render-time DATE), verified against \`src/lib/brand.ts\` and the studio wiring.`);
 out(`- Fill Rate = Filled Correct ÷ (Filled Correct + Missed Fill). Accuracy = (Filled Correct + Correctly Blank) ÷ all fillable fields.`);
 out(`- Expected values are recomputed in this script from raw SQL rows (doctrine restated, not imported), so a resolver bug cannot vouch for itself. Holder fields use a fixed audit holder ("${HOLDER_NAME}") and are verbatim-carry checks.`);
-out(`- Deterministic: same DB state → same report. Run: \`npx tsx scripts/cert-fill-audit.ts\`.`);
+out(`- Insurer letters are expected per WRITING PAPER (dec-page writer via \`policies.issuing_carrier\`, else brand) — two ISC policies on different writers are different insurers.`);
+out(`- Insured address cells (\`insured.addr1/city/state/zip\`) audit the account-record auto-fill: expected straight off the \`accounts\` row, wiring verified against \`CertificateStudio.tsx\` source. A blank street line on record yields honest blanks.`);
+out(`- Carrier-knowledge gates (\`carrier-knowledge.ts\`) are cross-checked on every printed Additional Insured box and probed synthetically (Enforcement Controls) since the live data has no ISC excess line.`);
+out(`- Deterministic: same DB state → same report (snapshot clock injected). Run: \`npx tsx scripts/cert-fill-audit.ts\`. Exit code = wrong values + control failures.`);
 out();
 
 out(`## Trend`);
@@ -1390,8 +1777,9 @@ const report = lines.join("\n");
 fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
 fs.writeFileSync(REPORT_PATH, report);
 console.log(report);
+const controlFailures = controls.filter((c) => !c.pass).length;
 console.log(
-  `\n[audit] ${audits.length} fields classified across ${sheetOrder.length} sheets · wrong=${wrongs.length} missed=${misses.length} · report → docs/cert-fill-report.md`,
+  `\n[audit] ${audits.length} fields classified across ${sheetOrder.length} sheets · wrong=${wrongs.length} missed=${misses.length} controlFailures=${controlFailures} · report → docs/cert-fill-report.md`,
 );
 db.close();
-process.exit(wrongs.length);
+process.exit(wrongs.length + controlFailures + digestNondeterminism.length);

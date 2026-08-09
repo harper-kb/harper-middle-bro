@@ -90,9 +90,9 @@ const COVERAGE_FORMS: Record<string, { code: string; label: string }> = {
  */
 const LIMIT_LABELS: [RegExp, LimitSlot][] = [
   [/damage\s+to\s+(rented\s+)?premises/i, "gl_damage_premises"],
-  [/products[\s–—-]*comp(leted)?\s*\/?\s*op(erations)?s?\s*agg(regate)?/i, "gl_products_completed_ops"],
+  [/products[\s–—/-]*comp(leted)?\s*\/?\s*op(erations)?s?\s*agg(regate)?/i, "gl_products_completed_ops"],
   [/general\s+aggregate/i, "gl_general_aggregate"],
-  [/personal\s*(&|and)\s*adv(ertising)?\s*injury/i, "gl_personal_adv"],
+  [/personal\s*(&|and|\/)\s*adv(ertising)?\s*injury/i, "gl_personal_adv"],
   [/med(ical)?\s*exp(ense)?s?/i, "gl_med_exp"],
   [/combined\s+single\s+limit/i, "auto_combined_single"],
   [/auto\s+only.*?(each|ea)\s+accident/i, "gar_auto_only_each_accident"],
@@ -108,6 +108,20 @@ const LIMIT_LABELS: [RegExp, LimitSlot][] = [
 const ISO_FORM = /^([A-Z]{2}\s?\d{2}\s?\d{2})\s+(\d{2}[\s/]\d{2})?\s*(.*)$/;
 /** ISC proprietary form code: "ISC-GL 40", "ISC-GAR 12" — optional edition. */
 const ISC_FORM = /^(ISC-[A-Z]{1,4}\s?\d{1,4})\s+(\d{2}[\s/]\d{2})?\s*(.*)$/;
+/**
+ * Writer-proprietary dec rows, as the ISC writers' policy documents print
+ * them ("ENDORSEMENT – HS CMR 00 00 0621 – Claims-Made and Reported
+ * Limitation"). Hadron prefixes HS/HSIC, SiriusPoint SP, Sutton SSI; the
+ * trailing 4-digit group is the MMYY edition.
+ */
+const WRITER_ENDT_ROW =
+  /^ENDORSEMENT\s*[–—-]\s*([A-Z]{2,8}(?:\s[A-Z]{1,4}){0,2}(?:\s\d{2,4}){1,3})\s+(\d{2,4})\s*[–—-]\s*(.+)$/;
+/**
+ * Writer-proprietary CGL coverage-form row ("MANUSCRIPT COMMERCIAL GENERAL
+ * LIABILITY COVERAGE FORM - HS GL 01 00 0123").
+ */
+const WRITER_CGL_ROW =
+  /COMMERCIAL\s+GENERAL\s+LIABILITY\s+COVERAGE\s+FORM\s*[–—-]\s*([A-Z]{2,8}(?:\s[A-Z]{1,4}){0,2}(?:\s\d{2,4}){1,3})\s+(\d{2,4})\s*$/i;
 
 function normalizeFormCode(raw: string): string {
   // "CG2010" / "CG 20 10" → "CG 20 10"; ISC codes keep their hyphen.
@@ -116,7 +130,7 @@ function normalizeFormCode(raw: string): string {
   return `${compact.slice(0, 2)} ${compact.slice(2, 4)} ${compact.slice(4, 6)}`;
 }
 
-function classifyKind(title: string): EndorsementKind {
+export function classifyKind(title: string): EndorsementKind {
   const t = title.toLowerCase();
   if (t.includes("additional insured")) return "ai";
   if (t.includes("waiver of subrogation") || t.includes("waiver of transfer"))
@@ -126,7 +140,7 @@ function classifyKind(title: string): EndorsementKind {
   return "other";
 }
 
-function classifyScope(title: string): EndorsementScope | undefined {
+export function classifyScope(title: string): EndorsementScope | undefined {
   const t = title.toLowerCase();
   if (
     t.includes("blanket") ||
@@ -166,9 +180,23 @@ export function parseIscDec(text: string): IscParseResult {
 
   const seenForms = new Set<string>();
   const seenSlots = new Set<LimitSlot>();
+  // A dec-page label ("Insurance Company:", "Written by:") outranks a writer
+  // name that merely appears in running text — policy documents mention
+  // affiliate companies in privacy notices before the dec page arrives.
+  let writerLabeled = false;
 
   for (const line of lines) {
     // Writing company — matched against the verified ISC writer registry only.
+    if (!writerLabeled) {
+      const labeled = line.match(/(?:insurance company|written by)\s*:\s*(.+)$/i);
+      const identity = identityForIssuingCompany(labeled ? labeled[1] : null);
+      if (labeled && identity) {
+        result.writer = identity.issuingCompany;
+        result.writerNaic = identity.naic;
+        writerLabeled = true;
+        continue;
+      }
+    }
     if (!result.writer) {
       const identity = identityForIssuingCompany(line);
       if (identity) {
@@ -208,6 +236,41 @@ export function parseIscDec(text: string): IscParseResult {
           continue;
         }
       }
+    }
+
+    // Writer-proprietary dec rows — the coverage-form line and the
+    // "ENDORSEMENT – <form> <edition> – <title>" schedule entries that
+    // Hadron / SiriusPoint / Sutton policy documents print.
+    const cglRow = line.match(WRITER_CGL_ROW);
+    if (cglRow) {
+      const form = cglRow[1].replace(/\s+/g, " ").trim();
+      if (!seenForms.has(form)) {
+        seenForms.add(form);
+        result.coverages.push({
+          code: "GL",
+          label: "Commercial General Liability",
+          form,
+          edition: cglRow[2],
+        });
+      }
+      continue;
+    }
+    const endtRow = line.match(WRITER_ENDT_ROW);
+    if (endtRow) {
+      const form = endtRow[1].replace(/\s+/g, " ").trim();
+      // Dec tables of contents append a page count — strip a trailing bare number.
+      const title = endtRow[3].replace(/\s+\d{1,3}\s*$/, "").trim();
+      if (!seenForms.has(form) && title) {
+        seenForms.add(form);
+        result.endorsements.push({
+          form,
+          edition: endtRow[2],
+          title,
+          kind: classifyKind(title),
+          scope: classifyScope(title),
+        });
+      }
+      continue;
     }
 
     // Schedule-of-forms lines — coverage forms and endorsements.
@@ -276,6 +339,7 @@ export function iscParseAttachable(
   }
   if (
     parsed.policyNumber &&
+    policyNumber.trim() &&
     parsed.policyNumber.toUpperCase() !== policyNumber.toUpperCase()
   ) {
     return {

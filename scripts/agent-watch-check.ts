@@ -101,6 +101,18 @@ function autoSendBurst(n: number): WatchDecision[] {
   );
 }
 
+/** The single reply-kind decision the quote-confirm path records when the agent proceeds inside authority. */
+function aiConfirm(overrides?: Partial<WatchDecision>): WatchDecision {
+  return decision({
+    id: "dec-confirm",
+    kind: "reply",
+    author: "ai",
+    headline: "ISC Certs Desk Quoted $100.00",
+    steps: [{ id: "authority", verdict: "ok" }],
+    ...overrides,
+  });
+}
+
 // ——— Harness ———
 
 let failures = 0;
@@ -289,6 +301,52 @@ check(
   stormFinding != null &&
     stormFinding.citations.length === AUTO_SEND_STORM_THRESHOLD + 1,
   `got ${stormFinding?.citations.length ?? 0} citations`,
+);
+
+// —— AI-authored confirms are automated sends too ——
+// The quote-confirm path records one reply-kind decision whose authority
+// step passed; it must show in the auto-send rollup and the storm
+// denominator without inflating the AI Actions total.
+
+const confirmReport = runAgentWatch(
+  corpus({ decisions: [decision(), aiConfirm()] }),
+);
+check(
+  "auto-send rollup counts an AI-authored authority-ok confirm",
+  confirmReport.rollups.autoSends === 1,
+  `autoSends=${confirmReport.rollups.autoSends}`,
+);
+check(
+  "confirm stays one decision in AI Actions (no double count)",
+  confirmReport.rollups.aiActionsTotal === 2,
+  `aiActionsTotal=${confirmReport.rollups.aiActionsTotal}`,
+);
+check(
+  "a parked over-authority reply is not an auto-send",
+  runAgentWatch(
+    corpus({
+      decisions: [
+        aiConfirm({
+          id: "dec-parked",
+          steps: [{ id: "authority", verdict: "warn" }],
+        }),
+      ],
+    }),
+  ).rollups.autoSends === 0,
+);
+check(
+  "an AI confirm inside the window tips the storm denominator",
+  fired(
+    corpus({
+      decisions: [
+        ...autoSendBurst(AUTO_SEND_STORM_THRESHOLD),
+        aiConfirm({
+          id: "dec-confirm-storm",
+          createdAt: "2026-08-07T10:05:30.000Z",
+        }),
+      ],
+    }),
+  ).includes("AUTO_SEND_STORM"),
 );
 
 const stuck = corpus({

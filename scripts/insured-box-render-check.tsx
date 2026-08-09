@@ -1,5 +1,8 @@
 /**
- * INSURED-box render self-check — run with: npx tsx scripts/insured-box-render-check.tsx
+ * INSURED-box render self-check — run with:
+ *   npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/insured-box-render-check.tsx
+ * (the tsconfig maps server-only to a stub; a plain npx tsx run fails on the
+ * server-only guard — see scripts/run-checks.sh for the full flag matrix)
  *
  * Server-renders the Certificate Studio for a seed account that carries a
  * mailing address on the account record, and asserts:

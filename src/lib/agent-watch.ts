@@ -69,6 +69,27 @@ export interface WatchDecision {
   author: string;
   headline: string;
   createdAt: string;
+  /** TraceStep subset — id and verdict are enough to read the authority step. */
+  steps?: { id: string; verdict: string }[];
+}
+
+/**
+ * Every automated outbound send on the record, in two shapes: an explicit
+ * auto_send decision (streak-unlocked market send), and an AI-authored reply
+ * whose authority step passed ("ok") — the quote-confirm path that sends
+ * "Proceed — please bind/endorse as quoted" inside the $500 authority while
+ * recording a single reply-kind decision for the whole exchange. Reading the
+ * recorded step (not the prose) keeps this structural, and because it is the
+ * same one decision the AI Actions rollup already counts, widening here
+ * double-counts nothing.
+ */
+export function isAutoSendDecision(d: WatchDecision): boolean {
+  if (d.kind === "auto_send") return true;
+  return (
+    d.kind === "reply" &&
+    d.author === "ai" &&
+    (d.steps ?? []).some((s) => s.id === "authority" && s.verdict === "ok")
+  );
 }
 
 /** A message flattened out of a ticket's threads, tagged with its ticket. */
@@ -432,12 +453,13 @@ export function runAgentWatch(corpus: WatchCorpus): WatchReport {
 
   // —— AUTO_SEND_STORM (info) ——
   // Domain: every decision. Violation: more than AUTO_SEND_STORM_THRESHOLD
-  // auto-sent decisions inside any rolling AUTO_SEND_STORM_WINDOW_MS window.
-  // Overlapping windows merge into one burst so a storm is reported once,
-  // citing every decision in it.
+  // automated sends (isAutoSendDecision — explicit auto_send plus AI-authored
+  // authority-ok confirms) inside any rolling AUTO_SEND_STORM_WINDOW_MS
+  // window. Overlapping windows merge into one burst so a storm is reported
+  // once, citing every decision in it.
   checked.AUTO_SEND_STORM = corpus.decisions.length;
   const autoSends = corpus.decisions
-    .filter((d) => d.kind === "auto_send")
+    .filter(isAutoSendDecision)
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
   {
     let burstStart = -1;
@@ -593,7 +615,7 @@ function buildRollups(corpus: WatchCorpus): WatchRollups {
     aiActionsByDay,
     aiActionsTotal: ai.length,
     fastPaths: { total: fastPathTotal, bases },
-    autoSends: corpus.decisions.filter((d) => d.kind === "auto_send").length,
+    autoSends: corpus.decisions.filter(isAutoSendDecision).length,
     humanSends: corpus.decisions.filter((d) => d.kind === "send").length,
     acksSent: corpus.intakeEvents.filter((e) => e.ackSentAt != null).length,
     decisionsPerTicket,

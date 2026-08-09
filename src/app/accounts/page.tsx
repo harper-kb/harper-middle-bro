@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CarrierFilter } from "@/components/CarrierFilter";
 import { Nav } from "@/components/Nav";
 import { listAccounts } from "@/lib/db";
 import { getSessionOperator } from "@/lib/session";
@@ -31,8 +32,16 @@ export default async function AccountsPage({
 }) {
   const params = await searchParams;
   const statusFilter = (params.status ?? "all") as "all" | AccountStatus;
-  const accounts = listAccounts().filter(
-    (a) => statusFilter === "all" || a.status === statusFilter,
+  const carrierFilter = params.carrier ?? "all";
+  const allAccounts = listAccounts();
+  const carriers = [
+    ...new Set(allAccounts.flatMap((a) => a.policies.map((p) => p.carrier))),
+  ].sort((a, b) => a.localeCompare(b));
+  const accounts = allAccounts.filter(
+    (a) =>
+      (statusFilter === "all" || a.status === statusFilter) &&
+      (carrierFilter === "all" ||
+        a.policies.some((p) => p.carrier === carrierFilter)),
   );
   const operator = await getSessionOperator();
 
@@ -49,20 +58,33 @@ export default async function AccountsPage({
             Seeded commercial-lines book with primary and backup underwriters.
           </p>
         </div>
-        <div className="mb-4 flex flex-wrap gap-2">
-          {STATUS_FILTERS.map((f) => (
-            <Link
-              key={f.id}
-              href={f.id === "all" ? "/accounts" : `/accounts?status=${f.id}`}
-              className={`chip transition ${
-                statusFilter === f.id
-                  ? "bg-[var(--navy)] text-white"
-                  : "text-[var(--muted)] hover:text-[var(--ink)]"
-              }`}
-            >
-              {f.label}
-            </Link>
-          ))}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {STATUS_FILTERS.map((f) => {
+            const query = new URLSearchParams();
+            if (f.id !== "all") query.set("status", f.id);
+            if (carrierFilter !== "all") query.set("carrier", carrierFilter);
+            const qs = query.toString();
+            return (
+              <Link
+                key={f.id}
+                href={qs ? `/accounts?${qs}` : "/accounts"}
+                className={`chip transition ${
+                  statusFilter === f.id
+                    ? "bg-[var(--navy)] text-white"
+                    : "text-[var(--muted)] hover:text-[var(--ink)]"
+                }`}
+              >
+                {f.label}
+              </Link>
+            );
+          })}
+          <div className="ml-auto">
+            <CarrierFilter
+              carriers={carriers}
+              carrier={carrierFilter}
+              status={statusFilter}
+            />
+          </div>
         </div>
         <div className="overflow-hidden rounded-xl border border-[var(--navy)]/10 bg-white shadow-sm">
           <table className="w-full text-left text-sm">
@@ -118,7 +140,7 @@ export default async function AccountsPage({
           </table>
           {accounts.length === 0 ? (
             <p className="px-4 py-10 text-center text-sm text-[var(--muted)]">
-              No accounts with this status.
+              No accounts match these filters.
             </p>
           ) : null}
         </div>

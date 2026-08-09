@@ -3,6 +3,10 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { SEED_ACCOUNTS, SEED_POLICIES, SEED_UNDERWRITERS } from "./seed";
+import {
+  loadSupabaseBook,
+  UNASSIGNED_UNDERWRITER,
+} from "./supabase-book.server";
 import { SEED_ACCOUNT_GRANTS, SEED_OPERATORS } from "./operators-seed";
 import { SEED_INTAKE_EVENTS } from "./intake-seed";
 import { SEED_TICKETS } from "./tickets-seed";
@@ -550,9 +554,18 @@ function syncAccountsAndPolicies(db: Database.Database) {
       issuing_carrier = COALESCE(policies.issuing_carrier, excluded.issuing_carrier)
   `);
 
+  // Real-book overlay: when data/supabase-book.local.json exists, the boot
+  // upsert carries the real Harper slice instead of the fictional seed.
+  // Fictional rows already in the DB stay put (seeded tickets/threads
+  // reference them); stale co-*/deal-* rows from older syncs are pruned.
+  const book = loadSupabaseBook();
+  const accounts = book ? book.accounts : SEED_ACCOUNTS;
+  const policies = book ? book.policies : SEED_POLICIES;
+
   const tx = db.transaction(() => {
     for (const uw of SEED_UNDERWRITERS) insertUw.run(uw);
-    for (const a of SEED_ACCOUNTS) {
+    if (book) insertUw.run(UNASSIGNED_UNDERWRITER);
+    for (const a of accounts) {
       upsertAcct.run({
         id: a.id,
         name: a.name,
@@ -569,7 +582,7 @@ function syncAccountsAndPolicies(db: Database.Database) {
         paymentReceivedAt: a.paymentReceivedAt,
       });
     }
-    for (const p of SEED_POLICIES) {
+    for (const p of policies) {
       upsertPol.run({
         id: p.id,
         accountId: p.accountId,
@@ -584,8 +597,50 @@ function syncAccountsAndPolicies(db: Database.Database) {
         issuingCarrier: p.issuingCarrier ?? null,
       });
     }
+    if (book) pruneStaleBookRows(db, book.accounts, book.policies);
   });
   tx();
+}
+
+/**
+ * Remove `co-` / `deal-` rows that fell out of the refreshed book. Rows with
+ * desk history (threads, tickets, schedules…) are kept — the per-row delete
+ * simply skips anything a foreign key still references.
+ */
+function pruneStaleBookRows(
+  db: Database.Database,
+  accounts: Account[],
+  policies: Policy[],
+) {
+  const keepPolicies = new Set(policies.map((p) => p.id));
+  const stalePolicies = (
+    db.prepare(`SELECT id FROM policies WHERE id LIKE 'deal-%'`).all() as {
+      id: string;
+    }[]
+  ).filter((r) => !keepPolicies.has(r.id));
+  const deletePolicy = db.prepare(`DELETE FROM policies WHERE id = ?`);
+  for (const row of stalePolicies) {
+    try {
+      deletePolicy.run(row.id);
+    } catch {
+      // Still referenced (thread / ticket / schedule) — keep it.
+    }
+  }
+
+  const keepAccounts = new Set(accounts.map((a) => a.id));
+  const staleAccounts = (
+    db.prepare(`SELECT id FROM accounts WHERE id LIKE 'co-%'`).all() as {
+      id: string;
+    }[]
+  ).filter((r) => !keepAccounts.has(r.id));
+  const deleteAccount = db.prepare(`DELETE FROM accounts WHERE id = ?`);
+  for (const row of staleAccounts) {
+    try {
+      deleteAccount.run(row.id);
+    } catch {
+      // Still referenced — keep it.
+    }
+  }
 }
 
 /** Keep quote named-insured / carrier fields in sync with seed (human-error demos). */

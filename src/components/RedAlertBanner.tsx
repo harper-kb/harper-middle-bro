@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 /**
- * The desk-wide stand-down strip. When any red alert is active — a No Loss
- * letter contradicted by a claims acknowledgment — this renders on every
- * page for every operator until a manager resolves it on the account page.
- * It cannot be dismissed; it can only be collapsed to a one-line strip so
- * the account name and the order to stand down stay in view.
+ * The stand-down strip. When a red alert is active on an account — a No
+ * Loss letter contradicted by a claims acknowledgment — this renders on
+ * THAT account's page only, for every operator, until a manager resolves
+ * it there. Enforcement never depended on the strip: the fast path,
+ * verification, and certificate issuance all block server-side wherever
+ * the account is touched. It cannot be dismissed; it can only be collapsed
+ * to a one-line strip so the order to stand down stays in view.
  */
 
 interface BannerAlert {
@@ -24,11 +27,16 @@ interface BannerAlert {
 const POLL_MS = 60_000;
 
 export function RedAlertBanner() {
+  const pathname = usePathname();
   const [alerts, setAlerts] = useState<BannerAlert[]>([]);
   const [directive, setDirective] = useState("");
   const [collapsed, setCollapsed] = useState(false);
 
+  // The strip is scoped to the affected account's own page.
+  const accountId = /^\/accounts\/([^/]+)/.exec(pathname ?? "")?.[1] ?? null;
+
   useEffect(() => {
+    if (!accountId) return;
     let alive = true;
     async function load() {
       try {
@@ -54,9 +62,12 @@ export function RedAlertBanner() {
       clearInterval(t);
       window.removeEventListener("focus", onFocus);
     };
-  }, []);
+  }, [accountId]);
 
-  if (alerts.length === 0) return null;
+  const shown = accountId
+    ? alerts.filter((a) => a.accountId === accountId)
+    : [];
+  if (shown.length === 0) return null;
 
   return (
     <div className="red-alert-banner no-print fixed inset-x-0 top-0 z-[70] border-b border-red-950 bg-red-700 text-white shadow-lg">
@@ -65,9 +76,7 @@ export function RedAlertBanner() {
           Red Alert
         </span>
         <p className="min-w-0 flex-1 truncate text-[12px] font-semibold">
-          {alerts.length === 1
-            ? `${alerts[0].accountName} — No Loss Letter Contradicted By Claims Acknowledgment. Stand Down — Do Not Push.`
-            : `${alerts.length} Accounts Under Stand-Down — No Loss / Claims Conflicts. Do Not Push.`}
+          {`${shown[0].accountName} — No Loss Letter Contradicted By Claims Acknowledgment. Stand Down — Do Not Push.`}
         </p>
         <button
           type="button"
@@ -83,7 +92,7 @@ export function RedAlertBanner() {
             {directive}
           </p>
           <ul className="mt-1.5 space-y-1">
-            {alerts.map((a) => (
+            {shown.map((a) => (
               <li
                 key={a.id}
                 className="flex flex-wrap items-baseline gap-x-2 text-[11px]"

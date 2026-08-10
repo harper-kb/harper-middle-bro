@@ -40,6 +40,8 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     label: "Manager",
     items: [
       { href: "/manager", label: "Manager" },
+      { href: "/manager/kpis", label: "KPIs" },
+      { href: "/manager/qa", label: "QA" },
       { href: "/accounts", label: "Accounts" },
       { href: "/certificates", label: "Certificates" },
       { href: "/oversight", label: "Oversight" },

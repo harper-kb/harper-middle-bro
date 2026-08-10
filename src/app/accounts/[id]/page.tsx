@@ -2,13 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { UwCard } from "@/components/UwCard";
-import { EditUwForm } from "@/components/EditUwForm";
 import { coverageLabels, getRequestType } from "@/lib/catalog";
 import { formatMoney } from "@/lib/format";
 import {
   getAccountAdditionalInsureds,
   getAccountDetail,
-  getCarrierSlugForName,
   listQuoteSamples,
   listTickets,
 } from "@/lib/db";
@@ -202,16 +200,6 @@ export default async function AccountDetailPage({
           )}
         </div>
 
-        <div className="mb-8 space-y-4">
-          <h2 className="text-lg font-semibold text-[var(--navy)]">
-            Edit Underwriter Contacts
-          </h2>
-          <EditUwForm uw={account.primaryUw} accountId={account.id} />
-          {account.backupUw && (
-            <EditUwForm uw={account.backupUw} accountId={account.id} />
-          )}
-        </div>
-
         <section className="mb-8">
           <h2 className="mb-3 text-lg font-semibold text-[var(--navy)]">
             Policies
@@ -228,9 +216,7 @@ export default async function AccountDetailPage({
                 </tr>
               </thead>
               <tbody>
-                {account.policies.map((p) => {
-                  const slug = getCarrierSlugForName(p.carrier);
-                  return (
+                {account.policies.map((p) => (
                   <tr
                     key={p.id}
                     className="border-b border-[var(--navy)]/5"
@@ -245,18 +231,7 @@ export default async function AccountDetailPage({
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      {slug ? (
-                        <Link
-                          href={`/carriers/${slug}`}
-                          className="underline decoration-[var(--rule)] underline-offset-2 hover:text-[var(--coral)]"
-                        >
-                          {p.carrier}
-                        </Link>
-                      ) : (
-                        p.carrier
-                      )}
-                    </td>
+                    <td className="px-4 py-3">{p.carrier}</td>
                     <td className="px-4 py-3 text-[var(--muted)]">
                       {coverageLabels(p.coverages)}
                     </td>
@@ -265,8 +240,7 @@ export default async function AccountDetailPage({
                       {p.effectiveDate} → {p.expirationDate}
                     </td>
                   </tr>
-                  );
-                })}
+                ))}
               </tbody>
             </table>
             {account.policies.length === 0 ? (

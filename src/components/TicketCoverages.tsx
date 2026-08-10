@@ -7,7 +7,6 @@ import {
   type EndorsementKind,
 } from "@/lib/forms";
 import { formatMoney } from "@/lib/format";
-import { getCarrierSlugForName } from "@/lib/db";
 import type { Policy } from "@/lib/types";
 
 export function TicketCoverages({ policies }: { policies: Policy[] }) {
@@ -28,7 +27,6 @@ export function TicketCoverages({ policies }: { policies: Policy[] }) {
 
       {policies.map((policy) => {
         const set = getPolicyFormSet(policy);
-        const slug = getCarrierSlugForName(policy.carrier);
         const hasBlanketAi = set.endorsements.some(
           (e) =>
             e.kind === "ai" && /blanket/i.test(`${e.title} ${e.note ?? ""}`),
@@ -49,14 +47,6 @@ export function TicketCoverages({ policies }: { policies: Policy[] }) {
                   {formatMoney(policy.premiumCents)} annual
                 </p>
               </div>
-              {slug && (
-                <Link
-                  href={`/carriers/${slug}`}
-                  className="text-xs font-medium underline decoration-[var(--rule)] underline-offset-4 hover:text-[var(--ink)]"
-                >
-                  {policy.carrier} desk →
-                </Link>
-              )}
             </div>
 
             {hasBlanketAi && (

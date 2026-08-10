@@ -109,20 +109,33 @@ export function buildFactSnapshot(input: SnapshotInput): SnapshotBundle {
   const sheet = resolveCertSheet(input.formKey, packet.sections, input.placements);
   const suggestions = buildSuggestions(sheet, packet);
 
-  const fields: SnapshotField[] = suggestions.map((s) => {
+  // A reviewer edit replaces the extracted value; a reviewer CLEARING a
+  // field (blank string, unchecked box) removes the claim — the snapshot
+  // must record the sheet as issued, not as extracted, and the digest must
+  // move either way (it is the staleness clock).
+  const fields: SnapshotField[] = [];
+  for (const s of suggestions) {
     const o = input.overrides[s.id];
-    const edited = typeof o === "string" && o.trim().length > 0;
-    return {
-      id: s.id,
-      label: s.label,
-      value: edited ? (o as string).trim() : s.display,
-      source: edited ? `reviewer edit (was: ${s.source})` : s.source,
-    };
-  });
+    if (typeof o === "boolean") {
+      if (!o) continue; // unchecked by the reviewer — the sheet no longer claims it
+      fields.push({ id: s.id, label: s.label, value: s.display, source: s.source });
+    } else if (typeof o === "string") {
+      const trimmed = o.trim();
+      if (!trimmed) continue; // cleared to an honest blank — claims nothing
+      fields.push({
+        id: s.id,
+        label: s.label,
+        value: trimmed,
+        source: `reviewer edit (was: ${s.source})`,
+      });
+    } else {
+      fields.push({ id: s.id, label: s.label, value: s.display, source: s.source });
+    }
+  }
   // Reviewer entries on fields the resolver left blank are facts too — they
   // are part of what the certificate claims, so they join the snapshot with
   // reviewer provenance and count against the digest.
-  const known = new Set(fields.map((f) => f.id));
+  const known = new Set(suggestions.map((s) => s.id));
   for (const [id, v] of Object.entries(input.overrides)) {
     if (known.has(id) || id === "desc") continue;
     const value = typeof v === "boolean" ? (v ? "✓ Checked" : "") : v.trim();

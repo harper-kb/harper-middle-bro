@@ -99,17 +99,31 @@ export function isoFromMdy(text: string): string | null {
   if (!m) return null;
   const mm = Number(m[1]);
   const dd = Number(m[2]);
-  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  const yyyy = Number(m[3]);
+  // An impossible calendar date (02/31) normalizes to a different day —
+  // round-tripping through Date catches what the range check can't.
+  const d = new Date(Date.UTC(yyyy, mm - 1, dd));
+  if (d.getUTCFullYear() !== yyyy || d.getUTCMonth() !== mm - 1 || d.getUTCDate() !== dd) {
+    return null;
+  }
   return `${m[3]}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
 }
 
-/** Dollar text → cents. `invalid` when there's text but no readable number. */
+/**
+ * Dollar text → cents. `invalid` when there's text but no readable dollar
+ * amount. Only a real dollar shape parses — `$`, thousands separators, and
+ * an optional decimal fraction. Anything else ("1.5M", "-500", "1,000,000
+ * CSL") is invalid rather than a silent misparse: the box prints what the
+ * operator typed, so the verifier must read the same number or refuse.
+ */
 export function parseMoney(raw: string): { cents: number | null; invalid: boolean } {
   const text = raw.trim();
   if (!text) return { cents: null, invalid: false };
-  const digits = text.replace(/[^0-9]/g, "");
-  if (!digits) return { cents: null, invalid: true };
-  return { cents: Number(digits) * 100, invalid: false };
+  const m = /^\$?\s*(\d{1,3}(?:,\d{3})*|\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  if (!m) return { cents: null, invalid: true };
+  const whole = Number(m[1].replace(/,/g, ""));
+  const frac = m[2] ? Number(m[2].padEnd(2, "0")) : 0;
+  return { cents: whole * 100 + frac, invalid: false };
 }
 
 // ——— Extraction suggestions ———
@@ -380,7 +394,7 @@ function fieldIdForFinding(
   if (f.field === "insured") return "insured.name";
   if (f.id === "policy-mismatch") return `${sec}.policyNumber`;
   if (f.id === "carrier-mismatch") return `insurer.${insurerLetter}`;
-  if (f.id === "term-early") return `${sec}.eff`;
+  if (f.id === "term-early" || f.id === "term-inverted") return `${sec}.eff`;
   if (f.id === "term-late") return `${sec}.exp`;
   if (f.field === "description") return "desc";
   const limitMatch = /^limit-(?:absent|over|under|mode)-(.+)$/.exec(f.id);
@@ -467,6 +481,26 @@ export function verifyEditedSheet(input: {
     );
 
   const noPolicyCtx = { policyNumber: "—", carrier: "—" };
+
+  // A certificate with no policy on it certifies nothing — an empty sheet
+  // must never read clean just because the holder box is filled. (The check
+  // registry's policy-in-force is vacuous over zero policies; this is the
+  // reject that keeps the one door shut.)
+  if (packet.sections.length === 0) {
+    push(
+      noPolicyCtx,
+      {
+        id: "no-policy-selected",
+        severity: "reject",
+        field: "policy",
+        title: "No Policy On The Certificate",
+        detail:
+          "No policy feeds this sheet — there is no coverage to certify, so nothing can issue.",
+        fix: "Select at least one in-force policy.",
+      },
+      "insured.name",
+    );
+  }
 
   // Any populated edit inside a section no policy feeds is unverifiable.
   const rejectPopulatedNamespace = (
@@ -994,6 +1028,10 @@ export function verifyEditedSheet(input: {
         detail: `${ins.carrier} has no insurer line left — the printed block holds six insurers (A–F).`,
         fix: "Split the certificate by carrier, or attach an ACORD 101 for the additional insurers.",
       },
+      // The overflow insurer has no letter, so no cell to point at — a
+      // synthetic id inside the insurer namespace keeps the finding mapped
+      // to the Insurers review area (the batch-confirm gate keys on it).
+      "insurer.overflow",
     );
   }
 

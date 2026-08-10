@@ -830,14 +830,26 @@ body:has(.red-alert-banner) .desk-sidebar {
     visibility: visible;
   }
   .cert-sheet {
-    position: fixed;
-    inset: 0;
+    /* Absolute, not fixed: a fixed element never paginates, so any sheet
+       taller than one page (description grows with overflow lines) would
+       clip everything below the first page — holder block and signature
+       included. Absolute at the page origin flows across pages. */
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
     margin: 0;
     border: none;
     border-radius: 0;
     box-shadow: none;
     overflow: visible;
     min-width: 0 !important;
+  }
+  /* The sheet's scroll wrapper must not clip the escaped sheet on paper. */
+  body,
+  html {
+    overflow: visible !important;
+    height: auto !important;
   }
   /* Edit affordances never print — the paper shows the filled form only */
   .no-print {

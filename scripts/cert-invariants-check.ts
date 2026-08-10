@@ -244,6 +244,15 @@ console.log("━━━ 6. Endorsement gates — edition date is identity; Bind R
     holderAddress: HOLDER_ADDR,
     set: editionless,
   });
+  // The auto-fill no longer claims an endorsement without full form
+  // identity (underreporting beats overstating) — assert that, then make
+  // the claim explicitly to prove the door still blocks it.
+  check(
+    !draft.flags.additionalInsured,
+    "Auto-fill does not claim an AI form that lacks its edition date",
+    JSON.stringify(draft.flags),
+  );
+  draft.flags.additionalInsured = true;
   const out = performCertIssuance(
     baseInput({
       path: "ticket",

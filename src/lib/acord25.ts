@@ -174,12 +174,18 @@ export const SECTION_DEFS: SectionDef[] = [
     ],
     flagChecks: { aggProject: "perProjectAggregate" },
     resolveChecks: (feeder) => {
-      // CG 00 01 is an occurrence form — claims-made only if the part says so.
+      // CG 00 01 is an occurrence form — claims-made only when the dec says
+      // so. The statement lives in TWO places on real paper: the coverage
+      // part's own label, or a scheduled claims-made endorsement (ISC decs
+      // carry "Claims-Made and Reported Limitation", HS/SP CMR 00 00).
+      // Checking OCCUR against claims-made paper overstates the coverage.
       const glPart =
         feeder.set.coverages.find((c) =>
           /general liability|liability section/i.test(c.label),
         ) ?? feeder.set.coverages[0];
-      const claimsMade = /claims-?made/i.test(glPart?.label ?? "");
+      const claimsMade =
+        /claims-?made/i.test(glPart?.label ?? "") ||
+        feeder.set.endorsements.some((e) => /claims-?made/i.test(e.title));
       // Per policy unless a per-project / per-location aggregate form is scheduled.
       const perProject = feeder.set.endorsements.some((e) =>
         /per[- ]project/i.test(e.title),
@@ -280,9 +286,12 @@ export const SECTION_DEFS: SectionDef[] = [
       { key: "umbBlank", label: "", slot: null },
     ],
     resolveChecks: (feeder) => {
-      // CU 00 01 is occurrence — claims-made only if labeled so.
+      // CU 00 01 is occurrence — claims-made only when the dec states it,
+      // on the part label or a scheduled claims-made endorsement.
       const text = coverageText(feeder.set);
-      const claimsMade = /claims-?made/i.test(text);
+      const claimsMade =
+        /claims-?made/i.test(text) ||
+        feeder.set.endorsements.some((e) => /claims-?made/i.test(e.title));
       return {
         umbrella: /umbrella/i.test(text),
         excess: /excess/i.test(text),

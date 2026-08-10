@@ -326,6 +326,15 @@ export function verifyCoi(
       fix: "Issue to the current expiration and reissue at renewal.",
     });
   }
+  if (draft.effectiveDate > draft.expirationDate) {
+    reject({
+      id: "term-inverted",
+      field: "term",
+      title: "Effective Date Falls After Expiration",
+      detail: `Cert starts ${draft.effectiveDate} but ends ${draft.expirationDate} — the term is inverted.`,
+      fix: `The policy term on file is ${ctx.policy.effectiveDate} to ${ctx.policy.expirationDate}.`,
+    });
+  }
 
   // ——— Limits ———
   for (const [slot, claimed] of Object.entries(draft.limits) as [
@@ -393,6 +402,21 @@ export function verifyCoi(
         title: `${FLAG_LABELS[key]} Isn't On The Policy`,
         detail: `The cert checks ${FLAG_LABELS[key]}, but the schedule has no backing form.`,
         fix: `Request ${spec.need} from the underwriter before issuing.`,
+      });
+    } else if (
+      (key === "additionalInsured" || key === "subrogationWaived") &&
+      (!form.form.trim() || !form.edition.trim())
+    ) {
+      // Mirror of the one-door Endorsement Backing Verified check: a claim
+      // whose backing row lacks its full form identity (form number AND
+      // edition date) cannot issue — the review rail must show the same
+      // wall, never an all-green rail over a shut door.
+      reject({
+        id: `flag-${key}`,
+        field: "flags",
+        title: `${FLAG_LABELS[key]} Endorsement Lacks Its Form Identity`,
+        detail: `The cert checks ${FLAG_LABELS[key]}, but the backing endorsement "${form.title}" carries no form number and edition date on the schedule of record — form identity without the edition certifies the wrong paper.`,
+        fix: "Record the endorsement's form number and edition date on the schedule, or leave the box unchecked.",
       });
     } else if (key === "additionalInsured" && /scheduled/i.test(form.note ?? "")) {
       const named =
@@ -491,10 +515,19 @@ export function buildDraftFromPolicy(input: {
     }
   }
 
-  const ai = findEndorsement(set, "ai");
-  const wos = findEndorsement(set, "wos");
-  const pnc = findEndorsement(set, "pnc");
-  const completedOps = findEndorsementByTitle(set, /completed operations/i);
+  // Auto-fill only claims an endorsement that carries its full form
+  // identity (form number + edition) — the same bar the issuance check
+  // holds every claim to. A dec-imported row with a blank form number
+  // stays an honest blank box (and never prints "per  ." wording);
+  // underreporting beats overstating.
+  const identified = (e: ReturnType<typeof findEndorsement>) =>
+    e && e.form.trim() && e.edition.trim() ? e : null;
+  const ai = identified(findEndorsement(set, "ai"));
+  const wos = identified(findEndorsement(set, "wos"));
+  const pnc = identified(findEndorsement(set, "pnc"));
+  const completedOps = identified(
+    findEndorsementByTitle(set, /completed operations/i),
+  );
 
   const parts: string[] = [];
   if (input.projectWording?.trim()) parts.push(input.projectWording.trim());

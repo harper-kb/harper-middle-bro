@@ -73,18 +73,18 @@ import { PriceGuidanceNote } from "./PriceGuidanceNote";
  * registry (`CERT_FORMS`); switching forms restarts the review pass.
  *
  * The sheet fills itself from the schedule of record, then review happens
- * ON the sheet, one area at a time: every ACORD area (Producer/Insured
- * header, Insurers block, each coverage section, each write-in row,
- * Description, Holder) carries a slim `.no-print` review strip. "Review"
- * lights up the area's extracted values; "Confirm Section" approves the
- * whole area in one click. Coverage rows, limits, and insurer identity are
- * LOCKED to the record (see `isRecordField`) — they render as plain table
- * text and only unlock against an open endorsement ticket. Per-certificate
- * fields (holder, description, ADDL INSD / SUBR WVD) stay editable; editing
- * inside a confirmed area re-opens just that area. Every change re-runs the
- * same deterministic verifier that gates ticket certs, and the issue path is
- * a hard state machine: every area confirmed → verification clean → apply
- * the authorized-representative signature → print.
+ * ON the sheet. The guided confirm card groups every record-locked area
+ * (Producer/Insured header, Insurers block, coverage sections, write-in
+ * rows) into ONE "Confirm All From The File" step — those values are locked
+ * to the record (see `isRecordField`), verifier-checked, and shown with
+ * their sources, so a single attestation covers them. The two genuinely
+ * per-certificate decisions — Certificate Holder and Description — confirm
+ * individually. Every ACORD area still carries a slim `.no-print` review
+ * strip for fine-grained review and reopening; editing inside a confirmed
+ * area re-opens just that area. Every change re-runs the same deterministic
+ * verifier that gates ticket certs, and the issue path is a hard state
+ * machine: every area confirmed → verification clean → Sign & Issue (the
+ * standard authorized-representative stamp applies with issuance) → print.
  */
 
 type AreaState = "pending" | "active" | "confirmed";
@@ -392,8 +392,11 @@ export function CertificateStudio({
         out.push({ key: `other${i}`, label: row.label || "Additional Coverage" });
       }
     });
-    out.push({ key: "desc", label: "Description Of Operations" });
+    // Holder confirms before Description: the description's holder wording
+    // rebuilds when the holder changes, so the reverse order forces a
+    // redundant re-confirm.
     out.push({ key: "holder", label: "Certificate Holder" });
+    out.push({ key: "desc", label: "Description Of Operations" });
     return out;
   }, [packet, sheet]);
 
@@ -410,6 +413,19 @@ export function CertificateStudio({
   const canSign =
     allReviewed && clean && chosen.length > 0 && holderAddressOk && !preBind;
   const canPrint = canSign && signed;
+
+  // Areas a reject currently points into — the guided card refuses to batch-
+  // confirm the record step while any of its areas carries one, and
+  // `confirmAreas` refuses independently below (fail-closed if the UI gate
+  // ever drifts).
+  const rejectAreas = useMemo(() => {
+    const s = new Set<string>();
+    for (const f of verdict.rejects) {
+      const a = f.fieldId ? fieldArea(f.fieldId) : null;
+      if (a) s.add(a);
+    }
+    return s;
+  }, [verdict.rejects]);
 
   const areaCounts = useMemo(() => {
     const m: Record<string, number> = {};
@@ -430,6 +446,21 @@ export function CertificateStudio({
     if (key === "holder" && !holderAddressOk) return;
     setConfirmedAreas((prev) => (prev.includes(key) ? prev : [...prev, key]));
     setActiveArea((cur) => (cur === key ? null : cur));
+  }
+  // One attestation for the record-locked areas: the values are locked to
+  // the schedule, verifier-checked, and shown with sources in the guided
+  // card. Holder and Description never batch-confirm, and the whole batch
+  // refuses while any requested area carries a verifier reject — same
+  // contract the wizard's disabled button promises, enforced here too.
+  function confirmAreas(keys: string[]) {
+    if (keys.some((k) => rejectAreas.has(k))) return;
+    const safe = keys.filter((k) => k !== "holder" && k !== "desc");
+    if (safe.length === 0) return;
+    setConfirmedAreas((prev) => [
+      ...prev,
+      ...safe.filter((k) => !prev.includes(k)),
+    ]);
+    setActiveArea(null);
   }
   // Any change to the sheet voids an applied signature; a change inside a
   // confirmed area re-opens just that area. Record fields refuse edits
@@ -596,7 +627,11 @@ export function CertificateStudio({
       .map(([checkId, reason]) => ({ checkId, reason: reason.trim() }));
   }
   function issueNow(path: "studio" | "run", onIssued?: (certId: string) => void) {
-    if (!canPrint || issuing) return;
+    if (!canSign || issuing) return;
+    // The standard authorized-representative stamp applies with issuance —
+    // it is the same deterministic mark every time, gated by the exact same
+    // conditions, so a separate click adds nothing but a click.
+    setSigned(true);
     const key = inputsKey;
     startIssuance(async () => {
       const outcome = await issueCertificateAction({
@@ -651,11 +686,12 @@ export function CertificateStudio({
     setRun({ queue: rail, idx: 0, done: [] });
     loadHolder(rail[0]);
   }
-  // The current certificate is confirmed and signed — it goes through the
-  // same issuance function as a single certificate (no batch rail around the
-  // registry), and only an issued outcome advances the run.
+  // The current certificate is confirmed — it goes through the same
+  // issuance function as a single certificate (signature applied with
+  // issuance, no batch rail around the registry), and only an issued
+  // outcome advances the run.
   function advanceRun() {
-    if (!run || !canPrint || !packet || !sheet || issuing) return;
+    if (!run || !canSign || !packet || !sheet || issuing) return;
     const description = effStr(overrides, "desc", certDescription(packet, sheet));
     const requesterEmail = run.queue[run.idx]?.requesterEmail ?? null;
     const snapshotHolderName = holderName;
@@ -718,7 +754,6 @@ export function CertificateStudio({
           ? "Holder Address Unverified — Validation Unavailable"
           : "Holder Address Unverified",
     );
-  if (!signed && blockedReasons.length === 0) blockedReasons.push("Signature Needed");
 
   return (
     <section className="surface-card overflow-hidden">
@@ -726,15 +761,12 @@ export function CertificateStudio({
         <div>
           <p className="eyebrow">Certificate Studio</p>
           <h2 className="mt-0.5 font-display text-xl text-[var(--ink)]">
-            {form.formNumber} — Confirm, Sign, Issue
+            {form.formNumber} — Confirm &amp; Issue
           </h2>
           <p className="mt-1 max-w-xl text-xs leading-relaxed text-[var(--muted)]">
-            The sheet fills from the schedule of record. Coverage rows,
-            limits, and insurer identity are locked to the record — editing
-            unlocks only against an open endorsement ticket. Each area carries
-            its own review strip: Review lights up what was extracted, Confirm
-            Section approves it in one click, and the verifier re-checks every
-            change.
+            The sheet fills from the schedule of record and stays locked to
+            it. Confirm what the file says, set the holder, and issue — the
+            verifier re-checks every change.
           </p>
           {preBind && (
             <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-600/25 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
@@ -776,15 +808,9 @@ export function CertificateStudio({
             />
             <StepPill
               n={2}
-              label={signed ? "Signed" : "Sign"}
-              done={signed}
-              active={canSign && !signed}
-            />
-            <StepPill
-              n={3}
-              label={isIssuedRender ? "Issued" : "Issue"}
+              label={isIssuedRender ? "Signed & Issued" : "Sign & Issue"}
               done={isIssuedRender}
-              active={canPrint && !isIssuedRender}
+              active={canSign && !isIssuedRender}
             />
             {preBind ? (
               <button
@@ -808,13 +834,13 @@ export function CertificateStudio({
               <button
                 type="button"
                 onClick={() => issueNow("studio")}
-                disabled={!canPrint || issuing || isIssuedRender}
+                disabled={!canSign || issuing || isIssuedRender}
                 className="btn-primary disabled:opacity-45"
                 title={
                   isIssuedRender
                     ? "This exact certificate is on the ledger"
-                    : canPrint
-                      ? "Run the presend registry and record the certificate on the ledger"
+                    : canSign
+                      ? "Apply the standard signature, run the presend registry, and record the certificate on the ledger"
                       : `Blocked — ${blockedReasons.join(", ")}`
                 }
               >
@@ -822,8 +848,8 @@ export function CertificateStudio({
                   ? "Running Presend Checks…"
                   : isIssuedRender
                     ? "Issued & On The Ledger"
-                    : canPrint
-                      ? "Issue Certificate"
+                    : canSign
+                      ? "Sign & Issue Certificate"
                       : `Blocked — ${blockedReasons.join(" · ")}`}
               </button>
             )}
@@ -850,7 +876,7 @@ export function CertificateStudio({
               run={run}
               accountName={account.name}
               formNumber={form.formNumber}
-              canAdvance={canPrint && !issuing}
+              canAdvance={canSign && !issuing}
               canPrint={canPrint}
               blockedReasons={blockedReasons}
               blanketBasis={blanketBasis}
@@ -1043,9 +1069,16 @@ export function CertificateStudio({
           confirmed={confirmedSet}
           activeArea={activeArea}
           suggestions={suggestions}
+          rejectAreas={rejectAreas}
+          holderName={holderName}
+          holderAddress={holderAddress}
           holderAddressOk={holderAddressOk}
+          rail={rail}
+          activeRailKey={activeRailKey}
+          onLoadHolder={loadHolder}
           onBegin={(key) => setActiveArea(key)}
           onConfirm={confirmArea}
+          onConfirmMany={confirmAreas}
           onClose={() => {
             setWizardOpen(false);
             setActiveArea(null);
@@ -1349,7 +1382,7 @@ function ReviewProgress({
       </div>
       <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--muted)]">
         Review happens on the sheet — each area has its own strip. Confirm all{" "}
-        {areas.length} areas to unlock the signature.
+        {areas.length} areas to unlock Sign &amp; Issue.
       </p>
       <p className="mt-2 text-[11px] font-semibold text-[var(--ink)]">
         {done} Of {areas.length} Areas Confirmed
@@ -1377,39 +1410,85 @@ function ReviewProgress({
   );
 }
 
+/** One extracted value inside the guided card — display + source cite. */
+function WizardValueRow({ s }: { s: FieldSuggestion }) {
+  return (
+    <li className="flex items-baseline justify-between gap-2 rounded-lg border border-[var(--rule)] bg-white px-2 py-1">
+      <span className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
+        {s.label}
+      </span>
+      <span className="min-w-0 text-right">
+        <span className="block truncate text-[11px] font-semibold text-[var(--ink)]">
+          {s.display}
+        </span>
+        <span className="block text-[9px] uppercase tracking-wide text-[var(--muted)]">
+          {s.source}
+        </span>
+      </span>
+    </li>
+  );
+}
+
 /**
- * The guided confirm card. Opens on its own as soon as the sheet fills,
- * shows what the file says for one area at a time — every extracted value
- * with its source — and confirms the area in one click before moving to the
- * next. Closing it never blocks anything: the on-sheet review strips are the
- * same state machine.
+ * The guided confirm card. Opens on its own as soon as the sheet fills.
+ * Step one batches every record-locked area — the values are locked to the
+ * schedule and verifier-checked, so a single read-through and one click
+ * attests them all (refused while any of those areas carries a reject).
+ * The two per-certificate decisions, Certificate Holder and Description,
+ * then confirm one at a time; the holder step carries the rail so a ticket
+ * holder loads without leaving the card. Closing it never blocks anything:
+ * the on-sheet review strips are the same state machine.
  */
 function ConfirmWizard({
   areas,
   confirmed,
   activeArea,
   suggestions,
+  rejectAreas,
+  holderName,
+  holderAddress,
   holderAddressOk,
+  rail,
+  activeRailKey,
+  onLoadHolder,
   onBegin,
   onConfirm,
+  onConfirmMany,
   onClose,
 }: {
   areas: AreaDef[];
   confirmed: Set<string>;
   activeArea: string | null;
   suggestions: FieldSuggestion[];
+  rejectAreas: Set<string>;
+  holderName: string;
+  holderAddress: string;
   holderAddressOk: boolean;
+  rail: RailEntry[];
+  activeRailKey: string | null;
+  onLoadHolder: (h: { name: string; address: string }) => void;
   onBegin: (key: string) => void;
   onConfirm: (key: string) => void;
+  onConfirmMany: (keys: string[]) => void;
   onClose: () => void;
 }) {
-  const pending = areas.filter((a) => !confirmed.has(a.key));
-  const current =
-    pending.find((a) => a.key === activeArea) ?? pending[0] ?? null;
-  const done = areas.length - pending.length;
+  const isPerCert = (key: string) => key === "holder" || key === "desc";
+  const recordPending = areas.filter(
+    (a) => !isPerCert(a.key) && !confirmed.has(a.key),
+  );
+  const perCertPending = areas.filter(
+    (a) => isPerCert(a.key) && !confirmed.has(a.key),
+  );
+  const done = areas.length - recordPending.length - perCertPending.length;
+  const onRecordStep = recordPending.length > 0;
+  const current = onRecordStep
+    ? null
+    : (perCertPending.find((a) => a.key === activeArea) ??
+      perCertPending[0] ??
+      null);
 
-  // Light the current area on the sheet as the card opens or advances —
-  // the highlight and the card always agree on what is under review.
+  // Light the area under review on the sheet — the record step lights
+  // nothing (it spans areas); the per-certificate steps light their area.
   const currentKey = current?.key ?? null;
   useEffect(() => {
     if (currentKey && activeArea !== currentKey) onBegin(currentKey);
@@ -1417,27 +1496,13 @@ function ConfirmWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentKey]);
 
-  if (!current) return null;
+  if (!onRecordStep && !current) return null;
 
-  const values = suggestions.filter((s) => fieldArea(s.id) === current.key);
-  const holderBlocked = current.key === "holder" && !holderAddressOk;
-
-  function advance(afterKey: string, alsoConfirm: boolean) {
-    if (alsoConfirm) onConfirm(afterKey);
-    const idx = areas.findIndex((a) => a.key === afterKey);
-    const next =
-      areas
-        .slice(idx + 1)
-        .find((a) => !confirmed.has(a.key) && a.key !== afterKey) ??
-      areas.find((a) => !confirmed.has(a.key) && a.key !== afterKey);
-    if (next) onBegin(next.key);
-  }
-
-  return (
+  const frame = (title: string, body: React.ReactNode, foot: React.ReactNode) => (
     <div className="no-print fixed bottom-5 left-1/2 z-40 w-[min(100vw-2rem,430px)] -translate-x-1/2 overflow-hidden rounded-2xl border border-[var(--gold)]/60 bg-[var(--paper)] shadow-2xl">
       <div className="flex items-center justify-between gap-2 border-b border-[var(--rule)] bg-white px-3 py-2">
         <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
-          Confirm From The File · {done} Of {areas.length} Done
+          {title} · {done} Of {areas.length} Areas Done
         </p>
         <button
           type="button"
@@ -1448,61 +1513,197 @@ function ConfirmWizard({
           ✕
         </button>
       </div>
-      <div className="max-h-[40vh] overflow-y-auto px-3 py-2.5">
-        <p className="text-[13px] font-semibold text-[var(--ink)]">
-          {current.label}
-        </p>
-        {values.length === 0 ? (
-          <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
-            Nothing extracted for this area — review it on the sheet, fill
-            what the certificate needs, then confirm.
-          </p>
-        ) : (
-          <ul className="mt-1.5 space-y-1">
-            {values.map((s) => (
-              <li
-                key={s.id}
-                className="flex items-baseline justify-between gap-2 rounded-lg border border-[var(--rule)] bg-white px-2 py-1"
-              >
-                <span className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
-                  {s.label}
-                </span>
-                <span className="min-w-0 text-right">
-                  <span className="block truncate text-[11px] font-semibold text-[var(--ink)]">
-                    {s.display}
-                  </span>
-                  <span className="block text-[9px] uppercase tracking-wide text-[var(--muted)]">
-                    {s.source}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {holderBlocked && (
-          <p className="mt-1.5 rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-[10.5px] text-red-800">
-            The holder address must verify before this area can be confirmed.
-          </p>
-        )}
-      </div>
+      <div className="max-h-[44vh] overflow-y-auto px-3 py-2.5">{body}</div>
       <div className="flex items-center justify-between gap-2 border-t border-[var(--rule)] bg-white px-3 py-2">
-        <button
-          type="button"
-          onClick={() => advance(current.key, false)}
-          className="rounded-lg border border-[var(--rule)] bg-[var(--paper)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)] transition hover:text-[var(--ink)]"
-        >
-          Skip For Now
-        </button>
-        <button
-          type="button"
-          onClick={() => advance(current.key, true)}
-          disabled={holderBlocked}
-          className="rounded-lg bg-emerald-600 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-45"
-        >
-          Confirm &amp; Next
-        </button>
+        {foot}
       </div>
     </div>
+  );
+
+  // ——— Step one: everything the file says, one attestation ———
+  if (onRecordStep) {
+    const blocked = recordPending.filter((a) => rejectAreas.has(a.key));
+    return frame(
+      "Confirm From The File",
+      <>
+        <p className="text-[11px] leading-relaxed text-[var(--muted)]">
+          These values are locked to the schedule of record and already
+          verifier-checked — read them once and confirm them together.
+        </p>
+        {recordPending.map((a) => {
+          const values = suggestions.filter((s) => fieldArea(s.id) === a.key);
+          return (
+            <div key={a.key} className="mt-2">
+              <p className="flex items-center justify-between gap-2 text-[11px] font-semibold text-[var(--ink)]">
+                {a.label}
+                {rejectAreas.has(a.key) && (
+                  <span className="rounded-full border border-red-300 bg-red-50 px-1.5 py-0.5 text-[8.5px] font-semibold uppercase tracking-wide text-red-800">
+                    Carries A Reject
+                  </span>
+                )}
+              </p>
+              {values.length === 0 ? (
+                <p className="mt-0.5 text-[10px] text-[var(--muted)]">
+                  Nothing extracted — the area prints blank.
+                </p>
+              ) : (
+                <ul className="mt-1 space-y-1">
+                  {values.map((s) => (
+                    <WizardValueRow key={s.id} s={s} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+        {blocked.length > 0 && (
+          <p className="mt-2 rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-[10.5px] text-red-800">
+            {blocked.length} area{blocked.length === 1 ? "" : "s"} carr
+            {blocked.length === 1 ? "ies" : "y"} a reject — resolve it in the
+            Checks panel before confirming.
+          </p>
+        )}
+      </>,
+      <>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg border border-[var(--rule)] bg-[var(--paper)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)] transition hover:text-[var(--ink)]"
+        >
+          Review On The Sheet
+        </button>
+        <button
+          type="button"
+          onClick={() => onConfirmMany(recordPending.map((a) => a.key))}
+          disabled={blocked.length > 0}
+          className="rounded-lg bg-emerald-600 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-45"
+        >
+          Confirm All ({recordPending.length} Area
+          {recordPending.length === 1 ? "" : "s"})
+        </button>
+      </>,
+    );
+  }
+
+  // ——— Per-certificate steps: Certificate Holder, then Description ———
+  if (!current) return null;
+  const values = suggestions.filter((s) => fieldArea(s.id) === current.key);
+  const holderStep = current.key === "holder";
+  const holderBlocked =
+    holderStep && (!holderAddressOk || !holderName.trim());
+
+  function advance(afterKey: string, alsoConfirm: boolean) {
+    if (alsoConfirm) onConfirm(afterKey);
+    const next = perCertPending.find(
+      (a) => a.key !== afterKey && !confirmed.has(a.key),
+    );
+    if (next) onBegin(next.key);
+  }
+
+  return frame(
+    current.label,
+    <>
+      {holderStep ? (
+        <>
+          {holderName.trim() ? (
+            <div className="rounded-lg border border-[var(--rule)] bg-white px-2 py-1.5">
+              <p className="text-[11.5px] font-semibold text-[var(--ink)]">
+                {holderName}
+              </p>
+              <p className="text-[10px] text-[var(--muted)]">
+                {holderAddress.trim() || "No address given"}
+              </p>
+            </div>
+          ) : (
+            <p className="text-[11px] leading-relaxed text-[var(--muted)]">
+              No holder yet — load one from the rail below, or type it on the
+              sheet exactly as the contract spells it.
+            </p>
+          )}
+          {rail.length > 0 && (
+            <div className="mt-2">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
+                On The Rail
+              </p>
+              <ul className="mt-1 space-y-1">
+                {rail.map((e) => (
+                  <li
+                    key={e.key}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-[var(--rule)] bg-white px-2 py-1"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[11px] font-semibold text-[var(--ink)]">
+                        {e.name}
+                      </span>
+                      <span className="block truncate text-[9.5px] text-[var(--muted)]">
+                        {e.source}
+                        {e.address ? ` · ${e.address}` : ""}
+                      </span>
+                    </span>
+                    {e.key === activeRailKey ? (
+                      <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
+                        ✓ On The Sheet
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onLoadHolder({ name: e.name, address: e.address })
+                        }
+                        className="shrink-0 rounded-lg border border-[var(--gold)] bg-white px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--ink)] hover:bg-[var(--gold)]/10"
+                      >
+                        Use
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {holderName.trim() && !holderAddressOk && (
+            <p className="mt-1.5 rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-[10.5px] text-red-800">
+              The holder address must verify before this area can be
+              confirmed.
+            </p>
+          )}
+        </>
+      ) : values.length === 0 ? (
+        <p className="text-[11px] leading-relaxed text-[var(--muted)]">
+          Nothing extracted for this area — review it on the sheet, fill what
+          the certificate needs, then confirm.
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {values.map((s) => (
+            <WizardValueRow key={s.id} s={s} />
+          ))}
+        </ul>
+      )}
+    </>,
+    <>
+      <button
+        type="button"
+        onClick={() => advance(current.key, false)}
+        className="rounded-lg border border-[var(--rule)] bg-[var(--paper)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)] transition hover:text-[var(--ink)]"
+      >
+        Skip For Now
+      </button>
+      <button
+        type="button"
+        onClick={() => advance(current.key, true)}
+        disabled={holderBlocked}
+        title={
+          holderBlocked
+            ? !holderName.trim()
+              ? "A certificate has to name who it's issued to"
+              : "The holder address must verify first"
+            : undefined
+        }
+        className="rounded-lg bg-emerald-600 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-45"
+      >
+        Confirm &amp; Next
+      </button>
+    </>,
   );
 }
 
@@ -1810,8 +2011,8 @@ function RunPanel({
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
           This holder is on the sheet. Confirm the Certificate Holder and
-          Description areas, apply the signature — Issue runs the presend
-          registry and records the certificate on the ledger before the next
+          Description areas — Issue applies the signature, runs the presend
+          registry, and records the certificate on the ledger before the next
           holder swaps in. Shared areas stay confirmed.
         </p>
         {run.done.length > 0 && (
@@ -2061,6 +2262,24 @@ function CoverageLockPanel({
       </div>
     );
   }
+  // The common case — no endorsement in flight — collapses to one line;
+  // the lock itself never loosens, so there is nothing to act on here.
+  if (tickets.length === 0) {
+    return (
+      <details className="rounded-xl border border-[var(--rule)] bg-[var(--paper)] px-3 py-2">
+        <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
+          Coverage Data — Locked To The Record
+        </summary>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--muted)]">
+          Coverage rows, limits, and insurer identity print from the schedule
+          of record and are not editable. Holder, description, and the
+          Additional Insured / Waiver Of Subrogation cells remain workable per
+          certificate. To change what prints here, open an endorsement ticket
+          first.
+        </p>
+      </details>
+    );
+  }
   return (
     <div className="rounded-xl border border-[var(--rule)] bg-[var(--paper)] p-3">
       <p className="eyebrow">Coverage Data — Locked</p>
@@ -2069,40 +2288,33 @@ function CoverageLockPanel({
         record and are not editable. Holder, description, and the Additional
         Insured / Waiver Of Subrogation cells remain workable per certificate.
       </p>
-      {tickets.length === 0 ? (
-        <p className="mt-2 text-[11px] text-[var(--muted)]">
-          No open endorsement is changing conditions on this account. To
-          change what prints here, open an endorsement ticket first.
+      <div className="mt-2 space-y-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+          Open Endorsements That Can Unlock Editing
         </p>
-      ) : (
-        <div className="mt-2 space-y-1.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Open Endorsements That Can Unlock Editing
-          </p>
-          {tickets.map((t) => (
-            <div
-              key={t.id}
-              className="flex items-center justify-between gap-2 rounded-lg border border-[var(--rule)] bg-white px-2 py-1.5"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-[11px] font-semibold text-[var(--ink)]">
-                  {t.label} · {t.status}
-                </p>
-                <p className="truncate text-[10px] text-[var(--muted)]">
-                  {t.subject}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => onUnlock(t.id)}
-                className="shrink-0 rounded-lg border border-[var(--rule)] bg-[var(--paper)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ink)] transition hover:border-[var(--gold)]"
-              >
-                Unlock
-              </button>
+        {tickets.map((t) => (
+          <div
+            key={t.id}
+            className="flex items-center justify-between gap-2 rounded-lg border border-[var(--rule)] bg-white px-2 py-1.5"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-[11px] font-semibold text-[var(--ink)]">
+                {t.label} · {t.status}
+              </p>
+              <p className="truncate text-[10px] text-[var(--muted)]">
+                {t.subject}
+              </p>
             </div>
-          ))}
-        </div>
-      )}
+            <button
+              type="button"
+              onClick={() => onUnlock(t.id)}
+              className="shrink-0 rounded-lg border border-[var(--rule)] bg-[var(--paper)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ink)] transition hover:border-[var(--gold)]"
+            >
+              Unlock
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -2910,7 +3122,7 @@ function AcordSheet({
                   disabled={!canSign}
                   title={
                     canSign
-                      ? `Stamp the standard signature — ${AUTHORIZED_REPRESENTATIVE}`
+                      ? `Stamp the standard signature — ${AUTHORIZED_REPRESENTATIVE}. Sign & Issue applies it automatically.`
                       : "Available once every area is confirmed and verification is clean"
                   }
                   className="no-print rounded border border-[var(--gold)] bg-white px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--ink)] disabled:opacity-40"

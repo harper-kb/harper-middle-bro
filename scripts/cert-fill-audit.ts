@@ -315,7 +315,14 @@ function expectedChecks(
         set.coverages.find((c) =>
           /general liability|liability section/i.test(c.label),
         ) ?? set.coverages[0];
-      const claimsMade = /claims-?made/i.test(glPart?.label ?? "");
+      // Claims-made evidence lives in TWO places on a real dec: the coverage
+      // part label, or a scheduled claims-made endorsement (ISC paper states
+      // it as "Claims-Made and Reported Limitation" — HS/SP CMR 00 00). The
+      // resolver only reads the label; the audit reads both, so a sheet that
+      // checks OCCUR against claims-made paper is a Wrong Value.
+      const claimsMade =
+        /claims-?made/i.test(glPart?.label ?? "") ||
+        set.endorsements.some((e) => /claims-?made/i.test(e.title));
       const perProject = set.endorsements.some((e) =>
         /per[- ]project/i.test(e.title),
       );
@@ -341,7 +348,9 @@ function expectedChecks(
       };
     }
     case "umbrella": {
-      const claimsMade = /claims-?made/i.test(text);
+      const claimsMade =
+        /claims-?made/i.test(text) ||
+        set.endorsements.some((e) => /claims-?made/i.test(e.title));
       return {
         umbrella: /umbrella/i.test(text),
         excess: /excess/i.test(text),
@@ -431,40 +440,74 @@ const AGG_SLOTS = new Set<LimitSlot>([
   "gar_other_than_auto_aggregate",
 ]);
 
-/** Expected description sentences, rebuilt from raw endorsement rows. */
-function expectedDescriptionSentences(
+/**
+ * Expected description grants, rebuilt from raw endorsement rows.
+ *
+ * A grant endorsement with its form + edition on record backs one exact
+ * sentence ("… per CG 20 10 04 13."). A grant listed BY TITLE ONLY (blank
+ * form/edition — real ISC decs schedule "Additional Insured" with no form
+ * code) still backs the grant wording, but backs NO citation: a sentence
+ * ending in a dangling "per  ." cites a form the schedule cannot name and
+ * audits as a Wrong Value, never as a match. The audit must not rebuild the
+ * resolver's template over blank fields — that would let the bug vouch for
+ * itself.
+ */
+interface DescExpectation {
+  kind: "ai" | "wos" | "pnc";
+  /** Form + edition are on record — the exact sentence is expected. */
+  cited: boolean;
+  sentence: string | null;
+  grantRe: RegExp;
+  source: string;
+}
+
+const GRANT_RES: Record<DescExpectation["kind"], RegExp> = {
+  ai: /additional insured/i,
+  wos: /waiver of subrogation/i,
+  pnc: /primary and non-?contributory/i,
+};
+
+function expectedDescriptionGrants(
   policies: Policy[],
   rawSets: Map<string, PolicyFormSet>,
-): { sentence: string; source: string }[] {
+): DescExpectation[] {
   const seen = new Set<string>();
-  const out: { sentence: string; source: string }[] = [];
-  const add = (sentence: string, source: string) => {
-    if (seen.has(sentence)) return;
-    seen.add(sentence);
-    out.push({ sentence, source });
+  const out: DescExpectation[] = [];
+  const add = (exp: DescExpectation) => {
+    const key = exp.sentence ?? `uncited:${exp.kind}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(exp);
   };
+  const sentenceFor = (kind: DescExpectation["kind"], form: string, edition: string) =>
+    kind === "ai"
+      ? `${HOLDER_NAME} is included as additional insured per ${form} ${edition}.`
+      : kind === "wos"
+        ? `Waiver of subrogation applies per ${form} ${edition}.`
+        : `Coverage is primary and non-contributory per ${form} ${edition}.`;
   for (const p of policies) {
     const set = rawSets.get(p.id)!;
-    const ai = set.endorsements.find((e) => e.kind === "ai");
-    const wos = set.endorsements.find((e) => e.kind === "wos");
-    const pnc = set.endorsements.find((e) => e.kind === "pnc");
-    if (ai)
-      add(
-        `${HOLDER_NAME} is included as additional insured per ${ai.form} ${ai.edition}.`,
-        `policy_endorsements[${p.id}] kind=ai (${ai.form} ${ai.edition})`,
-      );
-    if (wos)
-      add(
-        `Waiver of subrogation applies per ${wos.form} ${wos.edition}.`,
-        `policy_endorsements[${p.id}] kind=wos (${wos.form} ${wos.edition})`,
-      );
-    if (pnc)
-      add(
-        `Coverage is primary and non-contributory per ${pnc.form} ${pnc.edition}.`,
-        `policy_endorsements[${p.id}] kind=pnc (${pnc.form} ${pnc.edition})`,
-      );
+    for (const kind of ["ai", "wos", "pnc"] as const) {
+      const e = set.endorsements.find((x) => x.kind === kind);
+      if (!e) continue;
+      const cited = Boolean(e.form.trim() && e.edition.trim());
+      add({
+        kind,
+        cited,
+        sentence: cited ? sentenceFor(kind, e.form, e.edition) : null,
+        grantRe: GRANT_RES[kind],
+        source: cited
+          ? `policy_endorsements[${p.id}] kind=${kind} (${e.form} ${e.edition})`
+          : `policy_endorsements[${p.id}] kind=${kind} — title only, form/edition BLANK on record`,
+      });
+    }
   }
   return out;
+}
+
+/** A grant sentence whose citation trails off ("… per  ." / "… per .") */
+function malformedCite(sentence: string): boolean {
+  return /\bper\s*\.$/.test(sentence) || /\s\.$/.test(sentence);
 }
 
 /* ————————————————— Static / producer verification (once) ————————————————— */
@@ -1054,23 +1097,69 @@ function auditSheet(input: {
     }
   }
 
-  // ——— Description sentences (endorsement wording) ———
-  const expectedSentences = expectedDescriptionSentences(policies, rawSets);
+  // ——— Description sentences (endorsement wording + citation integrity) ———
+  const expectations = expectedDescriptionGrants(policies, rawSets);
   const gotSentences = packet.description
     .split(/(?<=\.)\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  for (const exp of expectedSentences) {
-    const present = gotSentences.includes(exp.sentence);
+  const accounted = new Set<string>();
+  for (const exp of expectations) {
+    if (exp.cited) {
+      const present = gotSentences.includes(exp.sentence!);
+      if (present) accounted.add(exp.sentence!);
+      push({
+        ...base("Description", `desc.expect.${exp.kind}`, exp.source),
+        cls: present ? "filled_correct" : "missed_fill",
+        expected: exp.sentence!,
+        got: present ? exp.sentence! : "[absent]",
+      });
+      continue;
+    }
+    // Title-only grant: the wording must surface, but no citation is backed.
+    const hit = gotSentences.find((s) => exp.grantRe.test(s));
+    if (!hit) {
+      push({
+        ...base("Description", `desc.grant.${exp.kind}`, exp.source),
+        cls: "missed_fill",
+        expected: `[${exp.kind} grant sentence — endorsement is on the schedule]`,
+        got: "[absent]",
+      });
+      continue;
+    }
+    accounted.add(hit);
     push({
-      ...base("Description", `desc.expect`, exp.source),
-      cls: present ? "filled_correct" : "missed_fill",
-      expected: exp.sentence,
-      got: present ? exp.sentence : "[absent]",
+      ...base("Description", `desc.grant.${exp.kind}`, exp.source),
+      cls: "filled_correct",
+      expected: `[${exp.kind} grant sentence]`,
+      got: hit,
     });
+    if (malformedCite(hit)) {
+      push({
+        ...base("Description", `desc.citation.${exp.kind}`, exp.source),
+        cls: "wrong_value",
+        expected:
+          "[grant wording citing a real form, or no citation — the schedule names no form]",
+        got: hit,
+      });
+    } else {
+      // The sentence cites a concrete form — it must trace to SOME scheduled
+      // endorsement on this account, else the cite is invented.
+      const citesScheduledForm = policies.some((p) =>
+        rawSets
+          .get(p.id)!
+          .endorsements.some((e) => e.form.trim() && hit.includes(e.form)),
+      );
+      push({
+        ...base("Description", `desc.citation.${exp.kind}`, exp.source),
+        cls: citesScheduledForm ? "filled_correct" : "wrong_value",
+        expected: "[citation traceable to the schedule of record]",
+        got: hit,
+      });
+    }
   }
   for (const got of gotSentences) {
-    if (!expectedSentences.some((e) => e.sentence === got)) {
+    if (!accounted.has(got)) {
       push({
         ...base("Description", `desc.unbacked`, "no schedule row backs this sentence"),
         cls: "wrong_value",
@@ -1419,6 +1508,16 @@ const digestNondeterminism: string[] = [];
 const policyless: string[] = [];
 /** Real-account insurer lines printing the MGA brand (no writer recorded). */
 const mgaBrandLines: string[] = [];
+/**
+ * The operator sample: every dec-verified real account (schedule attached
+ * off the dec, writer recorded in `policies.issuing_carrier`) plus the two
+ * hard seeds — multi-carrier overflow and the garage / ACORD 30 switcher.
+ */
+const SEED_SAMPLE = new Set(["acct-meridian", "acct-northstar"]);
+const sampleSheetIds: string[] = [];
+const accountNameById = new Map<string, string>();
+/** Dec-verified real accounts with no street address on the account row. */
+const missingInsuredAddress: string[] = [];
 
 for (const acctRow of accounts) {
   const policies = (policiesFor.all(acctRow.id) as RawPolicyRow[]).map(mapPolicy);
@@ -1461,6 +1560,15 @@ for (const acctRow of accounts) {
   const sheet = bundle.sheet;
   builtSheets.set(acctRow.id, { packet, sheet });
   sheetOrder.push(acctRow.id);
+  accountNameById.set(acctRow.id, acctRow.name);
+  const decVerified =
+    acctRow.id.startsWith("acct-real-") &&
+    policies.some((p) => p.issuingCarrier);
+  const inSample = decVerified || SEED_SAMPLE.has(acctRow.id);
+  if (inSample) sampleSheetIds.push(acctRow.id);
+  if (decVerified && (!acctRow.address1?.trim() || !acctRow.zip?.trim())) {
+    missingInsuredAddress.push(acctRow.id);
+  }
   auditSheet({
     sheetId: acctRow.id,
     form: "acord25",
@@ -1481,6 +1589,7 @@ for (const acctRow of accounts) {
     const id30 = `${acctRow.id} · ACORD 30`;
     builtSheets.set(id30, { packet, sheet: sheet30 });
     sheetOrder.push(id30);
+    if (inSample) sampleSheetIds.push(id30);
     auditSheet({
       sheetId: id30,
       form: "acord30",
@@ -1545,6 +1654,11 @@ for (const acctRow of accounts) {
 if (mgaBrandLines.length > 0) {
   riskNotes.push(
     `**MGA brand on the INSURER line** — ${mgaBrandLines.length} sheet(s) print "ISC" with a blank NAIC cell because no dec-page writer is recorded (\`policies.issuing_carrier\` is empty). Honest per doctrine (never a guessed code), but ISC is an MGA, not an insurer — per carrier knowledge \`isc-writer-*\`, a certificate naming ISC on the INSURER line misidentifies the insurer. Record the writer at intake to resolve: ${mgaBrandLines.slice(0, 6).join(", ")}${mgaBrandLines.length > 6 ? `, +${mgaBrandLines.length - 6} more` : ""}.`,
+  );
+}
+if (missingInsuredAddress.length > 0) {
+  riskNotes.push(
+    `**Insured street address missing on dec-verified real accounts** (Data Gap) — ${missingInsuredAddress.length} account(s) carry no \`address1\`/\`zip\` on the accounts row (${missingInsuredAddress.join(", ")}). The INSURED box prints name + city/state only — honest blanks per doctrine, but the dec carries a mailing address the import never captured; holders can reject a cert with a bare-city insured block.`,
   );
 }
 if (policyless.length > 0) {
@@ -1638,7 +1752,7 @@ out(
   `- **Fictional Seed Accounts** (${accountsAudited - realIds.size}): ${fictionScore.fc} filled correct, ${fictionScore.cb} correctly blank, ${fictionScore.mf} missed, ${fictionScore.wv} wrong — Fill Rate ${fillRate(fictionScore)}, Accuracy ${accuracy(fictionScore)}.`,
 );
 out(
-  `- **Real ISC Accounts** (\`acct-real-*\`, ${realIds.size} with policies): ${realScore.fc} filled correct, ${realScore.cb} correctly blank, ${realScore.mf} missed, ${realScore.wv} wrong — Fill Rate ${fillRate(realScore)}, Accuracy ${accuracy(realScore)}. Schedules are unattached by design; the promise under test is honest blanks, never invented values.`,
+  `- **Real ISC Accounts** (\`acct-real-*\`, ${realIds.size} with policies): ${realScore.fc} filled correct, ${realScore.cb} correctly blank, ${realScore.mf} missed, ${realScore.wv} wrong — Fill Rate ${fillRate(realScore)}, Accuracy ${accuracy(realScore)}. ${sampleSheetIds.filter((s) => s.startsWith("acct-real-")).length} carry dec-verified schedules (writer + limits attached off the dec); the rest are unattached and audit as honest blanks.`,
 );
 out();
 out(`- **Platform Fill Rate:** ${fillRate(platform)} (Filled Correct ÷ fields the schedule can back)`);
@@ -1663,6 +1777,29 @@ for (const id of sheetOrder) {
 }
 out(
   `| **Platform** | **${platform.total}** | **${platform.fc}** | **${platform.cb}** | **${platform.mf}** | **${platform.wv}** | **${platform.sp}** | **${fillRate(platform)}** | **${accuracy(platform)}** |`,
+);
+out();
+
+out(`## Dec-Verified Sample Scorecard (Real Book + Hard Seeds)`);
+out();
+out(
+  `The operator sample: every real account whose dec-page schedule is attached and writer-verified (\`policies.issuing_carrier\` set), plus two hard seeds — \`acct-meridian\` (6 policies / 4 carriers, overflow) and \`acct-northstar\` (garage, ACORD 25 + 30).`,
+);
+out();
+out(`| Sheet | Account | Total | Filled Correct | Correctly Blank | Missed Fill | Wrong Value | Fill Rate | Accuracy |`);
+out(`|---|---|---|---|---|---|---|---|---|`);
+const sampleScore = scoreFor(
+  audits.filter((a) => sampleSheetIds.includes(a.sheetId)),
+);
+for (const id of sampleSheetIds) {
+  const s = perSheet.get(id)!;
+  const name = accountNameById.get(id.split(" · ")[0]) ?? "";
+  out(
+    `| ${id} | ${name} | ${s.total} | ${s.fc} | ${s.cb} | ${s.mf} | ${s.wv} | ${fillRate(s)} | ${accuracy(s)} |`,
+  );
+}
+out(
+  `| **Sample** | | **${sampleScore.total}** | **${sampleScore.fc}** | **${sampleScore.cb}** | **${sampleScore.mf}** | **${sampleScore.wv}** | **${fillRate(sampleScore)}** | **${accuracy(sampleScore)}** |`,
 );
 out();
 
@@ -1694,6 +1831,80 @@ if (misses.length === 0 && wrongs.length === 0) {
     }
     out();
   }
+}
+
+/* Failure modes: every miss/wrong grouped into one numbered line each, with
+ * a gap classification (parser gap / fill-rule gap / data gap). Honest
+ * blanks are NOT failures — they score as Correctly Blank above. */
+function modeKeyFor(a: FieldAudit): string {
+  const f = a.field
+    .replace(/insurer\.[A-F∅]\./, "insurer.X.")
+    .replace(/\s*\(.*?\)\s*/g, "")
+    .replace(/\[\d+\]/g, "[i]")
+    .replace(/^dropped\.[^.]+\./, "dropped.");
+  return `${a.cls}|${a.section}|${f}`;
+}
+
+function gapFor(key: string): string {
+  if (/check\.claimsMade|check\.occur/.test(key)) {
+    return "Fill-Rule Gap — `resolveChecks` derives claims-made from the coverage-part label only (`src/lib/acord25.ts:182`); real ISC decs state it as a scheduled endorsement (\"Claims-Made and Reported Limitation\") which the resolver never reads";
+  }
+  if (/desc\.citation/.test(key)) {
+    return "Fill-Rule Gap — `buildDraftFromPolicy` prints `per <form> <edition>` unconditionally (`src/lib/coi.ts:503`), leaving a dangling \"per  .\" when the schedule names no form; upstream Parser Gap — the dec-page importer stored the endorsement by title only (blank form/edition, flagged in `data/real-isc/import-report.json`)";
+  }
+  if (/desc\.grant/.test(key)) {
+    return "Fill-Rule Gap — a grant endorsement on the schedule never surfaced in the description";
+  }
+  if (/dropped\./.test(key)) {
+    return "Fill-Rule Gap — a scheduled limit surfaced nowhere on the sheet";
+  }
+  if (/desc\.unbacked/.test(key)) {
+    return "Wrong Value — description sentence with no schedule backing";
+  }
+  return "Unclassified — investigate by hand";
+}
+
+out(`## Failure Modes (Numbered)`);
+out();
+const failures = [...wrongs, ...misses];
+if (failures.length === 0) {
+  out(`None observed on this DB state.`);
+  out();
+} else {
+  out(
+    `Every Missed Fill and Wrong Value above, grouped into distinct failure modes — one line each with a repro account. Honest blanks (dec silent, field blank) are passes and are not listed.`,
+  );
+  out();
+  const byMode = new Map<string, FieldAudit[]>();
+  for (const f of failures) {
+    const key = modeKeyFor(f);
+    const rows = byMode.get(key) ?? [];
+    rows.push(f);
+    byMode.set(key, rows);
+  }
+  let n = 0;
+  for (const [key, rows] of byMode) {
+    n++;
+    const first = rows[0];
+    const sheets = [...new Set(rows.map((r) => r.sheetId))];
+    const others =
+      sheets.length > 1 ? ` (+${sheets.length - 1} more sheet${sheets.length > 2 ? "s" : ""}: ${sheets.slice(1).join(", ")})` : "";
+    out(
+      `${n}. **${first.cls === "wrong_value" ? "WRONG VALUE" : "MISSED FILL"}** \`${first.field}\` (${first.section}) — repro \`${first.sheetId}\`${others}: expected ${first.expected}, got ${first.got}. ${gapFor(key)}.`,
+    );
+  }
+  out();
+}
+
+// Wrong values that ride through the verifier without a single reject are
+// worse than the miss itself — nothing stops the operator from issuing.
+const silentWrongSheets = [...new Set(wrongs.map((w) => w.sheetId))].filter(
+  (id) => (builtSheets.get(id)?.packet.rejects.length ?? 0) === 0,
+);
+if (silentWrongSheets.length > 0) {
+  riskNotes.unshift(
+    `**Verifier silence on Wrong Values** — ${silentWrongSheets.length} sheet(s) carrying a Wrong Value have ZERO packet rejects (okToIssue stays true): ${silentWrongSheets.join(", ")}. Both live failure modes (OCCUR on claims-made paper; dangling "per  ." citation) are invisible to \`verifyCoi\` — the sheet signs and issues clean.`,
+  );
 }
 
 out(`## Enforcement Controls (Synthetic Probes)`);
@@ -1755,6 +1966,8 @@ out(`- Expected values are recomputed in this script from raw SQL rows (doctrine
 out(`- Insurer letters are expected per WRITING PAPER (dec-page writer via \`policies.issuing_carrier\`, else brand) — two ISC policies on different writers are different insurers.`);
 out(`- Insured address cells (\`insured.addr1/city/state/zip\`) audit the account-record auto-fill: expected straight off the \`accounts\` row, wiring verified against \`CertificateStudio.tsx\` source. A blank street line on record yields honest blanks.`);
 out(`- Carrier-knowledge gates (\`carrier-knowledge.ts\`) are cross-checked on every printed Additional Insured box and probed synthetically (Enforcement Controls) since the live data has no ISC excess line.`);
+out(`- Claims-made evidence is read from BOTH the coverage-part label and scheduled endorsement titles (real ISC decs carry "Claims-Made and Reported Limitation") — an OCCUR check against claims-made paper is a Wrong Value.`);
+out(`- Description grants are audited for citation integrity: a grant endorsement recorded title-only (blank form/edition) backs the wording but no citation — a dangling "per  ." cite is a Wrong Value, and any concrete cite must trace to a scheduled form.`);
 out(`- Deterministic: same DB state → same report (snapshot clock injected). Run: \`npx tsx scripts/cert-fill-audit.ts\`. Exit code = wrong values + control failures.`);
 out();
 

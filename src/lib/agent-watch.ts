@@ -287,7 +287,7 @@ function intakeCitation(e: WatchIntakeEvent): WatchCitation {
     kind: "intake",
     id: e.id,
     label: `${e.channel} from ${e.fromName} (${e.id})`,
-    href: "/pending",
+    href: "/comms",
   };
 }
 

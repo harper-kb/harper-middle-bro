@@ -34,7 +34,7 @@ export default async function ProfilePage() {
           <section className="surface-card space-y-4 p-6">
             <p className="eyebrow">Clerk Sign In</p>
             <p className="text-sm text-[var(--muted)]">
-              Harper Middle Bro is its own Clerk product. Create an account or
+              Step Bro is its own Clerk product. Create an account or
               sign in; your desk operator profile is created on first login.
             </p>
             <div className="flex flex-wrap gap-2">

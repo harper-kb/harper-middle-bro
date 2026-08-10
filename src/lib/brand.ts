@@ -5,9 +5,9 @@ export const SERVICE_NAME = "Harper Service";
  * UI-facing product name (wordmark, page titles). Distinct from the legal
  * PRODUCER / COMPANY_NAME identity below — certificates never use this.
  */
-export const PRODUCT_NAME = "Harper Middle Bro";
+export const PRODUCT_NAME = "Step Bro";
 /** The non-"Harper" half of the wordmark, for compact surfaces. */
-export const SHORT_NAME = "Middle Bro";
+export const SHORT_NAME = "Step Bro";
 /** How the agency signs itself on outbound mail. */
 export const COMPANY_NAME = "Harper Insurance Services";
 

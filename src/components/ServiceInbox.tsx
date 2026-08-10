@@ -241,7 +241,7 @@ function SelectedThread({
               The acknowledgment goes out the moment an operator confirms the
               ticket on the{" "}
               <Link
-                href="/pending"
+                href="/comms"
                 className="font-medium underline underline-offset-4"
               >
                 Pending

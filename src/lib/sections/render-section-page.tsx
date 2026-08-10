@@ -1,6 +1,6 @@
 import { LaneModeBanner } from "@/components/LaneModeBanner";
 import { Nav } from "@/components/Nav";
-import { sampleWorkItemsForLane } from "@/lib/adapters/bigbrother/sample";
+import { loadLaneSnapshot } from "@/lib/adapters/bigbrother/lane-registry";
 import { SectionLanePage } from "@/lib/sections/section-shell";
 import { getSessionOperator } from "@/lib/session";
 import {
@@ -11,10 +11,7 @@ import {
 
 export async function renderSectionPage(lane: ServiceLaneId) {
   const operator = await getSessionOperator();
-  const items = sampleWorkItemsForLane(lane);
-  const mode = "sample" as const;
-  const modeReason =
-    "Section shell — BigBrother live flip lands after count reconciliation (PR 8+)";
+  const snapshot = await loadLaneSnapshot(lane);
 
   return (
     <div>
@@ -31,16 +28,16 @@ export async function renderSectionPage(lane: ServiceLaneId) {
           </p>
         </div>
         <LaneModeBanner
-          mode={mode}
-          reason={modeReason}
-          count={items.length}
-          sourceCount={null}
+          mode={snapshot.mode}
+          reason={snapshot.modeReason}
+          count={snapshot.count}
+          sourceCount={snapshot.sourceCount}
         />
         <SectionLanePage
           lane={lane}
-          mode={mode}
-          modeReason={modeReason}
-          items={items}
+          mode={snapshot.mode}
+          modeReason={snapshot.modeReason}
+          items={snapshot.items}
         />
       </main>
     </div>

@@ -30,3 +30,10 @@ export {
   probeBigBrotherLaneCount,
   reconcileCounts,
 } from "./lane-adapter";
+export {
+  getLaneAdapter,
+  loadAllLaneSnapshots,
+  loadLaneSnapshot,
+  toModeReport,
+  type LaneModeReport,
+} from "./lane-registry";

@@ -64,3 +64,6 @@ else
   echo "$fails harness(es) FAILED."
 fi
 exit $([ $fails -eq 0 ] && echo 0 || echo 1)
+run hardening-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/hardening-check.ts
+run manager-kpi-check npx tsx scripts/manager-kpi-check.ts
+run manager-qa-check npx tsx scripts/manager-qa-check.ts

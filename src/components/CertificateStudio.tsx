@@ -19,7 +19,7 @@ import type {
 } from "@/lib/acord25";
 import { CERT_FORMS, certDescription, resolveCertSheet } from "@/lib/acord25";
 import { AUTHORIZED_REPRESENTATIVE, PRODUCER } from "@/lib/brand";
-import { CARRIER_INTEL, carrierSlug } from "@/lib/carriers";
+import { CARRIER_INTEL } from "@/lib/carriers";
 import { coverageLabel, getRequestType } from "@/lib/catalog";
 import {
   prepareRunEmails,
@@ -2200,12 +2200,6 @@ function NextInsuranceAdvisory({ carriers }: { carriers: string[] }) {
         portal issues instantly.
       </p>
       <p className="mt-2 flex flex-wrap gap-2">
-        <Link
-          href={`/carriers/${carrierSlug("NEXT Insurance")}`}
-          className="rounded-lg border border-[var(--rule)] bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ink)] transition hover:border-[var(--gold)]"
-        >
-          NEXT Carrier Page
-        </Link>
         {portal && (
           <a
             href={portal}

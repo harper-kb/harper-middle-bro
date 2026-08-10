@@ -9,9 +9,7 @@ import {
   SignUpButton,
   UserButton,
 } from "@clerk/nextjs";
-import { CarrierLogo } from "@/components/CarrierLogo";
 import { SERVICE_MAILBOX } from "@/lib/brand";
-import { CARRIER_INTEL, carrierSlug } from "@/lib/carriers";
 import type { Operator } from "@/lib/types";
 import { useIdlePresence, type Presence } from "@/lib/use-presence";
 
@@ -44,7 +42,6 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     items: [
       { href: "/accounts", label: "Accounts" },
       { href: "/certificates", label: "Certificates" },
-      { href: "/contacts", label: "Contacts" },
       { href: "/glossary", label: "Glossary" },
     ],
   },
@@ -123,11 +120,6 @@ function NavSections({
   onToggle: (id: string) => void;
   onNavigate?: () => void;
 }) {
-  const carriersActive = path.startsWith("/carriers");
-  const carriersOpen = collapsed.carriers === undefined
-    ? carriersActive
-    : !collapsed.carriers;
-
   return (
     <nav className="flex flex-col gap-5">
       <Link
@@ -168,43 +160,6 @@ function NavSections({
                     </li>
                   );
                 })}
-
-                {group.id === "records" && (
-                  <li>
-                    <button
-                      type="button"
-                      onClick={() => onToggle("carriers")}
-                      className={`w-full justify-between ${itemClass(carriersActive)}`}
-                      aria-expanded={carriersOpen}
-                    >
-                      <span className="flex items-center gap-2">
-                        {carriersActive && <PresenceDot presence={presence} />}
-                        Carriers
-                      </span>
-                      <Chevron open={carriersOpen} />
-                    </button>
-                    {carriersOpen && (
-                      <ul className="ml-3.5 mt-1 space-y-0.5 border-l border-[var(--rule)] pl-2.5">
-                        {CARRIER_INTEL.map((carrier) => {
-                          const slug = carrierSlug(carrier.name);
-                          const active = path === `/carriers/${slug}`;
-                          return (
-                            <li key={slug}>
-                              <Link
-                                href={`/carriers/${slug}`}
-                                onClick={onNavigate}
-                                className={itemClass(active)}
-                              >
-                                <CarrierLogo name={carrier.name} size={18} />
-                                <span className="truncate">{carrier.name}</span>
-                              </Link>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </li>
-                )}
               </ul>
             )}
           </div>
@@ -293,10 +248,7 @@ export function Nav({
 
   function toggle(id: string) {
     setCollapsed((prev) => {
-      const current =
-        id === "carriers" && prev[id] === undefined
-          ? path.startsWith("/carriers")
-          : !prev[id];
+      const current = !prev[id];
       const next = { ...prev, [id]: current };
       try {
         localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(next));

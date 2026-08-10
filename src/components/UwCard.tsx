@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { CarrierLogo } from "@/components/CarrierLogo";
 import { getCarrierTheme } from "@/lib/carrier-theme";
 import { channelLabel } from "@/lib/channels";
@@ -116,12 +115,6 @@ export function UwCard({
               Portal Ref
             </a>
           ) : null}
-          <Link
-            href={`/contacts?tab=carriers&q=${encodeURIComponent(uw.carrier)}`}
-            className="btn-ghost"
-          >
-            Carrier
-          </Link>
         </div>
       </div>
     </div>

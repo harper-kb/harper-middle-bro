@@ -1,9 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import type { KnowledgeKind } from "./carrier-knowledge";
 import { addOperatorCarrierKnowledge } from "./db";
-import { carrierSlug } from "./carriers";
 import { getSessionOperator } from "./session";
 
 const KINDS: KnowledgeKind[] = [
@@ -74,6 +72,4 @@ export async function addCarrierKnowledgeAction(formData: FormData) {
     source,
     createdBy: operator.id,
   });
-
-  revalidatePath(`/carriers/${carrierSlug(carrier)}`);
 }

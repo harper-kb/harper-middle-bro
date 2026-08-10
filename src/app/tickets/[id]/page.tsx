@@ -14,7 +14,6 @@ import { claimTicketAction, setTicketStatusAction } from "@/lib/actions";
 import { getRequestType } from "@/lib/catalog";
 import {
   getAccountAdditionalInsureds,
-  getCarrierSlugForName,
   getTicketDetail,
   getTicketDocuments,
   listDecisions,
@@ -103,10 +102,6 @@ export default async function TicketPage({
   const certReady =
     ticket.status === "ready_to_issue" ||
     (answered?.offeredPremiumCents ?? null) === 0;
-  const primaryCarrier = ticket.policies[0]?.carrier;
-  const carrierSlug = primaryCarrier
-    ? getCarrierSlugForName(primaryCarrier)
-    : null;
 
   // Desk Brain context — plain serializable data, assembled server-side so
   // the client panel answers deterministically without touching the db.
@@ -174,14 +169,6 @@ export default async function TicketPage({
                     ? "No Charge"
                     : formatMoney(answered.offeredPremiumCents)}
                 </p>
-              )}
-              {carrierSlug && primaryCarrier && (
-                <Link
-                  href={`/carriers/${carrierSlug}`}
-                  className="mt-2 inline-block text-xs underline decoration-[var(--rule)] underline-offset-4 hover:text-[var(--ink)]"
-                >
-                  {primaryCarrier} Desk →
-                </Link>
               )}
             </div>
           </div>

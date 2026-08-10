@@ -7,11 +7,19 @@ Typed seams for live reads and guarded writes. UI consumes `WorkItem` /
 
 | Adapter | Source | Notes |
 |---------|--------|-------|
-| BigBrother lanes | BigBrother service-workbench APIs backed by `lane-config.ts`, `fetch-swim-lanes.ts`, `fetch-unbound-accounts.ts` | Server-only. Do not copy BB SQL into Step Bro. |
+| BigBrother lanes | `GET /api/service-workbench/swim-lanes` (and unbound-accounts) — BB `lane-config.ts` / `fetch-swim-lanes.ts` | Server-only via `src/lib/adapters/bigbrother/*`. Do not copy BB SQL into Step Bro. |
 | BigBrother account | BigBrother account / ticket detail APIs | Identity mapped via Clerk → operator → external actor. |
-| Local sample | Seeded SQLite book | Labeled `mode: "sample"` when credentials missing or counts unreconciled. |
+| Local sample | `sampleLaneSnapshot()` fixtures | Labeled `mode: "sample"` when credentials missing or counts unreconciled. |
 
-A lane flips to `mode: "live"` only when `reconciled === true` (Step Bro count matches BigBrother `sourceCount`) and credentials are present. Unlabeled or fabricated numbers are forbidden.
+### Credentials
+
+| Env | Purpose |
+|-----|---------|
+| `BIGBROTHER_BASE_URL` | Origin for BigBrother (no trailing slash) |
+| `BIGBROTHER_API_TOKEN` | Bearer token for service-workbench APIs |
+| `BIGBROTHER_ACTOR_MAP_JSON` | Optional `{ "<clerkUserId\|operatorId>": "<bbActorId>" }` |
+
+When either base URL or token is missing, adapters return labeled sample mode. A lane flips to `mode: "live"` only when `reconciled === true` (Step Bro count matches BigBrother `sourceCount`) and credentials are present. Unlabeled or fabricated numbers are forbidden.
 
 ## Capability gates (writes)
 

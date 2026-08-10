@@ -50,6 +50,8 @@ do
 done
 
 run insured-box-render-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/insured-box-render-check.tsx
+run workitem-contracts-check npx tsx scripts/workitem-contracts-check.ts
+run bigbrother-adapter-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/bigbrother-adapter-check.ts
 
 echo "---"
 if [ $fails -eq 0 ]; then

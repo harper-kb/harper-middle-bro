@@ -582,15 +582,35 @@
     return norm(el.value || el.textContent || "");
   }
 
-  function openListItems(doc) {
-    const nodes = doc.querySelectorAll("[role='option'],[role='listbox'] li,[role='menuitemradio'],[role='menuitem']");
-    return Array.from(nodes)
+  const LIST_ITEM_SELECTOR =
+    "[role='option'],[role='listbox'] li,[role='menuitemradio'],[role='menuitem']";
+
+  /**
+   * The popup this trigger owns, when it says so. Falls back to the whole document, which is
+   * why callers must also discard anything that was on screen before the trigger was clicked.
+   */
+  function listScope(el) {
+    const owned = el.getAttribute("aria-controls") || el.getAttribute("aria-owns");
+    const root = el.getRootNode();
+    if (owned && typeof root.getElementById === "function") {
+      const node = root.getElementById(owned);
+      if (node) return node;
+    }
+    return el.ownerDocument;
+  }
+
+  function listItems(scope) {
+    return Array.from(scope.querySelectorAll(LIST_ITEM_SELECTOR))
       .filter((node) => isRendered(node))
       .map((node) => ({
         node,
         text: norm(node.textContent),
         value: norm(node.getAttribute("data-value") || node.getAttribute("value") || ""),
       }));
+  }
+
+  function closeList(el) {
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
   }
 
   /** Custom dropdown: open it, wait for the popup list, click the matching option. */
@@ -600,30 +620,41 @@
       return { status: "already", detail: "already correct" };
     }
 
-    const doc = el.ownerDocument;
+    const scope = listScope(el);
+    // Anything already on screen belongs to the page — a site nav is full of [role='menuitem']
+    // and one of them could easily read "Company". Only options that appear in response to the
+    // click are ours, and clicking a nav item would navigate away from a half-filled form.
+    const preexisting = new Set(listItems(scope).map((item) => item.node));
+
     pointerClick(el);
 
     let items = [];
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await pause(40);
-      items = openListItems(doc);
+      items = listItems(scope).filter((item) => !preexisting.has(item.node));
       if (items.length) break;
     }
     if (!items.length) {
-      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      closeList(el);
       return { status: "failed", detail: "the dropdown did not open" };
     }
 
     const match = pickOption(items, candidates);
     if (!match) {
-      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      closeList(el);
       const available = items.map((item) => item.node.textContent.trim()).filter(Boolean).slice(0, 8).join(", ");
       return { status: "failed", detail: `no option matching "${value}"${available ? ` (has: ${available})` : ""}` };
     }
 
     pointerClick(match.node);
-    await pause(60);
-    return { status: "filled" };
+    await pause(80);
+
+    const shown = currentTriggerText(el);
+    if (candidates.some((candidate) => shown === candidate || shown.includes(candidate))) {
+      return { status: "filled" };
+    }
+    closeList(el);
+    return { status: "failed", detail: "the dropdown did not take the selection" };
   }
 
   async function applySelect(el, value, specKey) {
@@ -644,6 +675,11 @@
     const pressed = el.getAttribute("aria-pressed");
     if (pressed === "true") return true;
     if (pressed === "false") return false;
+    // A styled switch usually wraps a real checkbox that carries the truth.
+    const inner = typeof el.querySelector === "function"
+      ? el.querySelector("input[type='checkbox'],input[type='radio']")
+      : null;
+    if (inner) return inner.checked;
     return null;
   }
 
@@ -651,8 +687,14 @@
     if (el.disabled || el.getAttribute("aria-disabled") === "true") {
       return { status: "blocked", detail: "control is disabled" };
     }
+
     const before = checkedState(el);
     if (before === desired) return { status: "already", detail: desired ? "already on" : "already off" };
+    if (before === null) {
+      // A click here is a coin flip: it could just as easily turn autopay off, or tick a
+      // terms box the run was told to leave alone. Leave it and say so.
+      return { status: "blocked", detail: "the page does not report this control's state — set it yourself" };
+    }
 
     // Click the control itself rather than its label: the terms label wraps a "Terms of Use"
     // link, and clicking that would navigate away from a half-filled form.
@@ -664,7 +706,8 @@
     await pause(30);
 
     const after = checkedState(el);
-    if (after === desired || after == null) return { status: "filled" };
+    if (after === desired) return { status: "filled" };
+    if (after === null) return { status: "filled", detail: "clicked, but the page stopped reporting its state" };
     return { status: "failed", detail: "the control did not change state" };
   }
 

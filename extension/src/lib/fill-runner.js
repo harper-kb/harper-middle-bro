@@ -68,7 +68,7 @@ export async function fillTab(tabId, profile) {
   const frames = injections.map((injection) => injection.result).filter(Boolean);
   if (frames.length === 0) return { ok: false, error: "The page did not respond. Reload it and try again." };
 
-  return { ok: true, ...merge(frames) };
+  return { ok: true, ...mergeFrames(frames) };
 }
 
 function describeError(error) {
@@ -81,18 +81,29 @@ function describeError(error) {
 }
 
 /** Collapse per-frame reports into one row per field, keeping the best outcome seen. */
-function merge(frames) {
-  const byKey = new Map();
+export function mergeFrames(frames) {
+  const grouped = new Map();
   for (const frame of frames) {
     for (const result of frame.results || []) {
-      const existing = byKey.get(result.key);
-      if (!existing || STATUS_RANK[result.status] > STATUS_RANK[existing.status]) {
-        byKey.set(result.key, result);
-      }
+      if (!grouped.has(result.key)) grouped.set(result.key, []);
+      grouped.get(result.key).push(result);
     }
   }
 
-  const results = Array.from(byKey.values());
+  const results = [];
+  for (const group of grouped.values()) {
+    const best = group.reduce((a, b) => (STATUS_RANK[b.status] > STATUS_RANK[a.status] ? b : a));
+    // A page can carry the same field in more than one same-origin document. Taking the best
+    // outcome is right — the field did get filled — but a copy that refused the value still
+    // deserves to be mentioned rather than hidden behind the success.
+    const troubled = group.filter((result) => result.status === "failed" || result.status === "blocked");
+    if (troubled.length > 0 && best.status !== "failed" && best.status !== "blocked") {
+      const note = "another copy of this field on the page could not be set";
+      results.push({ ...best, detail: best.detail ? `${best.detail}; ${note}` : note });
+    } else {
+      results.push(best);
+    }
+  }
   const summary = { filled: 0, already: 0, notFound: 0, problem: 0 };
   for (const result of results) {
     if (result.status === "filled") summary.filled += 1;
@@ -114,6 +125,9 @@ export function headline(report) {
   if (!report.ok) return report.error;
   const { filled, already, notFound, problem } = report.summary;
   if (filled === 0 && already === 0) {
+    if (problem > 0) {
+      return `Nothing could be filled — ${problem} field${problem === 1 ? "" : "s"} need a look.`;
+    }
     return "No matching fields on this page.";
   }
   const parts = [`Filled ${filled} field${filled === 1 ? "" : "s"}`];

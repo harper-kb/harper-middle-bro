@@ -17,7 +17,7 @@
 import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { PROFILE_FIELDS, emptyValues, isReady, newProfile, readyCount } from "../extension/src/lib/fields.js";
-import { headline } from "../extension/src/lib/fill-runner.js";
+import { headline, mergeFrames } from "../extension/src/lib/fill-runner.js";
 
 const ENGINE_SOURCE = readFileSync(
   new URL("../extension/src/inject/fill-engine.js", import.meta.url),
@@ -389,6 +389,79 @@ async function checkCustomDropdown() {
     doc.getElementById("trigger")?.textContent === "Company",
     detailOf(report, "accountHolderType"),
   );
+  check("(e) the dropdown reports filled", statusOf(report, "accountHolderType") === "filled");
+}
+
+/**
+ * A site nav is full of [role='menuitem'], and one of them can easily read "Company". Clicking
+ * it would navigate away from a half-filled payment form.
+ */
+async function checkDropdownIgnoresPageMenus() {
+  const dom = makeDom(`
+    <nav>
+      <div role="menuitem" id="nav-company">Company</div>
+      <div role="menuitem" id="nav-careers">Careers</div>
+    </nav>
+    <div class="fld">
+      <div class="lbl">Account holder type</div>
+      <div id="trigger" role="combobox" aria-expanded="false" tabindex="0">Individual</div>
+      <div id="menu"></div>
+    </div>`);
+  const doc = dom.window.document;
+
+  let navClicks = 0;
+  doc.getElementById("nav-company")?.addEventListener("click", () => {
+    navClicks += 1;
+  });
+
+  doc.getElementById("trigger")?.addEventListener("click", () => {
+    const menu = doc.getElementById("menu")!;
+    if (menu.childElementCount > 0) return;
+    menu.innerHTML = `<div role="listbox">
+        <div role="option">Individual</div>
+        <div role="option" id="real-company">Company</div>
+      </div>`;
+    for (const option of Array.from(menu.querySelectorAll("[role='option']"))) {
+      option.addEventListener("click", () => {
+        doc.getElementById("trigger")!.textContent = option.textContent;
+        menu.innerHTML = "";
+      });
+    }
+  });
+
+  const report = await runEngine(dom, { values: { accountHolderType: "Company" } });
+  check("(e) a matching nav menu item is never clicked", navClicks === 0, `${navClicks} clicks`);
+  check(
+    "(e) the real dropdown option is chosen instead",
+    doc.getElementById("trigger")?.textContent === "Company",
+    detailOf(report, "accountHolderType"),
+  );
+}
+
+/** A dropdown that swallows the click must be reported, not assumed to have worked. */
+async function checkUnresponsiveDropdown() {
+  const dom = makeDom(`
+    <div class="fld">
+      <div class="lbl">Account holder type</div>
+      <div id="trigger" role="combobox" tabindex="0">Individual</div>
+      <div id="menu"></div>
+    </div>`);
+  const doc = dom.window.document;
+
+  // Opens, but selecting an option does nothing.
+  doc.getElementById("trigger")?.addEventListener("click", () => {
+    const menu = doc.getElementById("menu")!;
+    if (menu.childElementCount === 0) {
+      menu.innerHTML = `<div role="listbox"><div role="option">Individual</div><div role="option">Company</div></div>`;
+    }
+  });
+
+  const report = await runEngine(dom, { values: { accountHolderType: "Company" } });
+  check(
+    "(e) a dropdown that ignores the selection reports failed",
+    statusOf(report, "accountHolderType") === "failed",
+    detailOf(report, "accountHolderType"),
+  );
 }
 
 // ——— (f) Idempotence and skipping ———
@@ -499,6 +572,53 @@ async function checkRejectedInput() {
     "(h) a field that rejects the value reports failed",
     statusOf(report, "routingNumber") === "failed",
     detailOf(report, "routingNumber"),
+  );
+}
+
+/**
+ * A switch that exposes no state at all cannot be clicked safely: the click is as likely to
+ * turn autopay off as on. It must be left alone and reported.
+ */
+async function checkUnreadableToggle() {
+  const dom = makeDom(`
+    <div class="switch-card">
+      <div class="copy"><div>Autopay</div><div>Make subsequent payments automatic</div></div>
+      <div id="mystery" role="switch" tabindex="0"></div>
+    </div>`);
+  const doc = dom.window.document;
+
+  let clicks = 0;
+  doc.getElementById("mystery")?.addEventListener("click", () => {
+    clicks += 1;
+  });
+
+  const report = await runEngine(dom, { values: { autopay: true } });
+  check(
+    "(h) a switch with no readable state is reported, not guessed at",
+    statusOf(report, "autopay") === "blocked",
+    detailOf(report, "autopay"),
+  );
+  check("(h) and it is never clicked blindly", clicks === 0, `${clicks} clicks`);
+}
+
+/** A styled switch that hides a real checkbox is still readable through it. */
+async function checkWrappedCheckboxToggle() {
+  const dom = makeDom(`
+    <div class="switch-card">
+      <div class="copy"><div>Autopay</div><div>Make subsequent payments automatic</div></div>
+      <span id="wrap" role="switch"><input type="checkbox" id="inner" /></span>
+    </div>`);
+  const doc = dom.window.document;
+  doc.getElementById("wrap")?.addEventListener("click", (event) => {
+    if (event.target === doc.getElementById("inner")) return;
+    doc.querySelector<HTMLInputElement>("#inner")!.checked = true;
+  });
+
+  const report = await runEngine(dom, { values: { autopay: true } });
+  check(
+    "(h) a switch wrapping a real checkbox is read through it",
+    statusOf(report, "autopay") === "filled" && doc.querySelector<HTMLInputElement>("#inner")?.checked === true,
+    detailOf(report, "autopay"),
   );
 }
 
@@ -636,9 +756,59 @@ function checkProfilePlumbing() {
       "No matching fields on this page.",
   );
   check(
+    "(k) fields that were found but refused are not reported as absent",
+    headline({ ok: true, summary: { filled: 0, already: 0, notFound: 1, problem: 2 } }) ===
+      "Nothing could be filled — 2 fields need a look.",
+    headline({ ok: true, summary: { filled: 0, already: 0, notFound: 1, problem: 2 } }),
+  );
+  check(
     "(k) a failed run surfaces its reason",
     headline({ ok: false, error: "Chrome does not allow extensions to run here." }) ===
       "Chrome does not allow extensions to run here.",
+  );
+}
+
+/** A page can hold the same field in more than one same-origin document. */
+function checkFrameMerge() {
+  const merged = mergeFrames([
+    {
+      results: [
+        { key: "accountNumber", label: "Account number", status: "filled" },
+        { key: "routingNumber", label: "Routing number", status: "not-found" },
+      ],
+      controlsScanned: 6,
+    },
+    {
+      results: [
+        { key: "accountNumber", label: "Account number", status: "blocked", detail: "field is read-only" },
+        { key: "routingNumber", label: "Routing number", status: "filled" },
+      ],
+      controlsScanned: 4,
+    },
+  ]);
+
+  const account = merged.results.find((result) => result.key === "accountNumber");
+  const routing = merged.results.find((result) => result.key === "routingNumber");
+
+  check(
+    "(k) a field filled in one frame counts as filled",
+    account?.status === "filled" && routing?.status === "filled",
+    JSON.stringify(merged.results),
+  );
+  check(
+    "(k) a copy that refused the value is still mentioned",
+    typeof account?.detail === "string" && account.detail.includes("another copy"),
+    account?.detail ?? "no detail",
+  );
+  check(
+    "(k) a field found in only one frame is not flagged",
+    routing?.detail === undefined,
+    routing?.detail ?? "none",
+  );
+  check(
+    "(k) one row per field, and the scan totals add up",
+    merged.results.length === 2 && merged.controlsScanned === 10 && merged.summary.filled === 2,
+    JSON.stringify(merged.summary),
   );
 }
 
@@ -651,16 +821,21 @@ async function main() {
   await checkAlternateWordings();
   await checkReversedOrder();
   await checkCustomDropdown();
+  await checkDropdownIgnoresPageMenus();
+  await checkUnresponsiveDropdown();
   await checkAlreadyCorrect();
   await checkSkippedFields();
   await checkToggleOff();
   await checkCustomFields();
   await checkFormattedInput();
   await checkRejectedInput();
+  await checkUnreadableToggle();
+  await checkWrappedCheckboxToggle();
   await checkDisabledField();
   checkKeyContract(makeDom("<div></div>"));
   checkManifest();
   checkProfilePlumbing();
+  checkFrameMerge();
 
   console.log("---");
   if (failures === 0) {

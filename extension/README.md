@@ -44,6 +44,9 @@ as it appears on the page and the value to put in it.
   paying.
 - **It never clicks a link.** The Terms of Use checkbox is ticked by clicking the checkbox
   itself, never its label, which on most checkouts wraps a link to the terms.
+- **It will not guess at a switch it cannot read.** If a toggle exposes no state — no
+  `aria-checked`, no underlying checkbox — a click is as likely to turn autopay off as on, so
+  it is left alone and reported instead.
 - **It cannot reach a hosted card widget.** Fields inside a cross-origin iframe (a Stripe or
   Adyen card field, for instance) belong to another site and are off limits to any extension.
   Those are reported as not found rather than silently skipped.
@@ -86,7 +89,9 @@ Two more things checkout forms do that break naive fillers, both handled:
   on the next render and submits empty. The engine writes through the prototype setter and
   desyncs React's value tracker so the change is seen as real.
 - **Custom dropdowns.** If the control is not a `<select>`, it is opened, the options are waited
-  for, and the matching one is clicked.
+  for, and the matching one is clicked. Only options that appear *in response to* that click are
+  considered — a site nav is full of `role="menuitem"` elements and one of them can easily read
+  "Company", and clicking it would navigate away from a half-filled form.
 
 Every write is verified afterwards. If the value did not stick, the engine retries by
 simulating keystrokes for masked inputs, and if it still did not stick it reports a failure

@@ -63,6 +63,19 @@ function renderStudio(accountId: string): string {
     html.includes("Verifying Address…"),
     "expected the chip's initial Verifying Address… state in SSR output",
   );
+  // A value in the markup is not a value on the sheet. `.acord-in` sets
+  // width:100% unlayered, which outranks Tailwind's layered width utilities,
+  // so a plain `w-8`/`w-14` on the state/ZIP cells stretches them across the
+  // row and starves the flex-1 city cell down to zero width — the city
+  // silently vanishes from the printed form while still sitting in the DOM.
+  // The `!` keeps the fixed cells narrow so the city has room.
+  for (const cell of ["!w-8", "!w-14"]) {
+    check(
+      `city/state/ZIP row keeps ${cell} important-width cells`,
+      html.includes(cell),
+      `expected ${cell} — without it the city cell collapses to zero width`,
+    );
+  }
 }
 
 // Street-less shape (e.g. imported accounts whose street was never

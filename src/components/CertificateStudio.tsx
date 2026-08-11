@@ -2778,10 +2778,13 @@ function AcordSheet({
             <In id="producer.name" def={PRODUCER.name} ctx={ctx} />
             <In id="producer.addr1" def={PRODUCER.addressLine1} ctx={ctx} />
             <In id="producer.addr2" def={PRODUCER.addressLine2} ctx={ctx} />
+            {/* State/ZIP need `!w-*`: `.acord-in { width: 100% }` is unlayered
+                and would otherwise beat Tailwind's layered width utilities,
+                squeezing the flex-1 city cell to nothing. */}
             <div className="flex gap-1">
-              <In id="producer.city" def={PRODUCER.city} ctx={ctx} className="flex-1" />
-              <In id="producer.state" def={PRODUCER.state} ctx={ctx} className="w-8 text-center" />
-              <In id="producer.zip" def={PRODUCER.zip} ctx={ctx} className="w-14 text-center" />
+              <In id="producer.city" def={PRODUCER.city} ctx={ctx} className="min-w-0 flex-1" />
+              <In id="producer.state" def={PRODUCER.state} ctx={ctx} className="!w-8 text-center" />
+              <In id="producer.zip" def={PRODUCER.zip} ctx={ctx} className="!w-14 text-center" />
             </div>
           </div>
           <div className="border-t border-[var(--acord-line)] px-1.5 py-0.5">
@@ -2803,9 +2806,9 @@ function AcordSheet({
             <In id="insured.addr1" def={acct.addressLine1 ?? ""} ctx={ctx} ph=" " />
             <In id="insured.addr2" def="" ctx={ctx} ph=" " />
             <div className="flex gap-1">
-              <In id="insured.city" def={acct.city ?? ""} ctx={ctx} className="flex-1" ph=" " />
-              <In id="insured.state" def={acct.state} ctx={ctx} className="w-8 text-center" ph=" " />
-              <In id="insured.zip" def={acct.zip ?? ""} ctx={ctx} className="w-14 text-center" ph=" " />
+              <In id="insured.city" def={acct.city ?? ""} ctx={ctx} className="min-w-0 flex-1" ph=" " />
+              <In id="insured.state" def={acct.state} ctx={ctx} className="!w-8 text-center" ph=" " />
+              <In id="insured.zip" def={acct.zip ?? ""} ctx={ctx} className="!w-14 text-center" ph=" " />
             </div>
           </div>
         </div>

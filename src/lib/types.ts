@@ -534,7 +534,9 @@ export type CapabilityId =
   | "write.coi.send"
   | "read.memory"
   | "read.agent_status"
-  | "write.reminder";
+  | "write.reminder"
+  | "service_spine.enabled"
+  | "service_agent.enabled";
 
 export type CapabilityState = "available" | "blocked" | "unavailable";
 

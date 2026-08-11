@@ -10,15 +10,13 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import { SERVICE_MAILBOX, SHORT_NAME } from "@/lib/brand";
+import { SERVICE_LANE_HREFS, SERVICE_LANE_IDS, SERVICE_LANE_LABELS } from "@/lib/types";
 import type { Operator } from "@/lib/types";
 import { useIdlePresence, type Presence } from "@/lib/use-presence";
 
 /**
- * Left sidebar navigation (Ascend-style groups) that keeps the old top-bar
- * contract: pages render `<Nav active=… operator=… />` followed by a sibling
- * `<main>`. The sidebar is fixed; a `body:has(.desk-sidebar)` rule in
- * globals.css pads the body on lg+ so no page file needs layout edits.
- * Below lg it degrades to a sticky top bar with a slide-over drawer.
+ * Left sidebar navigation. Exactly three groups per Step Bro product contract:
+ * Desk | eight sections | Manager.
  */
 
 type NavItem = { href: string; label: string };
@@ -27,28 +25,25 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
   {
     id: "desk",
     label: "Desk",
-    items: [
-      { href: "/my-day", label: "My Day" },
-      { href: "/queue", label: "Ticket Queue" },
-      { href: "/ai-desk", label: "AI Desk" },
-      { href: "/comms", label: "Comms" },
-      { href: "/threads", label: "Threads" },
-    ],
+    items: [{ href: "/desk", label: "Desk" }],
   },
   {
-    id: "records",
-    label: "Records",
-    items: [
-      { href: "/accounts", label: "Accounts" },
-      { href: "/certificates", label: "Certificates" },
-      { href: "/glossary", label: "Glossary" },
-    ],
+    id: "sections",
+    label: "Sections",
+    items: SERVICE_LANE_IDS.map((id) => ({
+      href: SERVICE_LANE_HREFS[id],
+      label: SERVICE_LANE_LABELS[id],
+    })),
   },
   {
-    id: "oversight",
-    label: "Oversight",
+    id: "manager",
+    label: "Manager",
     items: [
       { href: "/manager", label: "Manager" },
+      { href: "/manager/kpis", label: "KPIs" },
+      { href: "/manager/qa", label: "QA" },
+      { href: "/accounts", label: "Accounts" },
+      { href: "/certificates", label: "Certificates" },
       { href: "/oversight", label: "Oversight" },
       { href: "/agent-watch", label: "Agent Watch" },
       { href: "/trace", label: "Trace" },

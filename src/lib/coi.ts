@@ -529,20 +529,35 @@ export function buildDraftFromPolicy(input: {
     findEndorsementByTitle(set, /completed operations/i),
   );
 
+  const insuredName = input.policy.quoteInsuredName ?? input.account.name;
+  // A certificate issued to the insured itself is evidence of its own
+  // coverage. There is no third party to be an additional insured, to have
+  // subrogation waived in its favor, or to be certified as primary — so the
+  // grant wording stays off the description and the ADDL INSD / SUBR WVD
+  // columns stay blank. The endorsements are still on the policy; this
+  // certificate simply grants nothing to nobody.
+  const holderIsInsured = [insuredName, input.account.name, input.account.dba]
+    .filter((n): n is string => Boolean(n?.trim()))
+    .some((n) => normalizeLoose(n) === normalizeLoose(input.holderName));
+
   const parts: string[] = [];
   if (input.projectWording?.trim()) parts.push(input.projectWording.trim());
-  if (ai) {
+  if (ai && !holderIsInsured) {
     parts.push(
       `${input.holderName} is included as additional insured per ${ai.form} ${ai.edition}.`,
     );
   }
-  if (wos) parts.push(`Waiver of subrogation applies per ${wos.form} ${wos.edition}.`);
-  if (pnc) parts.push(`Coverage is primary and non-contributory per ${pnc.form} ${pnc.edition}.`);
+  if (wos && !holderIsInsured) {
+    parts.push(`Waiver of subrogation applies per ${wos.form} ${wos.edition}.`);
+  }
+  if (pnc && !holderIsInsured) {
+    parts.push(`Coverage is primary and non-contributory per ${pnc.form} ${pnc.edition}.`);
+  }
 
   return {
     holderName: input.holderName,
     holderAddress: input.holderAddress,
-    insuredName: input.policy.quoteInsuredName ?? input.account.name,
+    insuredName,
     policyNumber: input.policy.policyNumber,
     carrier: input.policy.carrier,
     effectiveDate: input.policy.effectiveDate,
@@ -550,9 +565,9 @@ export function buildDraftFromPolicy(input: {
     limits,
     flags: {
       ...emptyFlags(),
-      additionalInsured: Boolean(ai),
-      subrogationWaived: Boolean(wos),
-      primaryNonContributory: Boolean(pnc),
+      additionalInsured: Boolean(ai) && !holderIsInsured,
+      subrogationWaived: Boolean(wos) && !holderIsInsured,
+      primaryNonContributory: Boolean(pnc) && !holderIsInsured,
       completedOperations: Boolean(completedOps),
     },
     description: parts.join(" "),

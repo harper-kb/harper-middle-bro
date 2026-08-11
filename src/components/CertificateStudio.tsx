@@ -263,8 +263,8 @@ export function CertificateStudio({
   const [formKey, setFormKey] = useState<CertFormKey>(
     hasGarage ? "acord30" : "acord25",
   );
-  const [holderName, setHolderNameRaw] = useState("");
-  const [holderAddress, setHolderAddressRaw] = useState("");
+  const [holderNameRaw, setHolderNameRaw] = useState("");
+  const [holderAddressRaw, setHolderAddressRaw] = useState("");
   const [overrides, setOverrides] = useState<SheetOverrides>({});
   const [confirmedAreas, setConfirmedAreas] = useState<string[]>([]);
   const [activeArea, setActiveArea] = useState<string | null>(null);
@@ -305,6 +305,28 @@ export function CertificateStudio({
 
   const form = CERT_FORMS[formKey];
   const chosen = policies.filter((p) => selected.includes(p.id));
+
+  // The holder box reiterates the insured until someone says otherwise: the
+  // everyday certificate is the insured's own evidence of coverage, so the
+  // named insured, its street, and its city/state/ZIP are the right default.
+  // Both fields stay editable — a rail holder or a typed name replaces this,
+  // and clearing the field falls back here rather than to blank paper. The
+  // values track the INSURED box, edits and verified address included, so
+  // the two blocks can never disagree.
+  const insuredNameDefault = chosen[0]?.quoteInsuredName ?? account.name;
+  const insuredName = effStr(overrides, "insured.name", insuredNameDefault);
+  const insuredAddress = [
+    effStr(overrides, "insured.addr1", account.addressLine1 ?? ""),
+    effStr(overrides, "insured.city", account.city ?? ""),
+    `${effStr(overrides, "insured.state", account.state)} ${effStr(overrides, "insured.zip", account.zip ?? "")}`.trim(),
+  ]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(", ");
+  const holderName = holderNameRaw.trim() ? holderNameRaw : insuredName;
+  const holderAddress = holderAddressRaw.trim()
+    ? holderAddressRaw
+    : insuredAddress;
 
   // Holder-address hard gate. A typed address must come back verified (or
   // matched-with-standardization) before the holder area can be confirmed

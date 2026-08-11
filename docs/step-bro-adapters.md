@@ -7,7 +7,7 @@ Typed seams for live reads and guarded writes. UI consumes `WorkItem` /
 
 | Adapter | Source | Notes |
 |---------|--------|-------|
-| BigBrother lanes | `GET /api/service-workbench/swim-lanes` (and unbound-accounts) — BB `lane-config.ts` / `fetch-swim-lanes.ts` | Server-only via `src/lib/adapters/bigbrother/*`. Do not copy BB SQL into Step Bro. |
+| BigBrother lanes | `GET /api/service-workbench/swim-lanes` (and unbound-accounts) — BB `lane-config.ts` / `fetch-swim-lanes.ts` / `fetch-unbound-accounts.ts` | Server-only via `src/lib/adapters/bigbrother/*`. Do not copy BB SQL into Step Bro. |
 | BigBrother account | BigBrother account / ticket detail APIs | Identity mapped via Clerk → operator → external actor. |
 | Local sample | `sampleLaneSnapshot()` fixtures | Labeled `mode: "sample"` when credentials missing or counts unreconciled. |
 

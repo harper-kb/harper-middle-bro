@@ -19,7 +19,16 @@ export default clerkMiddleware(
     }
     return redirectToSignIn();
   },
-  { debug: process.env.NODE_ENV === "development" },
+  {
+    // Point at the sign-in/up pages this app hosts itself. Without these, a
+    // signed-out redirect falls back to Clerk's hosted Accounts URL, which is
+    // derived from the publishable key — and during keyless bootstrap (fresh
+    // clone, no .env.local yet) there is no key, so the redirect throws
+    // "Missing publishableKey" instead of landing on /sign-in.
+    signInUrl: "/sign-in",
+    signUpUrl: "/sign-up",
+    debug: process.env.NODE_ENV === "development",
+  },
 );
 
 export const config = {

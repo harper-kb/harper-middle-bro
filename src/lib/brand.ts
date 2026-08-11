@@ -6,8 +6,11 @@ export const SERVICE_NAME = "Harper Service";
  * PRODUCER / COMPANY_NAME identity below — certificates never use this.
  */
 export const PRODUCT_NAME = "Step Bro";
-/** The non-"Harper" half of the wordmark, for compact surfaces. */
-export const SHORT_NAME = "Step Bro";
+/** The non-"Harper" half of the wordmark — sits beside the Harper logo in the nav. */
+export const SHORT_NAME = "StepBrother";
+/** Release stamp shown on the nav wordmark. Bump here, not in the component. */
+export const APP_VERSION = "0.0.5";
+export const RELEASE_STAGE = "Beta";
 /** How the agency signs itself on outbound mail. */
 export const COMPANY_NAME = "Harper Insurance Services";
 

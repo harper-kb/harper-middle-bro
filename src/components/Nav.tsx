@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useState, useSyncExternalStore } from "react";
@@ -9,7 +10,12 @@ import {
   SignUpButton,
   UserButton,
 } from "@clerk/nextjs";
-import { SERVICE_MAILBOX, SHORT_NAME } from "@/lib/brand";
+import {
+  APP_VERSION,
+  RELEASE_STAGE,
+  SERVICE_MAILBOX,
+  SHORT_NAME,
+} from "@/lib/brand";
 import { SERVICE_LANE_HREFS, SERVICE_LANE_IDS, SERVICE_LANE_LABELS } from "@/lib/types";
 import type { Operator } from "@/lib/types";
 import { useIdlePresence, type Presence } from "@/lib/use-presence";
@@ -56,14 +62,31 @@ const COLLAPSE_STORAGE_KEY = "desk-nav-collapsed";
 const EMPTY_COLLAPSE: Record<string, boolean> = {};
 const NAV_COLLAPSE_EVENT = "step-bro-nav-collapse";
 
+/**
+ * useSyncExternalStore compares snapshots by identity, so parsing on every
+ * read would loop forever. Re-parse only when the stored string changes.
+ */
+let cachedRaw: string | null = null;
+let cachedCollapse: Record<string, boolean> = EMPTY_COLLAPSE;
+
 function readNavCollapse(): Record<string, boolean> {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Record<string, boolean>;
+    raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
   } catch {
     // Ignore unreadable storage — default expansion is fine.
   }
-  return EMPTY_COLLAPSE;
+  if (raw === cachedRaw) return cachedCollapse;
+  cachedRaw = raw;
+  cachedCollapse = EMPTY_COLLAPSE;
+  if (raw) {
+    try {
+      cachedCollapse = JSON.parse(raw) as Record<string, boolean>;
+    } catch {
+      // Corrupt value — fall back to everything expanded.
+    }
+  }
+  return cachedCollapse;
 }
 
 function subscribeNavCollapse(onStoreChange: () => void): () => void {
@@ -191,6 +214,56 @@ function NavSections({
   );
 }
 
+/**
+ * Wordmark: the Harper logo and product name on one line, then whoever is at
+ * this desk. `email` is omitted on the compact mobile bar.
+ */
+function BrandBlock({ email }: { email?: string }) {
+  return (
+    // Two rows, two columns: identity flush left, status flush right. The
+    // status column sizes to the pill and centres the version under it, so the
+    // pair reads as one stack instead of two right-ragged strings.
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2 gap-y-1.5">
+      <Link href="/" className="flex min-w-0 items-baseline gap-2">
+        {/* Optical alignment against the tightly-cropped PNG. Vertically: its
+            baseline is at 77.6% of the height and the "p" descender fills the
+            rest, but flexbox baselines an image by its bottom edge — so drop
+            it by that descender share. Horizontally: the "H" stem starts 5.4%
+            in, behind a thin swash, so pull that 5.4% (~3.5px at this height)
+            into the margin to line the stem up with the email below. */}
+        <Image
+          src="/harper-wordmark.png"
+          alt="Harper"
+          width={596}
+          height={152}
+          priority
+          className="-ml-[3.5px] h-[1.05rem] w-auto shrink-0 translate-y-[22.4%]"
+        />
+        <span className="truncate font-display text-lg font-semibold leading-none tracking-tight text-[var(--ink)]">
+          {SHORT_NAME}
+        </span>
+      </Link>
+      <span className="justify-self-center rounded-full border border-[color-mix(in_srgb,var(--harper-orange)_40%,transparent)] bg-[color-mix(in_srgb,var(--harper-orange)_10%,transparent)] px-1.5 py-[0.5px] text-[8px] font-semibold uppercase leading-[1.6] tracking-[0.12em] text-[var(--harper-orange)]">
+        {RELEASE_STAGE}
+      </span>
+
+      {email ? (
+        <span
+          className="truncate text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]"
+          title={email}
+        >
+          {email}
+        </span>
+      ) : (
+        <span />
+      )}
+      <span className="justify-self-center text-[10px] tabular-nums tracking-[0.06em] text-[var(--muted)]">
+        v{APP_VERSION}
+      </span>
+    </div>
+  );
+}
+
 function AccountRail({
   operator,
   presence,
@@ -272,15 +345,7 @@ export function Nav({
     emitNavCollapse();
   }, []);
 
-  const brand = (
-    <div className="flex items-baseline gap-2">
-      <Link href="/" className="font-display text-xl font-semibold tracking-tight">
-        <span className="text-[var(--harper-orange)]">Harper</span>{" "}
-        {/* nowrap so a tight header breaks between the words, never inside them */}
-        <span className="whitespace-nowrap text-[var(--ink)]">{SHORT_NAME}</span>
-      </Link>
-    </div>
-  );
+  const brand = <BrandBlock />;
 
   return (
     <>
@@ -288,10 +353,7 @@ export function Nav({
           body padding rule in globals.css — pages never change. */}
       <aside className="desk-sidebar fixed inset-y-0 left-0 z-40 hidden w-[16.5rem] flex-col border-r border-[var(--rule)] bg-[var(--paper)] lg:flex">
         <div className="border-b border-[var(--rule)] px-4 py-4">
-          {brand}
-          <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-[var(--muted)]">
-            {SERVICE_MAILBOX}
-          </p>
+          <BrandBlock email={operator?.email ?? SERVICE_MAILBOX} />
         </div>
         <div className="flex-1 overflow-y-auto px-2.5 py-4">
           <NavSections
@@ -333,8 +395,8 @@ export function Nav({
             onClick={() => setMobileOpen(false)}
           />
           <div className="absolute inset-y-0 left-0 flex w-[17rem] flex-col border-r border-[var(--rule)] bg-[var(--paper)] shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[var(--rule)] px-4 py-4">
-              {brand}
+            <div className="flex items-start justify-between border-b border-[var(--rule)] px-4 py-4">
+              <BrandBlock email={operator?.email ?? SERVICE_MAILBOX} />
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}

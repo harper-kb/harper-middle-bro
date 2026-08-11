@@ -23,8 +23,9 @@ export function buildSectionStage(opts: {
   items: WorkItem[];
   mode: LaneDataMode;
   modeReason: string | null;
+  preserveOrder?: boolean;
 }): { items: DeskStageItem[]; views: Record<string, DeskStageView> } {
-  const sorted = sortWorkItems(opts.items);
+  const sorted = opts.preserveOrder ? [...opts.items] : sortWorkItems(opts.items);
   const items: DeskStageItem[] = sorted.map((wi) => {
     const row = toWorkItemRow(wi, opts.mode);
     return {
@@ -140,11 +141,13 @@ export function SectionLanePage({
   mode = "sample",
   modeReason = "Section shell — live adapter wiring lands in later PRs",
   items,
+  preserveOrder = false,
 }: {
   lane: ServiceLaneId;
   mode?: LaneDataMode;
   modeReason?: string | null;
   items?: WorkItem[];
+  preserveOrder?: boolean;
 }) {
   const workItems = items ?? sampleWorkItemsForLane(lane);
   const { items: stageItems, views } = buildSectionStage({
@@ -152,6 +155,7 @@ export function SectionLanePage({
     items: workItems,
     mode,
     modeReason,
+    preserveOrder,
   });
 
   return (

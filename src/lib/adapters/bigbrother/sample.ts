@@ -117,40 +117,6 @@ export function sampleWorkItemsForLane(lane: ServiceLaneId): WorkItem[] {
           parkReason: null,
         }),
       ];
-    case "post_sales":
-      return [
-        base({
-          id: "sample:ps:1",
-          externalId: null,
-          accountId: "acct-summit",
-          accountName: "Summit Builders",
-          title: "Umbrella Upsell — Remarket",
-          summary: "Revenue-changing work · sample mode",
-          owner: {
-            operatorId: null,
-            displayName: "Harris",
-            team: "Post Sales",
-          },
-          urgencyTier: "B",
-          urgencyScore: 0.6,
-          isOnFire: false,
-          actionRequired: true,
-          clock: {
-            kind: "follow_up",
-            at: "2026-08-11T17:00:00.000Z",
-            label: "Follow up today",
-            breached: false,
-          },
-          blocker: null,
-          nextActionLabel: "Send Quote",
-          priorityReasons: [
-            { code: "action_required", label: "Action Required" },
-          ],
-          createdAt: "2026-08-07T14:00:00.000Z",
-          parkedUntil: null,
-          parkReason: null,
-        }),
-      ];
     case "coi":
       return [
         base({
@@ -183,7 +149,6 @@ export function sampleWorkItemsForLane(lane: ServiceLaneId): WorkItem[] {
         }),
       ];
     case "subjectivities":
-    case "instant_binds":
     case "communications":
       return [
         base({
@@ -212,6 +177,123 @@ export function sampleWorkItemsForLane(lane: ServiceLaneId): WorkItem[] {
           parkReason: null,
         }),
       ];
+    case "instant_binds":
+      return [
+        {
+          id: "cobalt",
+          accountName: "Cobalt Mechanical",
+          title: "Coterie IQ Bind — Payment Confirmed",
+          summary: "Coterie quote ready to bind · no signature required · sample mode",
+          createdAt: "2026-07-28T09:00:00.000Z",
+          blocker: null,
+          action: "Confirm IQ Bind",
+        },
+        {
+          id: "northstar",
+          accountName: "Northstar Electric",
+          title: "RT Connector IQ Bind",
+          summary: "RT Connector portal bind · insured signature pending · sample mode",
+          createdAt: "2026-07-30T14:00:00.000Z",
+          blocker: "Awaiting Insured Signature",
+          action: "Chase Signature",
+        },
+        {
+          id: "redwood",
+          accountName: "Redwood Fitness Group",
+          title: "Blitz IQ Bind",
+          summary: "Blitz carrier portal access confirmed · sample mode",
+          createdAt: "2026-08-01T11:00:00.000Z",
+          blocker: "Carrier Portal Access",
+          action: "Confirm Portal Bind",
+        },
+        {
+          id: "harbor",
+          accountName: "Harbor Light Studios",
+          title: "Coalition IQ Bind — Subjectivity Clear",
+          summary: "Coalition quote ready · no signature required · sample mode",
+          createdAt: "2026-08-02T16:00:00.000Z",
+          blocker: null,
+          action: "Confirm IQ Bind",
+        },
+        {
+          id: "mesa",
+          accountName: "Mesa Food Works",
+          title: "Pathpoint IQ Bind",
+          summary: "Path Point bind requires insured signature · sample mode",
+          createdAt: "2026-08-04T08:30:00.000Z",
+          blocker: "DocuSign Pending",
+          action: "Chase Signature",
+        },
+        {
+          id: "juniper",
+          accountName: "Juniper Event Co",
+          title: "Thimble IQ Bind",
+          summary: "Thimble bind requires signed acceptance · sample mode",
+          createdAt: "2026-08-05T13:00:00.000Z",
+          blocker: "Awaiting Insured Signature",
+          action: "Chase Signature",
+        },
+        {
+          id: "bluebird",
+          accountName: "Bluebird Janitorial",
+          title: "ISC Workers’ Comp IQ Bind",
+          summary: "Insurance Services Center WC bind · signature required · sample mode",
+          createdAt: "2026-08-07T10:00:00.000Z",
+          blocker: "Awaiting Insured Signature",
+          action: "Chase Signature",
+        },
+        {
+          id: "oak",
+          accountName: "Oak & Stone Design",
+          title: "Next Insurance IQ Bind",
+          summary: "Next quote ready · payment confirmed · no signature required · sample mode",
+          createdAt: "2026-08-09T15:00:00.000Z",
+          blocker: null,
+          action: "Confirm IQ Bind",
+        },
+      ].map((fixture, index) =>
+        base({
+          id: `sample:instant_binds:${index + 1}`,
+          externalId: null,
+          accountId: `acct-${fixture.id}`,
+          accountName: fixture.accountName,
+          title: fixture.title,
+          summary: fixture.summary,
+          owner:
+            index % 3 === 0
+              ? { operatorId: "op-sample", displayName: "Dana Whitfield", team: "Binds" }
+              : { operatorId: null, displayName: "Unassigned", team: "Binds" },
+          urgencyTier: index < 3 ? "A" : index < 6 ? "B" : "C",
+          urgencyScore: 0.9 - index * 0.07,
+          isOnFire: false,
+          actionRequired: true,
+          clock: {
+            kind: "bind_deadline",
+            at: null,
+            label: `${13 - index * 2}d pending`,
+            breached: index < 3,
+          },
+          blocker: fixture.blocker
+            ? {
+                code: fixture.blocker.toLowerCase().replace(/\s+/g, "_"),
+                label: fixture.blocker,
+                capabilityId: fixture.blocker.includes("Signature")
+                  ? "write.docusign"
+                  : fixture.blocker.includes("Portal")
+                    ? "write.bind"
+                    : null,
+              }
+            : null,
+          nextActionLabel: fixture.action,
+          priorityReasons: [
+            { code: "age", label: `${13 - index * 2}d pending` },
+            { code: "action_required", label: "Action Required" },
+          ],
+          createdAt: fixture.createdAt,
+          parkedUntil: null,
+          parkReason: null,
+        }),
+      );
   }
 }
 

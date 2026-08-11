@@ -54,6 +54,7 @@ run workitem-contracts-check npx tsx scripts/workitem-contracts-check.ts
 run bigbrother-adapter-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/bigbrother-adapter-check.ts
 run agent-tools-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/agent-tools-check.ts
 run priority-engine-check npx tsx scripts/priority-engine-check.ts
+run step-bro-ux-check npx tsx scripts/step-bro-ux-check.ts
 run lane-mode-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/lane-mode-check.ts
 run account-workspace-check npx tsx scripts/account-workspace-check.ts
 run agentification-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/agentification-check.ts

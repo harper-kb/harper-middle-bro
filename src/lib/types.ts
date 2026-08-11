@@ -330,8 +330,8 @@ export const AUTO_APPROVE_THRESHOLD_CENTS = 50_000;
 // BigBrother / Agent Tools / legacy backends stay behind server adapters.
 // Source APIs and capability gates: docs/step-bro-adapters.md
 
-/** Sidebar groups: Desk | eight sections | Manager. */
-export type ServiceNavGroup = "desk" | "sections" | "manager";
+/** Sidebar groups: Desk | All Tickets | seven sections | Manager. */
+export type ServiceNavGroup = "desk" | "all_tickets" | "sections" | "manager";
 
 /**
  * One home lane per work item. Sections may show filtered views of the same
@@ -341,7 +341,6 @@ export type ServiceLaneId =
   | "pending_orders"
   | "active_service"
   | "pending_cancels"
-  | "post_sales"
   | "coi"
   | "subjectivities"
   | "instant_binds"
@@ -351,7 +350,6 @@ export const SERVICE_LANE_IDS: readonly ServiceLaneId[] = [
   "pending_orders",
   "active_service",
   "pending_cancels",
-  "post_sales",
   "coi",
   "subjectivities",
   "instant_binds",
@@ -362,7 +360,6 @@ export const SERVICE_LANE_LABELS: Record<ServiceLaneId, string> = {
   pending_orders: "Pending Orders",
   active_service: "Active Service",
   pending_cancels: "Pending Cancels",
-  post_sales: "Post Sales",
   coi: "COI",
   subjectivities: "Subjectivities",
   instant_binds: "Instant Binds",
@@ -373,7 +370,6 @@ export const SERVICE_LANE_HREFS: Record<ServiceLaneId, string> = {
   pending_orders: "/pending-orders",
   active_service: "/active-service",
   pending_cancels: "/pending-cancels",
-  post_sales: "/post-sales",
   coi: "/coi",
   subjectivities: "/subjectivities",
   instant_binds: "/instant-binds",

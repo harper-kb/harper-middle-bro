@@ -15,8 +15,8 @@ import type { Operator } from "@/lib/types";
 import { useIdlePresence, type Presence } from "@/lib/use-presence";
 
 /**
- * Left sidebar navigation. Exactly three groups per Step Bro product contract:
- * Desk | eight sections | Manager.
+ * Left sidebar navigation. Step Bro product contract:
+ * Desk | All Tickets | seven sections | Manager.
  */
 
 type NavItem = { href: string; label: string };
@@ -26,6 +26,11 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     id: "desk",
     label: "Desk",
     items: [{ href: "/desk", label: "Desk" }],
+  },
+  {
+    id: "all-tickets",
+    label: "All Tickets",
+    items: [{ href: "/all-tickets", label: "All Tickets" }],
   },
   {
     id: "sections",

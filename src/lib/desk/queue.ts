@@ -14,7 +14,11 @@ import { listTickets } from "@/lib/db";
 import { isOpenTicket } from "@/lib/tickets";
 import { attachGates, recommendActions } from "./recommendations";
 import { projectSpineNext } from "./spine";
-import type { DeskBundle, PersonalStrip } from "./types";
+import {
+  outstandingWorkItems,
+  type DeskBundle,
+  type PersonalStrip,
+} from "./types";
 
 export type { DeskBundle, PersonalStrip } from "./types";
 
@@ -92,6 +96,7 @@ export async function buildDeskBundle(opts: {
 
   return {
     queue,
+    outstandingCount: outstandingWorkItems(queue, exclude).length,
     next,
     whyNext: next ? explainWhyNext(next) : [],
     strip: {

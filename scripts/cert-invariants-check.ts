@@ -41,6 +41,7 @@ import {
   requirementKeyFor,
   upsertPrepared,
 } from "../src/lib/cert-ledger";
+import { runCertChecks } from "../src/lib/cert-checks";
 import { buildFactSnapshot } from "../src/lib/cert-snapshot";
 import { buildDraftFromPolicy } from "../src/lib/coi";
 import { bareFormSet, FORM_SETS, type PolicyFormSet } from "../src/lib/forms";
@@ -566,6 +567,85 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
   check(
     /export type PlacementMap = Record<string, string>;/.test(acord),
     "Placement rules carry routing only (policyId → sectionKey)",
+  );
+}
+
+/* ————— Garage risk belongs on the garage form —————
+ * An ACORD 25 has no garagekeepers block: the basis, the perils, and the
+ * per-location limits have nowhere to print, so issuing one would drop the
+ * coverage silently. The registry blocks it and cannot be talked out of it. */
+{
+  const garagePolicy = SEED_POLICIES.find((p) => p.id === "pol-metro-gar")!;
+  const garageSet = FORM_SETS[garagePolicy.id];
+  const garageCtx = {
+    account,
+    policies: [garagePolicy],
+    holderName: "Roadside Partners LLC",
+    holderAddress: "1 Main St, Austin, TX 78701",
+    now: "2026-06-01T12:00:00.000Z",
+    verifierRejects: [],
+    redAlertActive: false,
+    endorsementClaims: [],
+    formSets: { [garagePolicy.id]: garageSet },
+    holderAiRecords: [],
+    requirementHolderName: null,
+    scheduleSources: [],
+    prepared: null,
+    currentDigest: "probe",
+  };
+  const on25 = runCertChecks({
+    ctx: { ...garageCtx, formKey: "acord25" as const },
+    overrides: [{ checkId: "garage-form-fit", reason: "operator insists" }],
+    operator: "Rogue Operator",
+  }).find((r) => r.id === "garage-form-fit")!;
+  check(
+    on25.status === "fail" && on25.severity === "blocking",
+    "Garagekeepers on an ACORD 25 blocks, and an override cannot clear it",
+    `status=${on25.status}`,
+  );
+  const on30 = runCertChecks({
+    ctx: { ...garageCtx, formKey: "acord30" as const },
+  }).find((r) => r.id === "garage-form-fit")!;
+  check(on30.status === "pass", "The same policy passes on the ACORD 30");
+}
+
+/* ————— A certificate to the insured grants nothing to a third party —————
+ * The everyday certificate names the insured as its own holder. There is no
+ * third party to be an additional insured or to have subrogation waived, so
+ * neither the wording nor the ADDL INSD / SUBR WVD columns may claim one. */
+{
+  const summitPolicy = policies[0];
+  const toThirdParty = buildDraftFromPolicy({
+    account,
+    policy: summitPolicy,
+    holderName: "Desert Plaza Owners Association",
+    holderAddress: "",
+    set: formSets[summitPolicy.id],
+  });
+  check(
+    toThirdParty.flags.additionalInsured &&
+      /additional insured/i.test(toThirdParty.description),
+    "A third-party holder still gets the additional-insured wording",
+  );
+  const toInsured = buildDraftFromPolicy({
+    account,
+    policy: summitPolicy,
+    holderName: account.name,
+    holderAddress: "",
+    set: formSets[summitPolicy.id],
+  });
+  check(
+    !toInsured.flags.additionalInsured &&
+      !toInsured.flags.subrogationWaived &&
+      !toInsured.flags.primaryNonContributory,
+    "Holder is the insured — no AI / WOS / P&NC column is claimed",
+  );
+  check(
+    !/additional insured|waiver of subrogation|primary and non-contributory/i.test(
+      toInsured.description,
+    ),
+    "Holder is the insured — no grant wording in the description",
+    toInsured.description,
   );
 }
 

@@ -9,8 +9,7 @@ import {
 export type BigBrotherLaneId =
   | "pending_orders"
   | "active_service"
-  | "pending_cancellation"
-  | "post_sales";
+  | "pending_cancellation";
 
 /** Minimal wire shape from `/api/service-workbench/swim-lanes` company rows. */
 export type BigBrotherLaneCompany = {

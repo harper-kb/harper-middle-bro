@@ -11,7 +11,6 @@ export const LANE_CLOCK_TARGET_MINUTES: Record<ServiceLaneId, number> = {
   pending_orders: 240,
   active_service: 1440,
   pending_cancels: 240,
-  post_sales: 480,
   coi: 120,
   subjectivities: 2880,
   instant_binds: 240,

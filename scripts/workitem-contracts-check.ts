@@ -26,7 +26,10 @@ function check(label: string, ok: boolean, detail?: string) {
   }
 }
 
-check("Eight service lanes defined", SERVICE_LANE_IDS.length === 8);
+check(
+  "Seven service lanes defined without Post Sales",
+  SERVICE_LANE_IDS.length === 7 && !SERVICE_LANE_IDS.includes("post_sales" as never),
+);
 check(
   "Every lane has a label and href",
   SERVICE_LANE_IDS.every(

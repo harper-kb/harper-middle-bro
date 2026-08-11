@@ -141,7 +141,6 @@ function primaryRecommendation(item: WorkItem): DeskRecommendation {
       return rec(item, "collect_payment", "write.payment_link", "payment_link",
         "Send Cure Payment Link",
         "Retention — agent prepared the cure payment link; confirm to send.", true);
-    case "post_sales":
     case "active_service":
     case "subjectivities":
     case "communications":

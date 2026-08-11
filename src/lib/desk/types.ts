@@ -4,6 +4,14 @@ import type { ServiceActivationGate } from "@/lib/service-activation";
 import type { GatedRecommendation } from "./recommendations";
 import type { SpineProjection } from "./spine";
 
+export function outstandingWorkItems(
+  items: WorkItem[],
+  excludeIds: Iterable<string> = [],
+): WorkItem[] {
+  const excluded = new Set(excludeIds);
+  return items.filter((item) => !excluded.has(item.id) && !item.parkedUntil);
+}
+
 export type PersonalStrip = {
   assigned: WorkItem[];
   parked: WorkItem[];
@@ -19,6 +27,8 @@ export type PersonalStrip = {
 
 export type DeskBundle = {
   queue: WorkItem[];
+  /** Open session queue excluding completed/parked items. */
+  outstandingCount: number;
   next: WorkItem | null;
   whyNext: WorkItemPriorityReason[];
   strip: PersonalStrip;

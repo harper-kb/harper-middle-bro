@@ -16,7 +16,7 @@ function check(label: string, ok: boolean) {
   }
 }
 
-check("Eight service lanes", SERVICE_LANE_IDS.length === 8);
+check("Seven service lanes", SERVICE_LANE_IDS.length === 7);
 check("Eight account tabs", ACCOUNT_TABS.length === 8);
 check("Count mismatch blocks live", !reconcileCounts(1, 2).reconciled);
 check("Count match allows reconcile", reconcileCounts(4, 4).reconciled);

@@ -10,14 +10,12 @@ export const BB_LANE_TO_SERVICE: Record<BigBrotherLaneId, ServiceLaneId> = {
   pending_orders: "pending_orders",
   active_service: "active_service",
   pending_cancellation: "pending_cancels",
-  post_sales: "post_sales",
 };
 
 export const SERVICE_TO_BB_LANE: Partial<Record<ServiceLaneId, BigBrotherLaneId>> = {
   pending_orders: "pending_orders",
   active_service: "active_service",
   pending_cancels: "pending_cancellation",
-  post_sales: "post_sales",
 };
 
 export function resolveUrgencyTier(row: BigBrotherLaneCompany): UrgencyTier {

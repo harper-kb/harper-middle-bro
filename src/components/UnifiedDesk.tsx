@@ -2,8 +2,12 @@
 
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
-import type { DeskBundle } from "@/lib/desk/types";
-import type { WorkItem } from "@/lib/types";
+import { outstandingWorkItems, type DeskBundle } from "@/lib/desk/types";
+import {
+  SERVICE_LANE_LABELS,
+  type ServiceLaneId,
+  type WorkItem,
+} from "@/lib/types";
 import { pickNextWorkItem, explainWhyNext } from "@/lib/priority";
 
 type StripKey = "assigned" | "parked" | "followUps" | "handoffs" | "doneToday";
@@ -28,6 +32,8 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
   const [strip, setStrip] = useState<StripKey>("assigned");
   const [parkReason, setParkReason] = useState("");
   const [parkHours, setParkHours] = useState("4");
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [laneFilter, setLaneFilter] = useState<ServiceLaneId | "all">("all");
   const [, startTransition] = useTransition();
 
   const exclude = useMemo(() => new Set(completedIds), [completedIds]);
@@ -39,8 +45,13 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
     });
   }, [bundle.queue, parked]);
 
+  const outstanding = useMemo(
+    () => outstandingWorkItems(liveQueue, exclude),
+    [exclude, liveQueue],
+  );
   const current =
-    pickNextWorkItem(liveQueue, { excludeIds: exclude }) ?? bundle.next;
+    outstanding.find((item) => item.id === focusedId) ??
+    pickNextWorkItem(outstanding);
   const why = current ? explainWhyNext(current) : [];
   const currentAgentView = current ? bundle.agentViews[current.id] : null;
   const currentRecommendations = current
@@ -51,6 +62,7 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
     if (!current) return;
     startTransition(() => {
       setCompletedIds((ids) => [...ids, current.id]);
+      setFocusedId(null);
     });
   }
 
@@ -63,6 +75,7 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
         ...prev,
         [current.id]: { until, reason: parkReason.trim() },
       }));
+      setFocusedId(null);
       setParkReason("");
     });
   }
@@ -74,6 +87,18 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
 
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-[var(--ink)]">
           <span className="font-semibold">Sample Mode</span> — {bundle.modeReason}
+        </div>
+
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="eyebrow">Desk Queue</p>
+            <h2 className="mt-1 font-display text-2xl text-[var(--ink)]">
+              {outstanding.length} {outstanding.length === 1 ? "ticket" : "tickets"} outstanding
+            </h2>
+          </div>
+          <p className="text-xs text-[var(--muted)]">
+            Completed and parked tickets are excluded.
+          </p>
         </div>
 
         {!current ? (
@@ -240,21 +265,55 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
         )}
 
         <div className="surface-card p-4">
-          <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
-            Up Next
-          </p>
-          <ol className="mt-2 space-y-2">
-            {liveQueue
-              .filter((i) => !exclude.has(i.id) && i.id !== current?.id)
-              .slice(0, 5)
-              .map((item) => (
-                <QueueRow
-                  key={item.id}
-                  item={item}
-                  agentLabel={bundle.agentViews[item.id]?.label}
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
+                Outstanding Tickets
+              </p>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Select any row to focus it in Next Action.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1" aria-label="Filter tickets by section">
+              <LaneChip
+                active={laneFilter === "all"}
+                onClick={() => setLaneFilter("all")}
+                label="All"
+              />
+              {[...new Set(outstanding.map((item) => item.homeLane))].map((lane) => (
+                <LaneChip
+                  key={lane}
+                  active={laneFilter === lane}
+                  onClick={() => setLaneFilter(lane)}
+                  label={SERVICE_LANE_LABELS[lane]}
                 />
               ))}
+            </div>
+          </div>
+          <ol className="mt-3 divide-y divide-[var(--rule)]">
+            {outstanding
+              .filter((item) => laneFilter === "all" || item.homeLane === laneFilter)
+              .map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => setFocusedId(item.id)}
+                    className={`grid w-full gap-2 px-2 py-3 text-left transition hover:bg-[var(--sand)]/50 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,.8fr)_minmax(0,1fr)_minmax(0,1fr)] ${
+                      item.id === current?.id ? "bg-[var(--sand)]/60" : ""
+                    }`}
+                  >
+                    <CompactSignal label="What" value={`${item.accountName} — ${item.title}`} />
+                    <CompactSignal label="Who" value={item.owner.displayName ?? "Unassigned"} />
+                    <CompactSignal label="Clock" value={item.clock.label} alert={item.clock.breached} />
+                    <CompactSignal label="Blocker" value={item.blocker?.label ?? "—"} />
+                    <CompactSignal label="Action" value={item.nextActionLabel} />
+                  </button>
+                </li>
+              ))}
           </ol>
+          {outstanding.length === 0 ? (
+            <p className="py-8 text-center text-sm text-[var(--muted)]">No outstanding tickets.</p>
+          ) : null}
         </div>
       </section>
 
@@ -379,6 +438,56 @@ function Signal({ label, value }: { label: string; value: string }) {
       </dt>
       <dd className="mt-0.5 text-[var(--ink)]">{value}</dd>
     </div>
+  );
+}
+
+function LaneChip({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+        active
+          ? "bg-[var(--ink)] text-[var(--paper)]"
+          : "bg-[var(--sand)] text-[var(--muted)] hover:text-[var(--ink)]"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function CompactSignal({
+  label,
+  value,
+  alert = false,
+}: {
+  label: string;
+  value: string;
+  alert?: boolean;
+}) {
+  return (
+    <span className="min-w-0">
+      <span className="block text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
+        {label}
+      </span>
+      <span
+        className={`mt-0.5 block truncate text-xs ${
+          alert ? "font-semibold text-rose-700" : "text-[var(--ink)]"
+        }`}
+        title={value}
+      >
+        {value}
+      </span>
+    </span>
   );
 }
 

@@ -323,3 +323,338 @@ export interface OversightStats {
 }
 
 export const AUTO_APPROVE_THRESHOLD_CENTS = 50_000;
+
+// ————————————————— Step Bro CRM contracts —————————————————
+//
+// Canonical task/work-item + adapter seams. UI reads these shapes only;
+// BigBrother / Agent Tools / legacy backends stay behind server adapters.
+// Source APIs and capability gates: docs/step-bro-adapters.md
+
+/** Sidebar groups: Desk | eight sections | Manager. */
+export type ServiceNavGroup = "desk" | "sections" | "manager";
+
+/**
+ * One home lane per work item. Sections may show filtered views of the same
+ * item but must never mint a duplicate with a different home lane.
+ */
+export type ServiceLaneId =
+  | "pending_orders"
+  | "active_service"
+  | "pending_cancels"
+  | "post_sales"
+  | "coi"
+  | "subjectivities"
+  | "instant_binds"
+  | "communications";
+
+export const SERVICE_LANE_IDS: readonly ServiceLaneId[] = [
+  "pending_orders",
+  "active_service",
+  "pending_cancels",
+  "post_sales",
+  "coi",
+  "subjectivities",
+  "instant_binds",
+  "communications",
+] as const;
+
+export const SERVICE_LANE_LABELS: Record<ServiceLaneId, string> = {
+  pending_orders: "Pending Orders",
+  active_service: "Active Service",
+  pending_cancels: "Pending Cancels",
+  post_sales: "Post Sales",
+  coi: "COI",
+  subjectivities: "Subjectivities",
+  instant_binds: "Instant Binds",
+  communications: "Communications",
+};
+
+export const SERVICE_LANE_HREFS: Record<ServiceLaneId, string> = {
+  pending_orders: "/pending-orders",
+  active_service: "/active-service",
+  pending_cancels: "/pending-cancels",
+  post_sales: "/post-sales",
+  coi: "/coi",
+  subjectivities: "/subjectivities",
+  instant_binds: "/instant-binds",
+  communications: "/communications",
+};
+
+/** Live only after count reconciliation against BigBrother; else labeled sample. */
+export type LaneDataMode = "live" | "sample";
+
+export type UrgencyTier = "A" | "B" | "C" | "none";
+
+export type WorkItemClockKind =
+  | "sla"
+  | "cancellation_effective"
+  | "follow_up"
+  | "bind_deadline"
+  | "aged_backlog";
+
+/**
+ * Compact section-row signals (anti-overload): at most five of these appear
+ * on a queue row. Depth lives in the split workspace, never on the row.
+ */
+export type WorkItemRowSignal =
+  | "what"
+  | "who"
+  | "clock"
+  | "blocker"
+  | "action";
+
+export const WORK_ITEM_ROW_SIGNALS: readonly WorkItemRowSignal[] = [
+  "what",
+  "who",
+  "clock",
+  "blocker",
+  "action",
+] as const;
+
+/** Why this item is next — shown in Desk and section detail. */
+export interface WorkItemPriorityReason {
+  code:
+    | "fire_flag"
+    | "operator_override"
+    | "urgency_tier"
+    | "urgency_score"
+    | "action_required"
+    | "deadline"
+    | "age"
+    | "lane_clock";
+  label: string;
+  detail?: string;
+}
+
+export interface WorkItemOwner {
+  operatorId: string | null;
+  displayName: string | null;
+  team: string | null;
+}
+
+export interface WorkItemBlocker {
+  code: string;
+  label: string;
+  /** Capability or external system that must clear before the action is live */
+  capabilityId?: CapabilityId | null;
+}
+
+export interface WorkItemClock {
+  kind: WorkItemClockKind;
+  /** ISO timestamp when known */
+  at: string | null;
+  label: string;
+  breached: boolean;
+}
+
+/**
+ * Canonical unit of service work. One home lane; other sections may filter
+ * the same id but must not create a second WorkItem for the same grain.
+ */
+export interface WorkItem {
+  id: string;
+  /** Stable external id from BigBrother / service.tasks when live */
+  externalId: string | null;
+  homeLane: ServiceLaneId;
+  accountId: string;
+  accountName: string;
+  /** Human title — the "what" on a compact row */
+  title: string;
+  summary: string;
+  owner: WorkItemOwner;
+  urgencyTier: UrgencyTier;
+  urgencyScore: number | null;
+  isOnFire: boolean;
+  actionRequired: boolean;
+  clock: WorkItemClock;
+  blocker: WorkItemBlocker | null;
+  /** One-click primary action label shown on the row */
+  nextActionLabel: string;
+  priorityReasons: WorkItemPriorityReason[];
+  /** ISO created / last activity for age tie-breaks */
+  createdAt: string;
+  updatedAt: string;
+  /** When parked/skipped — Desk requires a reason + next wake */
+  parkedUntil: string | null;
+  parkReason: string | null;
+}
+
+/** Compact projection for section queues (≤5 signals). */
+export interface WorkItemRow {
+  id: string;
+  homeLane: ServiceLaneId;
+  accountId: string;
+  what: string;
+  who: string;
+  clock: string;
+  clockBreached: boolean;
+  blocker: string | null;
+  action: string;
+  urgencyTier: UrgencyTier;
+  isOnFire: boolean;
+  mode: LaneDataMode;
+}
+
+export function toWorkItemRow(item: WorkItem, mode: LaneDataMode): WorkItemRow {
+  return {
+    id: item.id,
+    homeLane: item.homeLane,
+    accountId: item.accountId,
+    what: item.title,
+    who: item.owner.displayName ?? "Unassigned",
+    clock: item.clock.label,
+    clockBreached: item.clock.breached,
+    blocker: item.blocker?.label ?? null,
+    action: item.nextActionLabel,
+    urgencyTier: item.urgencyTier,
+    isOnFire: item.isOnFire,
+    mode,
+  };
+}
+
+// —— Capabilities / receipts / adapters ——
+
+/**
+ * Action doors Step Bro may invoke. Capability discovery returns which are
+ * available vs blocked (missing Agent Tools door, missing credentials, etc.).
+ */
+export type CapabilityId =
+  | "read.bigbrother.lanes"
+  | "read.bigbrother.account"
+  | "write.issue"
+  | "write.task"
+  | "write.draft"
+  | "write.comms.email"
+  | "write.comms.text"
+  | "write.comms.bulk"
+  | "write.payment_link"
+  | "write.docusign"
+  | "write.bind"
+  | "write.coi.issue"
+  | "write.coi.send"
+  | "read.memory"
+  | "read.agent_status"
+  | "write.reminder";
+
+export type CapabilityState = "available" | "blocked" | "unavailable";
+
+export interface CapabilityGate {
+  id: CapabilityId;
+  state: CapabilityState;
+  /** Precise blocker copy when not available — never a dead control */
+  blockerLabel: string | null;
+  /** Adapter that would serve this capability today */
+  provider: "agent_tools" | "bigbrother" | "legacy" | "local";
+}
+
+export type ConfirmationPolicy =
+  | "none"
+  | "one_click"
+  | "batch_review";
+
+export type ReceiptStatus =
+  | "accepted"
+  | "confirmed"
+  | "rejected"
+  | "failed"
+  | "idempotent_replay";
+
+/**
+ * Redacted audit receipt for every mutation. UI and QA rely on this shape;
+ * never return raw secrets or full PII payloads.
+ */
+export interface ActionReceipt {
+  id: string;
+  capabilityId: CapabilityId;
+  idempotencyKey: string;
+  status: ReceiptStatus;
+  operatorId: string;
+  workItemId: string | null;
+  accountId: string | null;
+  /** Short operator-visible summary */
+  summary: string;
+  /** ISO timestamps */
+  requestedAt: string;
+  completedAt: string | null;
+  /** Read-after-write verification result when applicable */
+  verified: boolean | null;
+  /** Non-sensitive diagnostic crumbs */
+  details: Record<string, string | number | boolean | null>;
+}
+
+export interface IdempotencyRecord {
+  key: string;
+  capabilityId: CapabilityId;
+  receiptId: string;
+  createdAt: string;
+}
+
+/** Per-lane live-read result with honesty metadata. */
+export interface LaneSnapshot {
+  lane: ServiceLaneId;
+  mode: LaneDataMode;
+  /** When mode is sample, this explains why (missing credential, etc.) */
+  modeReason: string | null;
+  items: WorkItem[];
+  /** Count reported by Step Bro adapter */
+  count: number;
+  /** Count from BigBrother reconciliation probe when available */
+  sourceCount: number | null;
+  /** true only when counts match and credentials are live */
+  reconciled: boolean;
+  fetchedAt: string;
+  sourceApi: string;
+}
+
+/**
+ * Server-only live-read adapter contract. Implementations must import
+ * `server-only` and never be referenced from client components.
+ */
+export interface LaneReadAdapter {
+  lane: ServiceLaneId;
+  sourceApi: string;
+  list(params?: { operatorId?: string | null }): Promise<LaneSnapshot>;
+  get(workItemId: string): Promise<WorkItem | null>;
+}
+
+export interface ActionRequest {
+  capabilityId: CapabilityId;
+  operatorId: string;
+  idempotencyKey: string;
+  workItemId: string | null;
+  accountId: string | null;
+  /** Opaque payload validated by the specific adapter */
+  payload: Record<string, unknown>;
+  confirmed: boolean;
+}
+
+/**
+ * Server-only mutation adapter. Prefer Agent Tools; fall back to proven
+ * BigBrother / legacy harper-tools only when the door is incomplete.
+ */
+export interface ActionAdapter {
+  capabilityId: CapabilityId;
+  confirmation: ConfirmationPolicy;
+  provider: CapabilityGate["provider"];
+  execute(request: ActionRequest): Promise<ActionReceipt>;
+}
+
+export interface IdentityMapping {
+  clerkUserId: string;
+  operatorId: string;
+  displayName: string;
+  role: OperatorRole;
+  /** BigBrother / HWS actor id when known */
+  externalActorId: string | null;
+}
+
+/** Assert a row never exceeds the anti-overload signal budget. */
+export function assertRowSignalBudget(
+  signals: WorkItemRowSignal[],
+): asserts signals is WorkItemRowSignal[] {
+  if (signals.length > WORK_ITEM_ROW_SIGNALS.length) {
+    throw new Error(
+      `Work item row exceeds ${WORK_ITEM_ROW_SIGNALS.length}-signal budget (got ${signals.length})`,
+    );
+  }
+}

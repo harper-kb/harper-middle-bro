@@ -3316,6 +3316,23 @@ function LimitCells({
   );
 }
 
+/**
+ * Every limit box in this section is blank because no dec page is on file —
+ * say so. The refusal to state a limit nothing backs is correct; leaving the
+ * operator to guess whether it's a refusal or a broken render is not. Screen
+ * only: a real ACORD form carries no such line.
+ */
+function NoScheduleChip() {
+  return (
+    <span
+      title="No schedule of record on file for this policy. The row can identify the policy and nothing else — attach the dec page before any limit can print."
+      className="no-print mb-0.5 inline-flex items-center rounded border border-amber-400 bg-amber-50 px-1 py-0.5 text-[6.4px] font-bold uppercase tracking-wide text-amber-900"
+    >
+      No Schedule Of Record
+    </span>
+  );
+}
+
 function SectionBlock({
   rs,
   ctx,
@@ -3367,6 +3384,7 @@ function SectionBlock({
             <>
               <AreaChip area={sec} ctx={ctx} className="float-right ml-1 mb-0.5" />
               {rule && <PlacementRuleChip accountId={accountId} rule={rule} />}
+              {rs.feeder?.set.unscheduled && <NoScheduleChip />}
               <TypeCellView rs={rs} ctx={ctx} />
             </>
           }

@@ -42,8 +42,27 @@ Every mutation requires: server-side auth, stable idempotency key, confirmation 
 |-----|---------|
 | `HARPER_AGENT_TOOLS_BASE_URL` | Gateway origin for `POST /execute` |
 | `HARPER_AGENT_TOOLS_TOKEN` | Bearer token |
+| `STEP_BRO_SERVICE_SPINE_ENABLED` | Explicit Service Spine activation (`true` only; defaults off) |
+| `STEP_BRO_SERVICE_AGENT_ENABLED` | Explicit Service Agent activation (`true` only; defaults off) |
 
 Implementation: `src/lib/adapters/agent-tools/*` — capability discovery, idempotency ledger, dispatch with legacy fallback registry. When credentials are missing, write doors are `blocked`/`unavailable` with precise blocker copy (never a dead control).
+
+### Spine / Agent activation
+
+Service Spine and Service Agent ship dormant. Credentials only make the
+plumbing **ready**; they do not activate either system. The activation
+capabilities `service_spine.enabled` and `service_agent.enabled` report:
+
+- `unavailable` when Agent Tools credentials are missing;
+- `blocked` / “available but not activated” when credentials exist and the
+  explicit flag is off;
+- `available` only when the corresponding flag is exactly `true`.
+
+The Desk renders the Spine next-action projection while dormant, but
+`drivesDesk` remains false: it cannot reorder the operator queue or trigger
+auto-advance. Service Agent status returns no sample/live runs while dormant,
+and all recommendations remain preview-only. No environment default enables
+either feature.
 
 ## Browser rule
 

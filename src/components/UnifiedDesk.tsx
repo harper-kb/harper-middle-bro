@@ -42,6 +42,10 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
   const current =
     pickNextWorkItem(liveQueue, { excludeIds: exclude }) ?? bundle.next;
   const why = current ? explainWhyNext(current) : [];
+  const currentAgentView = current ? bundle.agentViews[current.id] : null;
+  const currentRecommendations = current
+    ? (bundle.recommendations[current.id] ?? [])
+    : [];
 
   function completeCurrent() {
     if (!current) return;
@@ -66,6 +70,8 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
       <section className="space-y-4">
+        <ServiceSystemsStatus bundle={bundle} />
+
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-[var(--ink)]">
           <span className="font-semibold">Sample Mode</span> — {bundle.modeReason}
         </div>
@@ -98,11 +104,15 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
               </Link>
             </div>
 
-            <dl className="mt-5 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+            <dl className="mt-5 grid grid-cols-2 gap-3 text-sm md:grid-cols-5">
               <Signal label="Owner" value={current.owner.displayName ?? "Unassigned"} />
               <Signal label="Clock" value={current.clock.label} />
               <Signal label="Blocker" value={current.blocker?.label ?? "—"} />
               <Signal label="Action" value={current.nextActionLabel} />
+              <Signal
+                label="Agent"
+                value={currentAgentView?.label ?? "Your Action"}
+              />
             </dl>
 
             <div className="mt-5">
@@ -119,6 +129,79 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
                   </li>
                 ))}
               </ul>
+            </div>
+
+            {currentAgentView?.detail ? (
+              <div className="mt-4 rounded-lg border border-[var(--rule)] bg-[var(--sand)]/40 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
+                  Service Agent
+                </p>
+                <p className="mt-1 text-sm text-[var(--ink)]">
+                  {currentAgentView.detail}
+                </p>
+                {currentAgentView.reminderAt ? (
+                  <p className="mt-0.5 text-xs text-[var(--muted)]">
+                    Next wake {formatWake(currentAgentView.reminderAt)}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="mt-5 border-t border-[var(--rule)] pt-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
+                  Agent Recommendations
+                </p>
+                <p className="text-xs text-[var(--muted)]">
+                  {bundle.activation.agent.enabled
+                    ? "Guarded actions require review + confirmation"
+                    : "Preview only · Service Agent not activated"}
+                </p>
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                {currentRecommendations.slice(0, 4).map((recommendation) => {
+                  const inactive = !bundle.activation.agent.enabled;
+                  const blocked = recommendation.gateState !== "available";
+                  return (
+                    <div
+                      key={recommendation.id}
+                      className="rounded-lg border border-[var(--rule)] px-3 py-2"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--ink)]">
+                            {recommendation.label}
+                          </p>
+                          <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted)]">
+                            {recommendation.rationale}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-ghost shrink-0 text-xs"
+                          disabled={inactive || blocked}
+                          title={
+                            inactive
+                              ? bundle.activation.agent.blockerLabel ?? undefined
+                              : recommendation.blockerLabel ?? undefined
+                          }
+                        >
+                          {recommendation.confirmation === "none"
+                            ? "Prepare"
+                            : "Review"}
+                        </button>
+                      </div>
+                      {inactive || blocked ? (
+                        <p className="mt-1.5 text-[11px] text-amber-700">
+                          {inactive
+                            ? bundle.activation.agent.blockerLabel
+                            : recommendation.blockerLabel}
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="mt-6 flex flex-wrap items-end gap-2 border-t border-[var(--rule)] pt-4">
@@ -165,7 +248,11 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
               .filter((i) => !exclude.has(i.id) && i.id !== current?.id)
               .slice(0, 5)
               .map((item) => (
-                <QueueRow key={item.id} item={item} />
+                <QueueRow
+                  key={item.id}
+                  item={item}
+                  agentLabel={bundle.agentViews[item.id]?.label}
+                />
               ))}
           </ol>
         </div>
@@ -204,7 +291,10 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
               ))
             : bundle.strip[strip].map((item) => (
                 <li key={item.id}>
-                  <QueueRow item={item} />
+                  <QueueRow
+                    item={item}
+                    agentLabel={bundle.agentViews[item.id]?.label}
+                  />
                 </li>
               ))}
           {(strip === "doneToday"
@@ -220,6 +310,67 @@ export function UnifiedDesk({ bundle }: { bundle: DeskBundle }) {
   );
 }
 
+function ServiceSystemsStatus({ bundle }: { bundle: DeskBundle }) {
+  return (
+    <section className="grid gap-2 md:grid-cols-2" aria-label="Service systems status">
+      <div className="rounded-xl border border-sky-300/60 bg-sky-50/60 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-[var(--ink)]">Service Spine</p>
+          <StatusDot active={bundle.activation.spine.enabled} />
+        </div>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          {bundle.spine.statusLabel}
+        </p>
+        <p className="mt-1 text-[11px] text-[var(--muted)]">
+          {bundle.spine.drivesDesk
+            ? "Driving next-action order and auto-advance."
+            : "Projection only — not driving queue order or auto-advance."}
+          {bundle.spine.laneClock
+            ? ` Proposed next: ${bundle.spine.urgency} · ${bundle.spine.laneClock}.`
+            : ""}
+        </p>
+      </div>
+      <div className="rounded-xl border border-violet-300/60 bg-violet-50/60 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-[var(--ink)]">Service Agent</p>
+          <StatusDot active={bundle.activation.agent.enabled} />
+        </div>
+        <p className="mt-1 text-xs text-[var(--muted)]">{bundle.agent.summary}</p>
+        <p className="mt-1 text-[11px] text-[var(--muted)]">
+          {bundle.activation.agent.enabled
+            ? "Run status and human-task projection are live through Agent Tools."
+            : "No agent runs are started or presented as live. Recommendations remain preview-only."}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function StatusDot({ active }: { active: boolean }) {
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] ${
+        active
+          ? "bg-emerald-100 text-emerald-800"
+          : "bg-slate-200 text-slate-700"
+      }`}
+    >
+      {active ? "Active" : "Off"}
+    </span>
+  );
+}
+
+function formatWake(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function Signal({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -231,7 +382,13 @@ function Signal({ label, value }: { label: string; value: string }) {
   );
 }
 
-function QueueRow({ item }: { item: WorkItem }) {
+function QueueRow({
+  item,
+  agentLabel,
+}: {
+  item: WorkItem;
+  agentLabel?: string;
+}) {
   return (
     <Link
       href={`/accounts/${item.accountId}`}
@@ -246,6 +403,11 @@ function QueueRow({ item }: { item: WorkItem }) {
       <p className="text-xs text-[var(--muted)]">
         {item.title} · {item.clock.label} · {item.nextActionLabel}
       </p>
+      {agentLabel ? (
+        <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+          {agentLabel}
+        </p>
+      ) : null}
     </Link>
   );
 }

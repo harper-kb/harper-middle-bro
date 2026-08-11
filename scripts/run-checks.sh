@@ -56,6 +56,7 @@ run agent-tools-check npx tsx --tsconfig scripts/tsconfig.render-check.json scri
 run priority-engine-check npx tsx scripts/priority-engine-check.ts
 run lane-mode-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/lane-mode-check.ts
 run account-workspace-check npx tsx scripts/account-workspace-check.ts
+run agentification-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/agentification-check.ts
 
 echo "---"
 if [ $fails -eq 0 ]; then

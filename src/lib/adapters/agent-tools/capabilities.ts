@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getServiceActivation } from "@/lib/service-activation";
 import type { CapabilityGate, CapabilityId } from "@/lib/types";
 import { agentToolsConfigured } from "./config";
 
@@ -127,13 +128,57 @@ export const CAPABILITY_DEFS: readonly CapabilityDef[] = [
     legacyFallback: true,
     label: "Set Reminder",
   },
+  {
+    id: "service_spine.enabled",
+    provider: "agent_tools",
+    command: null,
+    legacyFallback: false,
+    label: "Activate Service Spine",
+  },
+  {
+    id: "service_agent.enabled",
+    provider: "agent_tools",
+    command: null,
+    legacyFallback: false,
+    label: "Activate Service Agent",
+  },
 ] as const;
 
 export function discoverCapabilities(opts?: {
   agentToolsUp?: boolean;
 }): CapabilityGate[] {
   const toolsUp = opts?.agentToolsUp ?? agentToolsConfigured();
+  const activation = getServiceActivation();
   return CAPABILITY_DEFS.map((def) => {
+    if (def.id === "service_spine.enabled" || def.id === "service_agent.enabled") {
+      const feature =
+        def.id === "service_spine.enabled" ? activation.spine : activation.agent;
+      return {
+        id: def.id,
+        state:
+          feature.state === "active"
+            ? ("available" as const)
+            : feature.state === "ready_off"
+              ? ("blocked" as const)
+              : ("unavailable" as const),
+        blockerLabel: feature.blockerLabel,
+        provider: def.provider,
+      };
+    }
+    if (
+      (def.id === "read.agent_status" || def.id === "write.reminder") &&
+      activation.agent.state !== "active"
+    ) {
+      return {
+        id: def.id,
+        state:
+          activation.agent.state === "ready_off"
+            ? ("blocked" as const)
+            : ("unavailable" as const),
+        blockerLabel: activation.agent.blockerLabel,
+        provider: def.provider,
+      };
+    }
     if (def.provider === "local" || def.provider === "bigbrother") {
       return {
         id: def.id,

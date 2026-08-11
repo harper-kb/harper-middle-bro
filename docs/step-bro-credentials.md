@@ -16,6 +16,13 @@ Live lanes require server env credentials. Until they are set **and** each lane'
 | Variable | Used by |
 |----------|---------|
 | `BIGBROTHER_ACTOR_MAP_JSON` | Clerk/operator → BigBrother actor id map |
+| `STEP_BRO_SERVICE_SPINE_ENABLED` | Explicit Spine activation; defaults off |
+| `STEP_BRO_SERVICE_AGENT_ENABLED` | Explicit Agent activation; defaults off |
+
+Agent Tools credentials do not activate Service Spine or Service Agent. They
+only move those systems to **available, not activated**. Do not set either
+activation flag in production-facing defaults; activation requires an explicit
+operator decision.
 
 ## Live flip gate
 

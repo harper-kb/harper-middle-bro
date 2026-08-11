@@ -52,7 +52,7 @@ export default async function DeskPage() {
     );
   }
 
-  const bundle = buildDeskBundle({ operatorId: operator.id });
+  const bundle = await buildDeskBundle({ operatorId: operator.id });
 
   return (
     <>

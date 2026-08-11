@@ -5,7 +5,7 @@ export default function SignInPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-4">
       <div className="text-center">
-        <p className="eyebrow">Harper Middle Bro</p>
+        <p className="eyebrow">Step Bro</p>
         <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">
           Sign In
         </h1>

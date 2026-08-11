@@ -53,7 +53,7 @@ async function requireManager(): Promise<Operator> {
 function revalidateDesk() {
   revalidatePath("/manager");
   revalidatePath("/my-day");
-  revalidatePath("/pending");
+  revalidatePath("/comms");
   revalidatePath("/queue");
   revalidatePath("/comms");
 }

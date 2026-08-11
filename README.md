@@ -1,8 +1,8 @@
-# Harper Middle Bro
+# Step Bro
 
-Commercial lines service-desk **sandbox** — account → underwriter linking, one-click underwriter request emails, agent thread tracking, ACORD certificate generation off the schedule of record, and auto-approval when quoted premium impact is **≤ $500**.
+Commercial lines **service operating CRM** (repository: `harper-middle-bro`) — task-grain desk, account workspace, underwriter communications, ACORD certificate generation off the schedule of record, and auto-approval when quoted premium impact is **≤ $500**.
 
-Not wired to production Gmail, prometheus, or HTA. Mock mail only.
+Not wired to production Gmail, prometheus, or HTA. Mock mail only until live adapters are provisioned.
 
 ## Quick start
 
@@ -25,7 +25,7 @@ SQLite DB is created at `data/underwriter-desk.db` on first load (gitignored) an
 
 - `npm install` then `npm run dev` is the whole setup — the SQLite database creates and seeds itself on first boot. No migrations to run.
 - `.env.local` is gitignored, so a fresh clone has no Clerk keys. On first `npm run dev`, Clerk enters keyless development mode and provisions a dev instance automatically — sign-up works out of the box. To share one Clerk app across the team instead, pass the `.env.local` file directly (never commit it).
-- `data/verified-contacts.local.json` (the real underwriter contact list) is private and gitignored. Without it the Contacts page shows an empty list, which is expected. If you need it, request the file directly — it must never be committed.
+- `data/verified-contacts.local.json` (the real underwriter contact list) is private and gitignored. Without it, verified-contact loaders return empty — expected. Request the file directly if needed; never commit it.
 
 ## Surfaces
 
@@ -36,13 +36,14 @@ SQLite DB is created at `data/underwriter-desk.db` on first load (gitignored) an
 | `/threads/[id]` | Conversation + simulate UW quotes + human proceed |
 | `/oversight` | Board — open threads, offered premium, auto-approved vs held |
 | `/accounts` | Account CRM list |
-| `/accounts/[id]` | Policies, UW cards, edit UW contacts, past threads |
-| `/contacts` | Underwriter + carrier contacts book |
+| `/accounts/[id]` | Policies, UW cards, past threads, certificates |
 | `/queue` | Ticket queue (evolved unit-of-work view) |
 | `/ai-desk` | Paced Additional Insured desk |
-| `/comms` | All market-facing emails + signals |
+| `/comms` | Market-facing emails, signals, and intake triage |
 | `/me` | Profile, signature, auto-send streaks |
 | `/sign-in` · `/sign-up` | Clerk auth pages |
+
+The former `/pending` intake board has been removed; intake triage lives under **Comms** going forward.
 
 ## Auth (Clerk)
 
@@ -67,10 +68,6 @@ When you simulate an underwriter quote:
 
 Threshold: `AUTO_APPROVE_THRESHOLD_CENTS` in `src/lib/types.ts` (default `50000`).
 
-## Editing underwriter contacts
-
-Seed UW emails are **placeholders**. Edit on account pages or browse everyone in **Contacts**. Carrier intel lives in `src/lib/carriers.ts`.
-
 ## Seed book
 
 Fictional accounts mapped to Harper commercial-lines carriers and coverages (GL, WC, PL, BOP, Auto, Cyber, Umbrella, etc.). Markets include Hiscox, Coterie, Kinsale, AmTrust, NEXT, ISC, RT Specialty, and more.
@@ -79,13 +76,4 @@ Fictional accounts mapped to Harper commercial-lines carriers and coverages (GL,
 
 ## Mock vs future
 
-| Now (v1) | Later (v2) |
-|----------|------------|
-| Mock messages in SQLite | Gmail API on `service@` |
-| Placeholder UW contacts | Import from AMS / prometheus |
-| Flat $500 threshold | Per-carrier thresholds |
-| Local ticket + thread link | SR# / HTA link |
-
-## Stack
-
-Next.js (App Router) · TypeScript · Tailwind · better-sqlite3 · Clerk (standalone dev app) · local only
+Server-only adapters will read live BigBrother workbench data and mutate through Harper Agent Tools doors. Until credentials reconcile, affected lanes run in a clearly labeled sample mode — never unlabeled fake numbers.

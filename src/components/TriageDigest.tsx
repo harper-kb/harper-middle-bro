@@ -179,7 +179,7 @@ export function TriageDigest({
             The digest is regenerated on load — the hourly cadence arrives with
             the live phone and mail integration. Rows are sorted by how long
             they have been waiting; work them on the{" "}
-            <Link href="/pending" className="underline hover:text-[var(--ink)]">
+            <Link href="/comms" className="underline hover:text-[var(--ink)]">
               Pending
             </Link>{" "}
             board.

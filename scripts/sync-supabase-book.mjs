@@ -92,7 +92,7 @@ ORDER BY d.company_id, d.id`;
 /** Active service = the stages the ops book treats as in-service. */
 const ACTIVE_STAGES = new Set(["Servicing", "Payment Received"]);
 
-/** Supabase coverage tokens → Middle Bro COVERAGE_CATALOG codes. Unknown tokens pass through untouched (blank beats wrong). */
+/** Supabase coverage tokens → Step Bro COVERAGE_CATALOG codes. Unknown tokens pass through untouched (blank beats wrong). */
 const COVERAGE_MAP = new Map([
   ["gl", "GL"],
   ["general liability", "GL"],

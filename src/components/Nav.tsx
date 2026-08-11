@@ -9,7 +9,7 @@ import {
   SignUpButton,
   UserButton,
 } from "@clerk/nextjs";
-import { SERVICE_MAILBOX } from "@/lib/brand";
+import { SERVICE_MAILBOX, SHORT_NAME } from "@/lib/brand";
 import type { Operator } from "@/lib/types";
 import { useIdlePresence, type Presence } from "@/lib/use-presence";
 
@@ -30,7 +30,6 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     items: [
       { href: "/my-day", label: "My Day" },
       { href: "/queue", label: "Ticket Queue" },
-      { href: "/pending", label: "Pending" },
       { href: "/ai-desk", label: "AI Desk" },
       { href: "/comms", label: "Comms" },
       { href: "/threads", label: "Threads" },
@@ -264,7 +263,7 @@ export function Nav({
       <Link href="/" className="font-display text-xl font-semibold tracking-tight">
         <span className="text-[var(--harper-orange)]">Harper</span>{" "}
         {/* nowrap so a tight header breaks between the words, never inside them */}
-        <span className="whitespace-nowrap text-[var(--ink)]">Middle Bro</span>
+        <span className="whitespace-nowrap text-[var(--ink)]">{SHORT_NAME}</span>
       </Link>
     </div>
   );

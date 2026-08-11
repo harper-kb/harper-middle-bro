@@ -36,7 +36,7 @@ import {
  * ticket, quote history. Anything the record cannot back gets the one refusal
  * line, exactly. A blank refusal beats a wrong answer; that is doctrine.
  *
- * The Middle Bro Bot adds a second, desk-wide scope on the same discipline:
+ * The Step Bro Bot adds a second, desk-wide scope on the same discipline:
  * a DeskWideBundle (queue counts, escalations, pending intake, operator load,
  * account roster) assembled by the /api/desk-brain route, answered by
  * askDeskWide below. Same rules — cited answers or the refusal, nothing else.
@@ -928,7 +928,7 @@ function truncate(text: string, max: number): string {
   return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`;
 }
 
-// ——— Desk-wide intents (Middle Bro Bot) ———
+// ——— Desk-wide intents (Step Bro Bot) ———
 
 const DESK_WIDE_PATTERNS: { intent: DeskWideIntent; pattern: RegExp }[] = [
   // Order matters: "who has the most open tickets" must hit operator load
@@ -1060,7 +1060,7 @@ function answerDeskPending(b: DeskWideBundle): DeskBrainResult {
     return answer(
       "desk_pending",
       "Nothing is pending intake — the service inbox, texts, and calls are all triaged.",
-      [{ label: "Pending · 0 Awaiting Triage", href: "/pending" }],
+      [{ label: "Comms · 0 Awaiting Triage", href: "/comms" }],
     );
   }
   const parts = b.pendingIntake
@@ -1069,7 +1069,7 @@ function answerDeskPending(b: DeskWideBundle): DeskBrainResult {
   return answer(
     "desk_pending",
     `${total} communication${total === 1 ? " is" : "s are"} pending triage on the intake board — ${parts.join(", ")}. Nothing becomes an SR without a match or an operator's confirmation.`,
-    [{ label: `Pending · ${total} Awaiting Triage`, href: "/pending" }],
+    [{ label: `Comms · ${total} Awaiting Triage`, href: "/comms" }],
   );
 }
 

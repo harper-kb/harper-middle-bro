@@ -1,5 +1,5 @@
 /**
- * Middle Bro Bot self-check — run with: npx tsx scripts/middle-bro-check.ts
+ * Step Bro Bot self-check — run with: npx tsx scripts/middle-bro-check.ts
  *
  * Exercises the desk-wide intent engine with a synthetic DeskWideBundle,
  * confirms the scoped Desk Brain path still answers as before, confirms both
@@ -131,7 +131,7 @@ const deskBundle: DeskWideBundle = {
     r.answer.includes("2 Email") &&
     r.answer.includes("1 Call") &&
     !r.answer.includes("0 Text") &&
-    r.citations.some((c) => c.href === "/pending");
+    r.citations.some((c) => c.href === "/comms");
   check("Desk-wide pending answers 3 (2 Email, 1 Call)", ok, JSON.stringify(r));
 }
 
@@ -326,7 +326,7 @@ const OP = "op-check";
 
 console.log(
   failures === 0
-    ? "\nAll Middle Bro checks passed."
+    ? "\nAll Step Bro checks passed."
     : `\n${failures} check(s) FAILED.`,
 );
 process.exit(failures === 0 ? 0 : 1);

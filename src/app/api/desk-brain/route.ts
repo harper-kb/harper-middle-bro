@@ -21,7 +21,7 @@ import type { IntakeChannel, TicketStatus } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 /**
- * Middle Bro Bot context route. Assembles the Desk Brain bundle server-side
+ * Step Bro Bot context route. Assembles the Desk Brain bundle server-side
  * (the same assembly the account/ticket pages do inline) so the follow-you
  * dock can answer deterministically on any page. No question ever reaches
  * this route — it hands over structured data; the client engine answers.

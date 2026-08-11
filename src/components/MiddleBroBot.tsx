@@ -20,7 +20,7 @@ import {
 } from "@/lib/desk-brain";
 
 /**
- * Middle Bro Bot — the follow-you dock. Same doctrine as Desk Brain (no
+ * Step Bro Bot — the follow-you dock. Same doctrine as Desk Brain (no
  * model, cited answers, honest refusals), on every page. The /api/desk-brain
  * route hands over a structured bundle for the current scope; the question
  * never leaves this component — the deterministic engine answers client-side.
@@ -230,7 +230,7 @@ export function MiddleBroBot() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="fixed bottom-5 right-[5.5rem] z-50 flex h-11 items-center gap-2 rounded-full border border-[var(--rule)] bg-[var(--paper)] px-4 shadow-xl transition hover:scale-105"
-        aria-label={open ? "Close Middle Bro" : "Open Middle Bro"}
+        aria-label={open ? "Close Step Bro" : "Open Step Bro"}
         aria-expanded={open}
       >
         <span
@@ -238,7 +238,7 @@ export function MiddleBroBot() {
           aria-hidden
         />
         <span className="text-sm font-semibold text-[var(--ink)]">
-          Middle Bro
+          Step Bro
         </span>
       </button>
 
@@ -252,7 +252,7 @@ export function MiddleBroBot() {
                 aria-hidden
               />
               <p className="font-display text-lg leading-none text-[var(--ink)]">
-                Middle Bro
+                Step Bro
               </p>
             </div>
             <div className="flex items-center gap-1">
@@ -316,7 +316,7 @@ export function MiddleBroBot() {
                   Sign In To Ask
                 </p>
                 <p className="mt-1 text-xs text-[var(--muted)]">
-                  Middle Bro answers only for a signed-in operator — the desk
+                  Step Bro answers only for a signed-in operator — the desk
                   record and your memory are keyed to your seat.
                 </p>
               </div>
@@ -363,7 +363,7 @@ export function MiddleBroBot() {
                         ? "Ask About The Desk…"
                         : "Ask About This Record…"
                     }
-                    aria-label="Ask Middle Bro"
+                    aria-label="Ask Step Bro"
                   />
                   <button type="submit" className="btn-primary shrink-0">
                     Ask
@@ -427,7 +427,7 @@ export function MiddleBroBot() {
                     )}
                     {result.kind === "refusal" && (
                       <p className="mt-1.5 text-[11px] text-[var(--muted)]">
-                        Middle Bro answers only what the desk record can back —
+                        Step Bro answers only what the desk record can back —
                         queue counts, escalations, intake, limits, forms,
                         threads, premiums, quote history, status.
                       </p>

@@ -1,5 +1,5 @@
 /**
- * Middle Bro memory — localStorage-backed, keyed per operator. Honest by
+ * Step Bro memory — localStorage-backed, keyed per operator. Honest by
  * design: this browser is the only store (the sandbox has no synced profile
  * service), entries cap at 50 unpinned, and pinned answers survive the cap.
  *

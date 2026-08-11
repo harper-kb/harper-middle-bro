@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Matches the Node version Railpack uses for the Railway build.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # Advisory until the outstanding react-hooks errors on main are resolved,
+      # then drop continue-on-error to make lint blocking.
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true

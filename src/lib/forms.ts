@@ -518,7 +518,9 @@ export function bareFormSet(coverages: string[]): PolicyFormSet {
 /** Forms on file for a policy; DB schedule first, then seed, then bare codes. */
 export function getPolicyFormSet(policy: Policy): PolicyFormSet {
   try {
-    // Lazy import avoids circular init with db ↔ intelligence
+    // Lazy import avoids circular init with db ↔ intelligence. Must stay a
+    // synchronous require: this function is called during render paths.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getPolicyFormSetFromStore } = require("./policy-store") as {
       getPolicyFormSetFromStore: (policyId: string) => PolicyFormSet | null;
     };

@@ -569,5 +569,22 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
   );
 }
 
+/* ————— Every seed policy has a schedule of record —————
+ * A policy with no entry in FORM_SETS falls back to bareFormSet, which is
+ * `unscheduled` and prints an all-blank LIMITS column by design. That is the
+ * right answer for a real policy whose dec page isn't on file, and the wrong
+ * answer for the demo book — it reads as a broken certificate. Drift between
+ * SEED_POLICIES and FORM_SETS is what causes it, so fail here instead. */
+{
+  const unscheduled = SEED_POLICIES.filter((p) => !FORM_SETS[p.id]);
+  check(
+    unscheduled.length === 0,
+    "Every seed policy carries a schedule of record",
+    unscheduled.length > 0
+      ? `no FORM_SETS entry: ${unscheduled.map((p) => p.id).join(", ")} — their certificates would print no limits`
+      : undefined,
+  );
+}
+
 console.log(failed === 0 ? "\nAll invariants hold." : `\n${failed} FAILURE(S).`);
 process.exit(failed === 0 ? 0 : 1);

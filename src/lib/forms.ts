@@ -482,6 +482,199 @@ export const FORM_SETS: Record<string, PolicyFormSet> = {
       { form: "HSX-TE 315", edition: "01 24", title: "Additional Insured — Client Contract", kind: "ai", scope: "scheduled", note: "E&O AI is rare — confirm UW intent" },
     ],
   },
+  "pol-lakeside-pkg": {
+    coverages: [
+      { code: "GL", label: "Commercial General Liability", form: "CG 00 01", edition: "04 13" },
+      { code: "PL", label: "Veterinary Professional Liability (claims-made)", form: "HSX-PL 100", edition: "06 22" },
+    ],
+    limits: [
+      { slot: "gl_each_occurrence", amountCents: M(1) },
+      { slot: "gl_damage_premises", amountCents: K(100) },
+      { slot: "gl_med_exp", amountCents: K(5) },
+      { slot: "gl_personal_adv", amountCents: M(1) },
+      { slot: "gl_general_aggregate", amountCents: M(2) },
+      // Dec states products-completed ops within the General Aggregate.
+      { slot: "gl_products_completed_ops", mode: "included" },
+      { slot: "prof_each_claim", amountCents: M(1) },
+      { slot: "prof_aggregate", amountCents: M(1) },
+    ],
+    endorsements: [
+      { form: "CG 20 11", edition: "04 13", title: "Additional Insured — Managers or Lessors of Premises", kind: "ai", scope: "scheduled", note: "Right form for the clinic's landlord" },
+      { form: "CG 24 04", edition: "05 09", title: "Waiver of Transfer of Rights (WOS)", kind: "wos", scope: "scheduled" },
+    ],
+  },
+  "pol-beacon-eo": {
+    coverages: [
+      { code: "TECH_EO", label: "Technology E&O (claims-made)", form: "HSX-TE 300", edition: "01 24" },
+      { code: "CL", label: "Cyber Liability", form: "HSX-CY 200", edition: "03 23" },
+    ],
+    limits: [
+      { slot: "prof_each_claim", amountCents: M(1) },
+      { slot: "prof_aggregate", amountCents: M(1) },
+      { slot: "cyber_aggregate", amountCents: K(500) },
+    ],
+    endorsements: [
+      { form: "HSX-TE 315", edition: "01 24", title: "Additional Insured — Client Contract", kind: "ai", scope: "scheduled", note: "E&O AI is rare — confirm UW intent" },
+    ],
+  },
+  "pol-bright-gl": {
+    coverages: [
+      { code: "GL", label: "Commercial General Liability", form: "CG 00 01", edition: "04 13" },
+      { code: "Prop", label: "Commercial Property — Special Form", form: "CP 00 10", edition: "10 12" },
+    ],
+    limits: [
+      { slot: "gl_each_occurrence", amountCents: M(1) },
+      { slot: "gl_damage_premises", amountCents: K(100) },
+      { slot: "gl_med_exp", amountCents: K(5) },
+      { slot: "gl_personal_adv", amountCents: M(1) },
+      { slot: "gl_general_aggregate", amountCents: M(2) },
+      { slot: "gl_products_completed_ops", amountCents: M(2) },
+    ],
+    endorsements: [
+      { form: "CG 20 11", edition: "04 13", title: "Additional Insured — Managers or Lessors of Premises", kind: "ai", scope: "scheduled", note: "Landlord AI for the center's lease" },
+      { form: "MKL-AM 12", edition: "03 23", title: "Abuse or Molestation — Sublimited Coverage", kind: "other", note: "Sublimit, not the full occurrence limit — read before certifying" },
+    ],
+  },
+  "pol-cedar-gl": {
+    coverages: [
+      { code: "GL", label: "Commercial General Liability", form: "CG 00 01", edition: "04 13" },
+    ],
+    limits: [
+      { slot: "gl_each_occurrence", amountCents: M(1) },
+      { slot: "gl_damage_premises", amountCents: K(100) },
+      { slot: "gl_med_exp", amountCents: K(5) },
+      { slot: "gl_personal_adv", amountCents: M(1) },
+      { slot: "gl_general_aggregate", amountCents: M(2) },
+      { slot: "gl_products_completed_ops", mode: "included" },
+    ],
+    endorsements: [
+      { form: "CG 20 26", edition: "04 13", title: "Additional Insured — Designated Person or Organization — Automatic Status When Required by Written Contract", kind: "ai", scope: "blanket", note: "Blanket — lender and manager certs issue on wording alone" },
+      { form: "CG 24 04", edition: "05 09", title: "Waiver of Transfer of Rights (WOS)", kind: "wos", scope: "blanket" },
+    ],
+  },
+  // Property-only paper: an ACORD 25 cannot evidence it (that's an ACORD 28),
+  // so this schedule carries the coverage part and no liability limit slots.
+  "pol-cedar-prop": {
+    coverages: [
+      { code: "Prop", label: "Commercial Property — Special Form", form: "CP 00 10", edition: "10 12" },
+      { code: "Prop", label: "Causes of Loss — Special Form", form: "CP 10 30", edition: "09 17" },
+    ],
+    limits: [],
+    endorsements: [
+      { form: "CP 12 18", edition: "10 12", title: "Loss Payable Provisions", kind: "other", note: "Lender is loss payee — property interest, not an AI" },
+    ],
+  },
+  "pol-oakridge-gl": {
+    coverages: [
+      { code: "GL", label: "Commercial General Liability", form: "CG 00 01", edition: "04 13" },
+    ],
+    limits: [
+      { slot: "gl_each_occurrence", amountCents: M(1) },
+      { slot: "gl_damage_premises", amountCents: K(100) },
+      { slot: "gl_med_exp", amountCents: K(5) },
+      { slot: "gl_personal_adv", amountCents: M(1) },
+      { slot: "gl_general_aggregate", amountCents: M(2) },
+      { slot: "gl_products_completed_ops", mode: "included" },
+    ],
+    endorsements: [
+      { form: "CG 20 26", edition: "04 13", title: "Additional Insured — Designated Person or Organization — Automatic Status When Required by Written Contract", kind: "ai", scope: "blanket", note: "Blanket — owner certs issue on wording alone" },
+      { form: "CG 24 04", edition: "05 09", title: "Waiver of Transfer of Rights (WOS)", kind: "wos", scope: "blanket" },
+    ],
+  },
+  "pol-ironclad-gl": {
+    coverages: [
+      { code: "GL", label: "Commercial General Liability (occurrence)", form: "CG 00 01", edition: "04 13" },
+      { code: "ProdL", label: "Products / Completed Operations", form: "CG 00 01 §I.A", edition: "04 13" },
+    ],
+    limits: [
+      { slot: "gl_each_occurrence", amountCents: M(1) },
+      { slot: "gl_damage_premises", amountCents: K(100) },
+      // Kinsale E&S: med pay deleted program-wide.
+      { slot: "gl_med_exp", mode: "excluded" },
+      { slot: "gl_personal_adv", amountCents: M(1) },
+      { slot: "gl_general_aggregate", amountCents: M(2) },
+      // Fabrication buys a stated products aggregate, not one inside the GA.
+      { slot: "gl_products_completed_ops", amountCents: M(2) },
+    ],
+    endorsements: [
+      { form: "CG 20 10", edition: "04 13", title: "Additional Insured — Owners, Lessees or Contractors (ongoing ops)", kind: "ai", scope: "scheduled", note: "Scheduled — holder must be named" },
+      { form: "CG 20 37", edition: "04 13", title: "Additional Insured — Completed Operations", kind: "ai", scope: "scheduled", note: "Fabricated product leaves the shop — completed ops matters" },
+      { form: "CG 20 01", edition: "04 13", title: "Primary & Noncontributory — Other Insurance Condition", kind: "pnc" },
+      { form: "CG 24 04", edition: "05 09", title: "Waiver of Transfer of Rights (WOS)", kind: "wos", scope: "scheduled" },
+      { form: "KIN-EX 07", edition: "01 24", title: "Medical Payments Exclusion", kind: "exclusion", note: "Med Exp box prints Excluded" },
+    ],
+  },
+  "pol-ironclad-wc": {
+    coverages: [
+      { code: "WC", label: "Workers Compensation & Employers Liability", form: "WC 00 00 00", edition: "C" },
+    ],
+    limits: [
+      { slot: "wc_el_each_accident", amountCents: M(1) },
+      { slot: "wc_el_disease_employee", amountCents: M(1) },
+      { slot: "wc_el_disease_policy", amountCents: M(1) },
+    ],
+    endorsements: [
+      { form: "WC 00 03 13", edition: "04 84", title: "Waiver of Our Right to Recover From Others", kind: "wos", scope: "blanket", note: "Blanket where the state allows it" },
+    ],
+  },
+  "pol-redwood-gl": {
+    coverages: [
+      { code: "GL", label: "Commercial General Liability (occurrence)", form: "CG 00 01", edition: "04 13" },
+    ],
+    limits: [
+      { slot: "gl_each_occurrence", amountCents: M(1) },
+      { slot: "gl_damage_premises", amountCents: K(100) },
+      // Kinsale E&S: med pay deleted program-wide.
+      { slot: "gl_med_exp", mode: "excluded" },
+      { slot: "gl_personal_adv", amountCents: M(1) },
+      { slot: "gl_general_aggregate", amountCents: M(2) },
+      { slot: "gl_products_completed_ops", amountCents: M(2) },
+    ],
+    endorsements: [
+      { form: "CG 20 10", edition: "04 13", title: "Additional Insured — Owners, Lessees or Contractors (ongoing ops)", kind: "ai", scope: "scheduled", note: "Scheduled — holder must be named" },
+      { form: "CG 20 37", edition: "04 13", title: "Additional Insured — Completed Operations", kind: "ai", scope: "scheduled", note: "GCs on electrical work ask for both" },
+      { form: "CG 20 01", edition: "04 13", title: "Primary & Noncontributory — Other Insurance Condition", kind: "pnc" },
+      { form: "CG 24 04", edition: "05 09", title: "Waiver of Transfer of Rights (WOS)", kind: "wos", scope: "scheduled" },
+      { form: "KIN-EX 07", edition: "01 24", title: "Medical Payments Exclusion", kind: "exclusion", note: "Med Exp box prints Excluded" },
+    ],
+  },
+  "pol-redwood-wc": {
+    coverages: [
+      { code: "WC", label: "Workers Compensation & Employers Liability", form: "WC 00 00 00", edition: "C" },
+    ],
+    limits: [
+      { slot: "wc_el_each_accident", amountCents: M(1) },
+      { slot: "wc_el_disease_employee", amountCents: M(1) },
+      { slot: "wc_el_disease_policy", amountCents: M(1) },
+    ],
+    endorsements: [
+      { form: "WC 00 03 13", edition: "04 84", title: "Waiver of Our Right to Recover From Others", kind: "wos", scope: "blanket", note: "Blanket where the state allows it" },
+    ],
+  },
+  // Tow operator: garagekeepers written on a direct primary basis, which is
+  // what a customer's-auto claim needs — the ACORD 30 basis boxes resolve
+  // from this wording, never from an assumption.
+  "pol-metro-gar": {
+    coverages: [
+      { code: "Garage", label: "Garage Liability", form: "CA 00 05", edition: "10 13" },
+      { code: "GK", label: "Garagekeepers — Direct Basis, Primary", form: "CA 99 37", edition: "10 13" },
+      { code: "CA", label: "Business Auto — Any Auto (Symbol 1)", form: "CA 00 01", edition: "11 20" },
+    ],
+    limits: [
+      { slot: "gar_auto_only_each_accident", amountCents: M(1) },
+      { slot: "gar_other_than_auto_each_accident", amountCents: M(1) },
+      { slot: "gar_other_than_auto_aggregate", amountCents: M(2) },
+      { slot: "gk_comp_otc", amountCents: K(100), loc: "LOC 1" },
+      { slot: "gk_specified_perils", amountCents: K(100), loc: "LOC 1" },
+      { slot: "gk_collision", amountCents: K(100), loc: "LOC 1" },
+      { slot: "auto_combined_single", amountCents: M(1) },
+    ],
+    endorsements: [
+      { form: "CA 20 48", edition: "10 13", title: "Designated Insured — Covered Autos Liability", kind: "ai", scope: "scheduled", note: "Auto-side AI equivalent" },
+      { form: "CA 04 44", edition: "10 13", title: "Waiver of Transfer of Rights (Auto)", kind: "wos", scope: "scheduled" },
+      { form: "ISC-GA 22", edition: "02 25", title: "On-Hook Towing — Cargo Sublimit", kind: "other", note: "Tow-and-haul exposure sits under a sublimit" },
+    ],
+  },
 };
 
 /**

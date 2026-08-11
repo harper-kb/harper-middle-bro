@@ -2,9 +2,11 @@
  * Self-check: client-certificate verification (src/lib/cert-verify.ts).
  *
  * Three synthetic sample certs for acct-oakridge (one policy on file:
- * NXT-GL-667788, NEXT Insurance, GL, 12/01/2025 → 12/01/2026, unscheduled):
+ * NXT-GL-667788, NEXT Insurance, GL, 12/01/2025 → 12/01/2026):
  *   1. Clean — every readable claim matches the record → Approve
- *   2. Tampered — wrong policy number + invented limit → Deny
+ *   2. Tampered — wrong policy number + invented limit → Deny, with the
+ *      limit re-checked against an unscheduled copy of the same record to
+ *      prove the verdict tracks what the record can actually prove
  *   3. Partial — no certificate holder → Approve With Notes
  *
  * Deterministic: a fixed "today" (2026-08-07) makes date verdicts stable.
@@ -109,13 +111,40 @@ console.log("\n━━━ S2 Tampered sample cert ━━━");
   );
   const limitRow = r.rows.find((x) => /Each Occurrence/i.test(x.field));
   check(
-    limitRow?.verdict === "Not On File",
-    "Invented $2M limit reports Not On File (no schedule of record to confirm it)",
+    limitRow?.verdict === "Mismatch",
+    "Invented $2M limit is a Mismatch against the $1M on the schedule",
     limitRow ? `${limitRow.field}: ${limitRow.verdict}` : "row missing",
   );
   check(
     r.reasons.some((x) => /policy number/i.test(x)),
     "Deny reasons name the policy-number mismatch",
+  );
+}
+
+/* ————— Scenario 2b: same tampered cert, no schedule of record —————
+ * The verifier may only report what the record can prove. With no dec page
+ * on file the same invented limit is unconfirmable, not a mismatch — it
+ * reports Not On File rather than claiming a contradiction it can't back. */
+
+console.log("\n━━━ S2b Tampered cert against an unscheduled policy ━━━");
+{
+  const unscheduledRecord: RecordOnFile = {
+    account,
+    policies,
+    formSets: Object.fromEntries(
+      policies.map((p) => [p.id, bareFormSet(p.coverages)]),
+    ),
+  };
+  const r = verifyAgainstRecord(
+    parseCertificateText(TAMPERED),
+    unscheduledRecord,
+    TODAY,
+  );
+  const limitRow = r.rows.find((x) => /Each Occurrence/i.test(x.field));
+  check(
+    limitRow?.verdict === "Not On File",
+    "Without a schedule the same limit reports Not On File, never a mismatch",
+    limitRow ? `${limitRow.field}: ${limitRow.verdict}` : "row missing",
   );
 }
 

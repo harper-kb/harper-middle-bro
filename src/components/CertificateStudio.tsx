@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { CertCheckResult } from "@/lib/cert-checks";
 import {
   issueCertificateAction,
@@ -182,6 +182,16 @@ function isRecordField(id: string): boolean {
   );
 }
 
+/**
+ * The sheet is drawn at one fixed width — the ACORD grid's column
+ * percentages only line up at a stable canvas size — and scaled from there.
+ * Matches the `min-w-[720px]` on `.cert-sheet`.
+ */
+const SHEET_DESIGN_WIDTH_PX = 720;
+
+type ZoomMode = "fit" | number;
+const ZOOM_MODES: ZoomMode[] = ["fit", 1, 1.25, 1.5];
+
 /** Which review area a sheet field belongs to. null = free metadata field. */
 function fieldArea(id: string): string | null {
   if (id === "desc" || id.startsWith("desc.")) return "desc";
@@ -273,8 +283,12 @@ export function CertificateStudio({
   // The guided confirm card opens on its own with the values extracted from
   // the file, area by area — closing it falls back to the on-sheet strips.
   const [wizardOpen, setWizardOpen] = useState(true);
-  // Screen-only sheet magnification; print always renders at 100%.
-  const [zoom, setZoom] = useState(1);
+  // Screen-only sheet magnification; print always renders at 100%. "Fit" is
+  // the default and the reason the sheet never scrolls sideways: the form is
+  // drawn at a fixed 720px and scaled down to whatever width the column has.
+  const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
+  const sheetColRef = useRef<HTMLDivElement>(null);
+  const [fitScale, setFitScale] = useState(1);
   // Coverage rows and the insurers block are locked to the schedule of
   // record. Unlocking requires citing an open endorsement ticket; relocking
   // drops any coverage edits so the sheet returns to what the paper says.
@@ -302,6 +316,22 @@ export function CertificateStudio({
     id: string;
     expiresAt: string;
   } | null>(null);
+
+  // The column measures itself; the sheet scales to what it finds. Observing
+  // the column (not the sheet) keeps this off the layout feedback loop — the
+  // column is a min-w-0 grid item, so its width never depends on the scaled
+  // content inside it.
+  useEffect(() => {
+    const el = sheetColRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      if (w > 0) setFitScale(Math.min(1, w / SHEET_DESIGN_WIDTH_PX));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const zoom = zoomMode === "fit" ? fitScale : zoomMode;
 
   const form = CERT_FORMS[formKey];
   const chosen = policies.filter((p) => selected.includes(p.id));
@@ -1033,25 +1063,52 @@ export function CertificateStudio({
           />
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0" ref={sheetColRef}>
+          {packet && wizardOpen && !allReviewed && (
+            <ConfirmWizard
+              areas={areas}
+              confirmed={confirmedSet}
+              activeArea={activeArea}
+              suggestions={suggestions}
+              rejectAreas={rejectAreas}
+              holderName={holderName}
+              holderAddress={holderAddress}
+              holderAddressOk={holderAddressOk}
+              rail={rail}
+              activeRailKey={activeRailKey}
+              onLoadHolder={loadHolder}
+              onBegin={(key) => setActiveArea(key)}
+              onConfirm={confirmArea}
+              onConfirmMany={confirmAreas}
+              onClose={() => {
+                setWizardOpen(false);
+                setActiveArea(null);
+              }}
+            />
+          )}
           {packet && sheet && (
             <div className="no-print mb-2 flex items-center justify-end gap-1">
               <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
                 Sheet Zoom
               </span>
-              {[1, 1.25, 1.5].map((z) => (
+              {ZOOM_MODES.map((mode) => (
                 <button
-                  key={z}
+                  key={String(mode)}
                   type="button"
-                  onClick={() => setZoom(z)}
-                  aria-pressed={zoom === z}
+                  onClick={() => setZoomMode(mode)}
+                  aria-pressed={zoomMode === mode}
+                  title={
+                    mode === "fit"
+                      ? "Scale the sheet to the width of this column — no sideways scrolling"
+                      : `Render the sheet at ${Math.round(mode * 100)}%`
+                  }
                   className={`rounded-lg border px-2 py-0.5 text-[10px] font-semibold transition ${
-                    zoom === z
+                    zoomMode === mode
                       ? "border-[var(--ink)] bg-[var(--ink)] text-white"
                       : "border-[var(--rule)] bg-white text-[var(--muted)] hover:text-[var(--ink)]"
                   }`}
                 >
-                  {Math.round(z * 100)}%
+                  {mode === "fit" ? "Fit" : `${Math.round(mode * 100)}%`}
                 </button>
               ))}
             </div>
@@ -1088,28 +1145,6 @@ export function CertificateStudio({
         </div>
       </div>
 
-      {packet && wizardOpen && !allReviewed && (
-        <ConfirmWizard
-          areas={areas}
-          confirmed={confirmedSet}
-          activeArea={activeArea}
-          suggestions={suggestions}
-          rejectAreas={rejectAreas}
-          holderName={holderName}
-          holderAddress={holderAddress}
-          holderAddressOk={holderAddressOk}
-          rail={rail}
-          activeRailKey={activeRailKey}
-          onLoadHolder={loadHolder}
-          onBegin={(key) => setActiveArea(key)}
-          onConfirm={confirmArea}
-          onConfirmMany={confirmAreas}
-          onClose={() => {
-            setWizardOpen(false);
-            setActiveArea(null);
-          }}
-        />
-      )}
     </section>
   );
 }
@@ -1523,8 +1558,12 @@ function ConfirmWizard({
 
   if (!onRecordStep && !current) return null;
 
+  // Docked to the top of the sheet column rather than floated over the page:
+  // the operator reads the card and the form it is describing at the same
+  // time. Sticky so it survives the scroll down a long sheet, capped short
+  // enough that the form stays the larger thing on screen.
   const frame = (title: string, body: React.ReactNode, foot: React.ReactNode) => (
-    <div className="no-print fixed bottom-5 left-1/2 z-40 w-[min(100vw-2rem,430px)] -translate-x-1/2 overflow-hidden rounded-2xl border border-[var(--gold)]/60 bg-[var(--paper)] shadow-2xl">
+    <div className="no-print sticky top-2 z-30 mb-2 overflow-hidden rounded-2xl border border-[var(--gold)]/60 bg-[var(--paper)] shadow-lg">
       <div className="flex items-center justify-between gap-2 border-b border-[var(--rule)] bg-white px-3 py-2">
         <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
           {title} · {done} Of {areas.length} Areas Done
@@ -1538,7 +1577,7 @@ function ConfirmWizard({
           ✕
         </button>
       </div>
-      <div className="max-h-[44vh] overflow-y-auto px-3 py-2.5">{body}</div>
+      <div className="max-h-[30vh] overflow-y-auto px-3 py-2.5">{body}</div>
       <div className="flex items-center justify-between gap-2 border-t border-[var(--rule)] bg-white px-3 py-2">
         {foot}
       </div>

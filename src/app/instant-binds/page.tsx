@@ -18,17 +18,23 @@ export default async function InstantBindsPage() {
   const snapshot = await loadLaneSnapshot("instant_binds");
   const items = sortInstantBindsOldestFirst(snapshot.items).map((item) => {
     const facet = instantBindFacet(item);
+    const signatureNeeded = instantBindBucket(item) === "signature_needed";
     return {
       ...item,
       summary: `${item.summary} · facet ${FACET_LABELS[facet]}`,
       nextActionLabel: instantBindAction(item),
       blocker:
-        facet === "none"
+        // Signature-locked carriers keep their signature chase — do not
+        // overwrite with a carrier-access / write.bind portal blocker.
+        signatureNeeded || facet === "none"
           ? item.blocker
           : {
               code: facet,
               label: FACET_LABELS[facet],
-              capabilityId: facet === "carrier_access" ? ("write.bind" as const) : item.blocker?.capabilityId ?? null,
+              capabilityId:
+                facet === "carrier_access"
+                  ? ("write.bind" as const)
+                  : item.blocker?.capabilityId ?? null,
             },
     };
   });

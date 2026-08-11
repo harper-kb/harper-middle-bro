@@ -70,12 +70,22 @@ check(
   isOldestFirst(sortTicketsOldestFirst([...instantBinds].reverse())),
 );
 
-const parked = { ...instantBinds[0]!, parkedUntil: "2026-08-12T00:00:00.000Z" };
+const parked = { ...instantBinds[0]!, parkedUntil: "2099-01-01T00:00:00.000Z" };
+const expiredPark = {
+  ...instantBinds[0]!,
+  id: `${instantBinds[0]!.id}-expired-park`,
+  parkedUntil: "2020-01-01T00:00:00.000Z",
+};
 check(
-  "Desk outstanding excludes parked and completed",
+  "Desk outstanding excludes actively parked and completed",
   outstandingWorkItems([parked, instantBinds[1]!, instantBinds[2]!], [
     instantBinds[1]!.id,
   ]).map((item) => item.id).join(",") === instantBinds[2]!.id,
+);
+check(
+  "Desk outstanding includes expired parks",
+  outstandingWorkItems([expiredPark]).map((item) => item.id).join(",") ===
+    expiredPark.id,
 );
 
 if (failed) process.exit(1);

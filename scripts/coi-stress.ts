@@ -8,7 +8,7 @@
  */
 import { createHash } from "node:crypto";
 import * as acord from "../src/lib/acord25";
-import { CERT_FORMS, resolveCertSheet, type Acord25Sheet } from "../src/lib/acord25";
+import { resolveCertSheet, type Acord25Sheet } from "../src/lib/acord25";
 import { buildCertificatePacket, type CertificatePacket } from "../src/lib/certificate";
 import { verifyEditedSheet, type SheetOverrides } from "../src/lib/cert-review";
 import { bareFormSet, FORM_SETS, type PolicyFormSet } from "../src/lib/forms";

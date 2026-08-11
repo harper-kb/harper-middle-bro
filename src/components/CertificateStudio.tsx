@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { CertCheckResult } from "@/lib/cert-checks";
 import {
@@ -335,7 +334,9 @@ export function CertificateStudio({
   // A placement correction (or a revoked rule) moves rows — that's a
   // different sheet, so the review pass restarts, same as a policy-mix change.
   const placementsSig = JSON.stringify(placements);
-  useEffect(() => {
+  const [placementsEpoch, setPlacementsEpoch] = useState(placementsSig);
+  if (placementsSig !== placementsEpoch) {
+    setPlacementsEpoch(placementsSig);
     setOverrides({});
     setConfirmedAreas([]);
     setActiveArea(null);
@@ -345,7 +346,7 @@ export function CertificateStudio({
     setIssued(null);
     setCheckResults(null);
     setPreparedInfo(null);
-  }, [placementsSig]);
+  }
 
   // Identity of the exact artifact on screen. The clean (non-specimen)
   // render exists only while this key matches what the ledger issued.
@@ -714,14 +715,15 @@ export function CertificateStudio({
   // The blanket AI basis on the chosen schedule, if any — cited in the run
   // summary and the prepared emails. Same first-match rule as the packet's
   // description builder.
-  const blanketBasis = useMemo(() => {
-    for (const p of chosen) {
-      const set = formSets[p.id];
-      const ai = set ? findEndorsement(set, "ai") : undefined;
-      if (ai) return `${ai.form} ${ai.edition}`.trim();
+  let blanketBasis: string | null = null;
+  for (const p of chosen) {
+    const set = formSets[p.id];
+    const ai = set ? findEndorsement(set, "ai") : undefined;
+    if (ai) {
+      blanketBasis = `${ai.form} ${ai.edition}`.trim();
+      break;
     }
-    return null;
-  }, [chosen, formSets]);
+  }
 
   const ctx: SheetCtx = {
     overrides,

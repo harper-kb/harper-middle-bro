@@ -4,12 +4,25 @@ import type { ServiceActivationGate } from "@/lib/service-activation";
 import type { GatedRecommendation } from "./recommendations";
 import type { SpineProjection } from "./spine";
 
+/** True while a park wake time is still in the future. Expired parks are outstanding again. */
+export function isActivelyParked(
+  item: Pick<WorkItem, "parkedUntil">,
+  now: Date = new Date(),
+): boolean {
+  return (
+    item.parkedUntil != null && Date.parse(item.parkedUntil) > now.getTime()
+  );
+}
+
 export function outstandingWorkItems(
   items: WorkItem[],
   excludeIds: Iterable<string> = [],
+  now: Date = new Date(),
 ): WorkItem[] {
   const excluded = new Set(excludeIds);
-  return items.filter((item) => !excluded.has(item.id) && !item.parkedUntil);
+  return items.filter(
+    (item) => !excluded.has(item.id) && !isActivelyParked(item, now),
+  );
 }
 
 export type PersonalStrip = {

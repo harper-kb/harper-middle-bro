@@ -15,6 +15,7 @@ import { isOpenTicket } from "@/lib/tickets";
 import { attachGates, recommendActions } from "./recommendations";
 import { projectSpineNext } from "./spine";
 import {
+  isActivelyParked,
   outstandingWorkItems,
   type DeskBundle,
   type PersonalStrip,
@@ -58,16 +59,16 @@ export async function buildDeskBundle(opts: {
   );
   const spine = projectSpineNext(queue, activation.spine.state);
 
-  const parked = queue.filter((i) => i.parkedUntil);
+  const parked = queue.filter((i) => isActivelyParked(i));
   const assigned = queue.filter(
     (i) =>
-      !i.parkedUntil &&
+      !isActivelyParked(i) &&
       (opts.operatorId
         ? i.owner.operatorId === opts.operatorId
         : i.owner.operatorId != null),
   );
   const followUps = queue.filter(
-    (i) => i.clock.kind === "follow_up" && !i.parkedUntil,
+    (i) => i.clock.kind === "follow_up" && !isActivelyParked(i),
   );
   const handoffs = queue.filter(
     (i) => i.owner.operatorId == null && i.actionRequired,

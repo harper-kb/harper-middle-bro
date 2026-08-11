@@ -278,8 +278,9 @@ let intelligenceDb: Database.Database | null = null;
  */
 export function getIntelligenceDb(): Database.Database {
   if (intelligenceDb) return intelligenceDb;
-  // Lazy import avoids circular init (db.ts imports this module). Any db.ts
+  // Lazy require avoids circular init (db.ts imports this module). Any db.ts
   // query helper runs getDb(), which calls migrateIntelligenceTables above.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- break db ↔ intelligence cycle
   const { listUnderwriters } = require("./db") as {
     listUnderwriters: () => unknown;
   };

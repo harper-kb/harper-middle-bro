@@ -28,6 +28,7 @@ export function EscalationPanel({
   if (ticket.escalatedToId && !ticket.escalationResolvedAt) {
     const overdue =
       ticket.escalationDueBy != null &&
+      // eslint-disable-next-line react-hooks/purity -- server snapshot overdue badge
       new Date(ticket.escalationDueBy).getTime() < Date.now();
     return (
       <section

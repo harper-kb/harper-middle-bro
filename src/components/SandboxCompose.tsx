@@ -87,16 +87,11 @@ export function SandboxCompose({
   }, [accounts, query]);
 
   const account = accounts.find((a) => a.id === accountId) ?? null;
+  const resolvedPolicyId = policyId ?? account?.policies[0]?.id ?? null;
   const policy =
-    account?.policies.find((p) => p.id === policyId) ??
+    account?.policies.find((p) => p.id === resolvedPolicyId) ??
     account?.policies[0] ??
     null;
-
-  useEffect(() => {
-    if (account && !policyId && account.policies[0]) {
-      setPolicyId(account.policies[0].id);
-    }
-  }, [account, policyId]);
 
   // Recipient hard gate — the primary UW email on file must take mail
   // before anything leaves this desk. Wrong email = stop, fix it first.
@@ -197,7 +192,7 @@ export function SandboxCompose({
       setError("Sign in on Profile first — your signature stamps every draft.");
       return;
     }
-    if (!accountId || !policyId) {
+    if (!accountId || !resolvedPolicyId) {
       setError("Select an account and policy first.");
       return;
     }
@@ -214,7 +209,7 @@ export function SandboxCompose({
     setError(null);
     const form = new FormData();
     form.set("accountId", accountId);
-    form.set("policyId", policyId);
+    form.set("policyId", resolvedPolicyId);
     form.set("requestTypes", JSON.stringify(typeIds));
     form.set("templateId", templateId);
     form.set("details", composedDetails);
@@ -229,7 +224,7 @@ export function SandboxCompose({
   }, [
     operator,
     accountId,
-    policyId,
+    resolvedPolicyId,
     stack.length,
     typeIds,
     templateId,

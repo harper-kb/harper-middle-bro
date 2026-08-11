@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "uw_desk_tour_v1";
 
@@ -32,6 +32,21 @@ const STEPS = [
   },
 ] as const;
 
+function subscribeTourStorage(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const handler = () => onStoreChange();
+  window.addEventListener("storage", handler);
+  return () => window.removeEventListener("storage", handler);
+}
+
+function readTourDone(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY) === "done";
+  } catch {
+    return false;
+  }
+}
+
 export function DeskTour({
   signedIn,
   forceOpen,
@@ -41,25 +56,26 @@ export function DeskTour({
   forceOpen?: boolean;
   onClose?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const tourDone = useSyncExternalStore(
+    subscribeTourStorage,
+    readTourDone,
+    () => true,
+  );
   const [step, setStep] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+  const [forceEpoch, setForceEpoch] = useState(forceOpen);
 
-  useEffect(() => {
+  // forceOpen turning on (Replay Walkthrough) reopens from step 0.
+  if (forceOpen !== forceEpoch) {
+    setForceEpoch(forceOpen);
     if (forceOpen) {
-      setOpen(true);
+      setDismissed(false);
       setStep(0);
-      return;
     }
-    if (!signedIn) return;
-    try {
-      if (localStorage.getItem(STORAGE_KEY) !== "done") {
-        setOpen(true);
-        setStep(0);
-      }
-    } catch {
-      setOpen(true);
-    }
-  }, [signedIn, forceOpen]);
+  }
+
+  const open =
+    !dismissed && (Boolean(forceOpen) || (signedIn && !tourDone));
 
   const finish = useCallback(() => {
     try {
@@ -67,7 +83,7 @@ export function DeskTour({
     } catch {
       /* ignore */
     }
-    setOpen(false);
+    setDismissed(true);
     onClose?.();
   }, [onClose]);
 

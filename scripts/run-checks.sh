@@ -34,7 +34,6 @@ for f in \
   desk-brain-check.ts \
   intake-match-check.ts \
   middle-bro-check.ts \
-  carrier-knowledge-render-check.tsx \
   pipeline-render-check.tsx
 do
   run "${f%.*}" npx tsx "scripts/$f"

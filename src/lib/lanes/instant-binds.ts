@@ -70,10 +70,12 @@ export const FACET_LABELS: Record<InstantBindFacet, string> = {
 };
 
 export function instantBindAction(item: WorkItem): string {
+  // Signature-locked IQ carriers always chase signature — never portal bind,
+  // even when the facet regex also matches the carrier name as access.
+  if (instantBindBucket(item) === "signature_needed") return "Chase Signature";
   const facet = instantBindFacet(item);
   if (facet === "carrier_access") return "Confirm Portal Bind";
   if (facet === "payment") return "Send Payment Chase";
-  if (instantBindBucket(item) === "signature_needed") return "Chase Signature";
   return "Daily Customer Chase";
 }
 

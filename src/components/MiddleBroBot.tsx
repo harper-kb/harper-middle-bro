@@ -136,6 +136,8 @@ export function MiddleBroBot() {
 
   const fetchScope = useCallback(
     async (query: string) => {
+      // Yield so the open/query effect does not call setState synchronously.
+      await Promise.resolve();
       setStatus("loading");
       try {
         const res = await fetch(`/api/desk-brain${query ? `?${query}` : ""}`, {
@@ -169,15 +171,21 @@ export function MiddleBroBot() {
   );
 
   // New page → back to route scope, stale answer cleared.
-  useEffect(() => {
+  const [scopePath, setScopePath] = useState(pathname);
+  if (pathname !== scopePath) {
+    setScopePath(pathname);
     setScopeOverride(null);
     setAsked(null);
     setResult(null);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     if (!open) return;
-    void fetchScope(effectiveQuery);
+    // Defer so setState from the fetch is not synchronous in this effect body.
+    const timer = window.setTimeout(() => {
+      void fetchScope(effectiveQuery);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [open, effectiveQuery, fetchScope]);
 
   useEffect(() => {

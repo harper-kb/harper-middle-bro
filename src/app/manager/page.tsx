@@ -89,6 +89,8 @@ export default async function ManagerPage() {
   const escalations = listEscalatedTickets();
   const unassigned = listTickets({ unclaimedOnly: true, openOnly: true });
   const today = localDateKey();
+  // Request-time snapshot for overdue badges in this server render.
+  // eslint-disable-next-line react-hooks/purity -- server component request clock
   const now = Date.now();
 
   const accountNameById = new Map(accounts.map((a) => [a.id, a.name]));

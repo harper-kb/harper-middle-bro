@@ -24,7 +24,7 @@ import {
   limitStatement,
   type LimitSlot,
 } from "@/lib/forms";
-import { formatBytes, formatMoney } from "@/lib/format";
+import { formatBytes } from "@/lib/format";
 import { getGuidance, type PriceGuidance } from "@/lib/price-guidance";
 import { summarizeRequest } from "@/lib/request-summary";
 import type { Operator, ThreadDetail } from "@/lib/types";
@@ -95,9 +95,10 @@ export function CoiVerifier({
     [holderName, upload],
   );
 
-  const effective: CoiDraft | null = draft
-    ? { ...draft, holderName, holderAddress }
-    : null;
+  const effective = useMemo(
+    () => (draft ? { ...draft, holderName, holderAddress } : null),
+    [draft, holderName, holderAddress],
+  );
 
   const verdict = useMemo(
     () =>

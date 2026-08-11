@@ -1,4 +1,5 @@
 import { coverageLabel } from "./catalog";
+import { getPolicyFormSetFromStore } from "./policy-store";
 import type { Policy } from "./types";
 
 /**
@@ -517,16 +518,8 @@ export function bareFormSet(coverages: string[]): PolicyFormSet {
 
 /** Forms on file for a policy; DB schedule first, then seed, then bare codes. */
 export function getPolicyFormSet(policy: Policy): PolicyFormSet {
-  try {
-    // Lazy import avoids circular init with db ↔ intelligence
-    const { getPolicyFormSetFromStore } = require("./policy-store") as {
-      getPolicyFormSetFromStore: (policyId: string) => PolicyFormSet | null;
-    };
-    const fromDb = getPolicyFormSetFromStore(policy.id);
-    if (fromDb) return fromDb;
-  } catch {
-    /* store not ready */
-  }
+  const fromDb = getPolicyFormSetFromStore(policy.id);
+  if (fromDb) return fromDb;
   const known = FORM_SETS[policy.id];
   if (known) return known;
   return bareFormSet(policy.coverages);

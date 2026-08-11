@@ -9,6 +9,8 @@ const wi = (title: string): WorkItem => ({
 });
 console.assert(instantBindBucket(wi("IQ bind no signature needed"))==="no_signature");
 console.assert(instantBindFacet(wi("Waiting on RT Connector portal"))==="carrier_access");
-console.assert(instantBindAction(wi("RT Connector")).includes("Portal Bind"));
+console.assert(instantBindAction(wi("RT Connector")).includes("Chase Signature"));
+console.assert(instantBindAction(wi("Pathpoint IQ Bind")).includes("Chase Signature"));
+console.assert(instantBindAction(wi("Coterie portal access")).includes("Portal Bind"));
 console.log("PASS  instant-binds");
 console.log("\nAll instant-binds checks passed.");

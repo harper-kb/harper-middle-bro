@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 
 /**
  * Split account workspace tab contract (Step Bro CRM).
@@ -37,12 +37,11 @@ export function AccountWorkspace({
   panels: AccountTabPanels;
   initialTab?: AccountTabId;
 }) {
-  const [tab, setTab] = useState<AccountTabId>(initialTab);
-
-  useEffect(() => {
+  const [tab, setTab] = useState<AccountTabId>(() => {
+    if (typeof window === "undefined") return initialTab;
     const fromHash = window.location.hash.replace(/^#/, "");
-    if (fromHash && isTabId(fromHash)) setTab(fromHash);
-  }, []);
+    return fromHash && isTabId(fromHash) ? fromHash : initialTab;
+  });
 
   const selectTab = useCallback((id: AccountTabId) => {
     setTab(id);

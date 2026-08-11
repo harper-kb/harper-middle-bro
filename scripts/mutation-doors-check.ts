@@ -1,5 +1,3 @@
-import { createRequire } from "module";
-
 // Capability gates are pure enough via discoverCapabilities without network.
 import { getCapabilityGate } from "../src/lib/adapters/agent-tools/capabilities";
 

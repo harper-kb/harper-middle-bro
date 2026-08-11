@@ -41,7 +41,7 @@ export function buildAgentDrilldowns(items: WorkItem[]): AgentDrilldown[] {
 
   const now = Date.now();
   return [...byAgent.entries()]
-    .map(([key, list]) => {
+    .map(([, list]) => {
       const first = list[0]!;
       const ages = list.map((i) =>
         Math.max(0, (now - Date.parse(i.createdAt)) / 3_600_000),

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Show,
   SignInButton,
@@ -226,19 +226,17 @@ export function Nav({
   const path = pathname ?? active;
   const presence = useIdlePresence();
 
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
     try {
       const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
-      if (raw) {
-        setCollapsed((prev) => ({ ...prev, ...(JSON.parse(raw) as Record<string, boolean>) }));
-      }
+      if (raw) return JSON.parse(raw) as Record<string, boolean>;
     } catch {
       // Ignore unreadable storage — default expansion is fine.
     }
-  }, []);
+    return {};
+  });
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   function toggle(id: string) {
     setCollapsed((prev) => {

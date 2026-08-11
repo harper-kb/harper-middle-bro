@@ -1,44 +1,22 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
-import { ensureOperatorForClerkUser, getOperatorByClerkUserId } from "./db";
+import { redirect } from "next/navigation";
+import { resolveOperator } from "./session-core";
 import type { Operator } from "./types";
+
+export { getApiOperator } from "./session-core";
 
 /**
  * Resolve the signed-in Clerk user to a desk operator (create/link on first use).
  * Replaces the old cookie seat-picker.
+ *
+ * Every desk page funnels through here, so this is where an off-allowlist
+ * account is stopped. It leaves rather than returning null: null still renders
+ * the page, and the book must not be readable by someone who is not on the desk.
+ *
+ * Route handlers must use `getApiOperator` from session-core instead — this
+ * module reaches `next/navigation`, which route handlers cannot load.
  */
 export async function getSessionOperator(): Promise<Operator | null> {
-  let isAuthenticated = false;
-  let userId: string | null = null;
-  try {
-    const session = await auth();
-    isAuthenticated = Boolean(session.isAuthenticated);
-    userId = session.userId;
-  } catch {
-    // Middleware / Clerk handshake unavailable — treat as signed out.
-    return null;
-  }
-  if (!isAuthenticated || !userId) return null;
-
-  // Hot path: already linked — no Clerk Backend API round-trip.
-  const existing = getOperatorByClerkUserId(userId);
-  if (existing) return existing;
-
-  const user = await currentUser();
-  if (!user) return null;
-
-  const email =
-    user.primaryEmailAddress?.emailAddress ??
-    user.emailAddresses[0]?.emailAddress ??
-    "";
-  const displayName =
-    [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
-    user.username ||
-    email.split("@")[0] ||
-    "Operator";
-
-  return ensureOperatorForClerkUser({
-    clerkUserId: userId,
-    email,
-    displayName,
-  });
+  const resolved = await resolveOperator();
+  if (resolved.state === "denied") redirect("/access-denied");
+  return resolved.state === "allowed" ? resolved.operator : null;
 }

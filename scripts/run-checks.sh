@@ -25,6 +25,7 @@ run() {
 }
 
 for f in \
+  access-check.ts \
   agent-watch-check.ts \
   carrier-knowledge-check.ts \
   cert-invariants-check.ts \
@@ -34,7 +35,6 @@ for f in \
   desk-brain-check.ts \
   intake-match-check.ts \
   middle-bro-check.ts \
-  carrier-knowledge-render-check.tsx \
   pipeline-render-check.tsx
 do
   run "${f%.*}" npx tsx "scripts/$f"

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import {
   Show,
   SignInButton,
@@ -10,15 +10,13 @@ import {
   UserButton,
 } from "@clerk/nextjs";
 import { SERVICE_MAILBOX, SHORT_NAME } from "@/lib/brand";
+import { SERVICE_LANE_HREFS, SERVICE_LANE_IDS, SERVICE_LANE_LABELS } from "@/lib/types";
 import type { Operator } from "@/lib/types";
 import { useIdlePresence, type Presence } from "@/lib/use-presence";
 
 /**
- * Left sidebar navigation (Ascend-style groups) that keeps the old top-bar
- * contract: pages render `<Nav active=… operator=… />` followed by a sibling
- * `<main>`. The sidebar is fixed; a `body:has(.desk-sidebar)` rule in
- * globals.css pads the body on lg+ so no page file needs layout edits.
- * Below lg it degrades to a sticky top bar with a slide-over drawer.
+ * Left sidebar navigation. Exactly three groups per Step Bro product contract:
+ * Desk | eight sections | Manager.
  */
 
 type NavItem = { href: string; label: string };
@@ -27,28 +25,25 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
   {
     id: "desk",
     label: "Desk",
-    items: [
-      { href: "/my-day", label: "My Day" },
-      { href: "/queue", label: "Ticket Queue" },
-      { href: "/ai-desk", label: "AI Desk" },
-      { href: "/comms", label: "Comms" },
-      { href: "/threads", label: "Threads" },
-    ],
+    items: [{ href: "/desk", label: "Desk" }],
   },
   {
-    id: "records",
-    label: "Records",
-    items: [
-      { href: "/accounts", label: "Accounts" },
-      { href: "/certificates", label: "Certificates" },
-      { href: "/glossary", label: "Glossary" },
-    ],
+    id: "sections",
+    label: "Sections",
+    items: SERVICE_LANE_IDS.map((id) => ({
+      href: SERVICE_LANE_HREFS[id],
+      label: SERVICE_LANE_LABELS[id],
+    })),
   },
   {
-    id: "oversight",
-    label: "Oversight",
+    id: "manager",
+    label: "Manager",
     items: [
       { href: "/manager", label: "Manager" },
+      { href: "/manager/kpis", label: "KPIs" },
+      { href: "/manager/qa", label: "QA" },
+      { href: "/accounts", label: "Accounts" },
+      { href: "/certificates", label: "Certificates" },
       { href: "/oversight", label: "Oversight" },
       { href: "/agent-watch", label: "Agent Watch" },
       { href: "/trace", label: "Trace" },
@@ -57,6 +52,34 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
 ];
 
 const COLLAPSE_STORAGE_KEY = "desk-nav-collapsed";
+
+const EMPTY_COLLAPSE: Record<string, boolean> = {};
+const NAV_COLLAPSE_EVENT = "step-bro-nav-collapse";
+
+function readNavCollapse(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, boolean>;
+  } catch {
+    // Ignore unreadable storage — default expansion is fine.
+  }
+  return EMPTY_COLLAPSE;
+}
+
+function subscribeNavCollapse(onStoreChange: () => void): () => void {
+  const handler = () => onStoreChange();
+  window.addEventListener("storage", handler);
+  window.addEventListener(NAV_COLLAPSE_EVENT, handler);
+  return () => {
+    window.removeEventListener("storage", handler);
+    window.removeEventListener(NAV_COLLAPSE_EVENT, handler);
+  };
+}
+
+function emitNavCollapse(): void {
+  window.dispatchEvent(new Event(NAV_COLLAPSE_EVENT));
+}
+
 
 function isActivePath(path: string, href: string): boolean {
   return path === href || (href !== "/" && path.startsWith(`${href}/`));
@@ -231,32 +254,23 @@ export function Nav({
   const path = pathname ?? active;
   const presence = useIdlePresence();
 
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const collapsed = useSyncExternalStore(
+    subscribeNavCollapse,
+    readNavCollapse,
+    () => EMPTY_COLLAPSE,
+  );
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  useEffect(() => {
+  const toggle = useCallback((id: string) => {
+    const prev = readNavCollapse();
+    const next = { ...prev, [id]: !prev[id] };
     try {
-      const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
-      if (raw) {
-        setCollapsed((prev) => ({ ...prev, ...(JSON.parse(raw) as Record<string, boolean>) }));
-      }
+      localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(next));
     } catch {
-      // Ignore unreadable storage — default expansion is fine.
+      // Storage full / private mode — still notify listeners for this session.
     }
+    emitNavCollapse();
   }, []);
-
-  function toggle(id: string) {
-    setCollapsed((prev) => {
-      const current = !prev[id];
-      const next = { ...prev, [id]: current };
-      try {
-        localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // Storage full / private mode — collapse still works for the session.
-      }
-      return next;
-    });
-  }
 
   const brand = (
     <div className="flex items-baseline gap-2">

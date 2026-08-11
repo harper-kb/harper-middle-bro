@@ -79,25 +79,22 @@ export async function dispatchAction(
   const gate = getCapabilityGate(request.capabilityId);
   const policy = confirmationFor(request.capabilityId);
   if (policy !== "none" && !request.confirmed) {
-    const receipt = baseReceipt(
+    // Do not persist rejections — a later confirmed retry must use the same key.
+    return baseReceipt(
       request,
       "rejected",
       `Confirmation required (${policy}) before ${request.capabilityId}`,
       { confirmation: policy },
     );
-    storeReceipt(receipt);
-    return receipt;
   }
 
   if (gate.state === "unavailable") {
-    const receipt = baseReceipt(
+    return baseReceipt(
       request,
       "rejected",
       gate.blockerLabel ?? "Capability unavailable",
       { gate: gate.state },
     );
-    storeReceipt(receipt);
-    return receipt;
   }
 
   if (gate.state === "blocked") {
@@ -105,29 +102,45 @@ export async function dispatchAction(
       const legacy = getLegacyFallback(request.capabilityId);
       if (legacy) {
         const receipt = await legacy.execute(request);
-        storeReceipt(receipt);
+        if (receipt.status === "confirmed") storeReceipt(receipt);
         return receipt;
       }
     }
-    const receipt = baseReceipt(
+    return baseReceipt(
       request,
       "rejected",
       gate.blockerLabel ?? "Capability blocked",
       { gate: gate.state, provider: gate.provider },
     );
-    storeReceipt(receipt);
-    return receipt;
   }
 
   const command = commandFor(request.capabilityId);
   if (!command) {
-    const receipt = baseReceipt(
+    // Local providers (e.g. write.coi.issue) are available without an Agent Tools
+    // command — prefer an explicit legacy handler, otherwise confirm locally.
+    if (opts?.allowLegacyFallback) {
+      const legacy = getLegacyFallback(request.capabilityId);
+      if (legacy) {
+        const receipt = await legacy.execute(request);
+        if (receipt.status === "confirmed") storeReceipt(receipt);
+        return receipt;
+      }
+    }
+    if (gate.provider === "local") {
+      const receipt = baseReceipt(
+        request,
+        "confirmed",
+        `Local ${request.capabilityId} executed`,
+        { provider: "local" },
+      );
+      storeReceipt(receipt);
+      return receipt;
+    }
+    return baseReceipt(
       request,
       "rejected",
       `No Agent Tools command mapped for ${request.capabilityId}`,
     );
-    storeReceipt(receipt);
-    return receipt;
   }
 
   try {
@@ -139,14 +152,13 @@ export async function dispatchAction(
       account_id: request.accountId,
     });
     if (!result.ok) {
-      const receipt = baseReceipt(
+      // Do not persist failures — operator may retry the same key.
+      return baseReceipt(
         request,
         "failed",
         result.error ?? "Agent Tools execution failed",
         { httpStatus: result.status },
       );
-      storeReceipt(receipt);
-      return receipt;
     }
     const receipt = baseReceipt(
       request,
@@ -161,13 +173,11 @@ export async function dispatchAction(
     storeReceipt(receipt);
     return receipt;
   } catch (err) {
-    const receipt = baseReceipt(
+    return baseReceipt(
       request,
       "failed",
       err instanceof Error ? err.message : "Agent Tools error",
     );
-    storeReceipt(receipt);
-    return receipt;
   }
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useState, useSyncExternalStore, type ReactNode } from "react";
 
 /**
  * Split account workspace tab contract (Step Bro CRM).
@@ -25,6 +25,23 @@ function isTabId(value: string): value is AccountTabId {
   return ACCOUNT_TABS.some((t) => t.id === value);
 }
 
+const ACCOUNT_TAB_EVENT = "step-bro-account-tab";
+
+function readHashTab(fallback: AccountTabId): AccountTabId {
+  const fromHash = window.location.hash.replace(/^#/, "");
+  return fromHash && isTabId(fromHash) ? fromHash : fallback;
+}
+
+function subscribeHashTab(onStoreChange: () => void): () => void {
+  const handler = () => onStoreChange();
+  window.addEventListener("hashchange", handler);
+  window.addEventListener(ACCOUNT_TAB_EVENT, handler);
+  return () => {
+    window.removeEventListener("hashchange", handler);
+    window.removeEventListener(ACCOUNT_TAB_EVENT, handler);
+  };
+}
+
 export function AccountWorkspace({
   header,
   rail,
@@ -37,17 +54,20 @@ export function AccountWorkspace({
   panels: AccountTabPanels;
   initialTab?: AccountTabId;
 }) {
-  const [tab, setTab] = useState<AccountTabId>(() => {
-    if (typeof window === "undefined") return initialTab;
-    const fromHash = window.location.hash.replace(/^#/, "");
-    return fromHash && isTabId(fromHash) ? fromHash : initialTab;
-  });
+  const hashTab = useSyncExternalStore(
+    subscribeHashTab,
+    () => readHashTab(initialTab),
+    () => initialTab,
+  );
+  const [overrideTab, setOverrideTab] = useState<AccountTabId | null>(null);
+  const tab = overrideTab ?? hashTab;
 
   const selectTab = useCallback((id: AccountTabId) => {
-    setTab(id);
+    setOverrideTab(id);
     const url = new URL(window.location.href);
     url.hash = id;
     window.history.replaceState(null, "", url.toString());
+    window.dispatchEvent(new Event(ACCOUNT_TAB_EVENT));
   }, []);
 
   const body = panels[tab] ?? (

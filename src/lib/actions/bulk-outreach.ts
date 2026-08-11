@@ -4,7 +4,7 @@ import {
   buildIdempotencyKey,
   dispatchAction,
 } from "@/lib/adapters/agent-tools";
-import type { ActionReceipt } from "@/lib/types";
+import type { ActionReceipt, CapabilityId } from "@/lib/types";
 import {
   filterBulkRecipients,
   type BulkRecipient,
@@ -28,12 +28,15 @@ export async function executeBulkBatch(opts: {
   plan: BulkBatchPlan;
   confirmed: boolean;
 }): Promise<{ batchReceipt: ActionReceipt; perRecipient: ActionReceipt[] }> {
-  const { included } = filterBulkRecipients(opts.plan.recipients);
+  const { included } = filterBulkRecipients(
+    opts.plan.recipients,
+    opts.plan.channel,
+  );
   const batchKey = buildIdempotencyKey({
     operatorId: opts.operatorId,
     capabilityId: "write.comms.bulk",
     workItemId: opts.plan.batchId,
-    fingerprint: `${opts.plan.templateId}:${included.length}`,
+    fingerprint: `${opts.plan.templateId}:${opts.plan.channel}:${included.length}`,
   });
 
   const batchReceipt = await dispatchAction({
@@ -52,25 +55,28 @@ export async function executeBulkBatch(opts: {
   });
 
   const perRecipient: ActionReceipt[] = [];
+  // Fan-out only after a real confirm (or successful idempotent replay of one).
   if (
     batchReceipt.status === "confirmed" ||
     batchReceipt.status === "idempotent_replay"
   ) {
+    const capabilityId: CapabilityId =
+      opts.plan.channel === "text" ? "write.comms.text" : "write.comms.email";
     for (const r of included) {
       perRecipient.push(
         await dispatchAction(
           {
-            capabilityId: "write.comms.email",
+            capabilityId,
             operatorId: opts.operatorId,
             idempotencyKey: buildIdempotencyKey({
               operatorId: opts.operatorId,
-              capabilityId: "write.comms.email",
+              capabilityId,
               workItemId: r.workItemId,
               fingerprint: `${opts.plan.batchId}:${r.to}`,
             }),
             workItemId: r.workItemId,
             accountId: r.accountId,
-            payload: { to: r.to, batchId: opts.plan.batchId },
+            payload: { to: r.to, batchId: opts.plan.batchId, channel: opts.plan.channel },
             confirmed: true,
           },
           { allowLegacyFallback: true },

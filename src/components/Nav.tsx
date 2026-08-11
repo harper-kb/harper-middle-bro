@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import {
   Show,
   SignInButton,
@@ -52,6 +52,34 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
 ];
 
 const COLLAPSE_STORAGE_KEY = "desk-nav-collapsed";
+
+const EMPTY_COLLAPSE: Record<string, boolean> = {};
+const NAV_COLLAPSE_EVENT = "step-bro-nav-collapse";
+
+function readNavCollapse(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as Record<string, boolean>;
+  } catch {
+    // Ignore unreadable storage — default expansion is fine.
+  }
+  return EMPTY_COLLAPSE;
+}
+
+function subscribeNavCollapse(onStoreChange: () => void): () => void {
+  const handler = () => onStoreChange();
+  window.addEventListener("storage", handler);
+  window.addEventListener(NAV_COLLAPSE_EVENT, handler);
+  return () => {
+    window.removeEventListener("storage", handler);
+    window.removeEventListener(NAV_COLLAPSE_EVENT, handler);
+  };
+}
+
+function emitNavCollapse(): void {
+  window.dispatchEvent(new Event(NAV_COLLAPSE_EVENT));
+}
+
 
 function isActivePath(path: string, href: string): boolean {
   return path === href || (href !== "/" && path.startsWith(`${href}/`));
@@ -226,30 +254,23 @@ export function Nav({
   const path = pathname ?? active;
   const presence = useIdlePresence();
 
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
-      if (raw) return JSON.parse(raw) as Record<string, boolean>;
-    } catch {
-      // Ignore unreadable storage — default expansion is fine.
-    }
-    return {};
-  });
+  const collapsed = useSyncExternalStore(
+    subscribeNavCollapse,
+    readNavCollapse,
+    () => EMPTY_COLLAPSE,
+  );
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  function toggle(id: string) {
-    setCollapsed((prev) => {
-      const current = !prev[id];
-      const next = { ...prev, [id]: current };
-      try {
-        localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // Storage full / private mode — collapse still works for the session.
-      }
-      return next;
-    });
-  }
+  const toggle = useCallback((id: string) => {
+    const prev = readNavCollapse();
+    const next = { ...prev, [id]: !prev[id] };
+    try {
+      localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Storage full / private mode — still notify listeners for this session.
+    }
+    emitNavCollapse();
+  }, []);
 
   const brand = (
     <div className="flex items-baseline gap-2">

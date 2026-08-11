@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { CertCheckResult } from "@/lib/cert-checks";
 import {
@@ -40,7 +39,6 @@ import {
   effStr,
   mdy,
   verifyEditedSheet,
-  type FieldSuggestion,
   type SheetFinding,
   type SheetOverrides,
 } from "@/lib/cert-review";
@@ -280,9 +278,6 @@ export function CertificateStudio({
   const [activeArea, setActiveArea] = useState<string | null>(null);
   const [signed, setSigned] = useState(false);
   const [run, setRun] = useState<RunState | null>(null);
-  // The guided confirm card opens on its own with the values extracted from
-  // the file, area by area — closing it falls back to the on-sheet strips.
-  const [wizardOpen, setWizardOpen] = useState(true);
   // Screen-only sheet magnification; print always renders at 100%. "Fit" is
   // the default and the reason the sheet never scrolls sideways: the form is
   // drawn at a fixed 720px and scaled down to whatever width the column has.
@@ -391,7 +386,6 @@ export function CertificateStudio({
     setActiveArea(null);
     setSigned(false);
     setRun(null);
-    setWizardOpen(true);
     setIssued(null);
     setCheckResults(null);
     setPreparedInfo(null);
@@ -564,7 +558,6 @@ export function CertificateStudio({
     setActiveArea(null);
     setSigned(false);
     setRun(null);
-    setWizardOpen(true);
     setIssued(null);
     setCheckResults(null);
     setPreparedInfo(null);
@@ -919,7 +912,9 @@ export function CertificateStudio({
         )}
       </header>
 
-      <div className="grid gap-4 px-5 py-4 xl:grid-cols-[minmax(0,22rem)_1fr]">
+      {/* The certificate is the document being approved, so it takes the
+          page: the rail is the narrowest that still fits a holder card. */}
+      <div className="grid gap-4 px-4 py-4 lg:grid-cols-[minmax(0,17rem)_1fr]">
         <div className="space-y-4">
           {run && (
             <RunPanel
@@ -1036,11 +1031,8 @@ export function CertificateStudio({
               areas={areas}
               confirmed={confirmedSet}
               activeArea={activeArea}
-              onOpenWizard={
-                !wizardOpen && !allReviewed
-                  ? () => setWizardOpen(true)
-                  : undefined
-              }
+              rejectAreas={rejectAreas}
+              onConfirmMany={confirmAreas}
             />
           )}
 
@@ -1063,29 +1055,9 @@ export function CertificateStudio({
           />
         </div>
 
+        {/* Nothing but the certificate lives in this column. Review happens
+            on the sheet itself, through the strip on each area. */}
         <div className="min-w-0" ref={sheetColRef}>
-          {packet && wizardOpen && !allReviewed && (
-            <ConfirmWizard
-              areas={areas}
-              confirmed={confirmedSet}
-              activeArea={activeArea}
-              suggestions={suggestions}
-              rejectAreas={rejectAreas}
-              holderName={holderName}
-              holderAddress={holderAddress}
-              holderAddressOk={holderAddressOk}
-              rail={rail}
-              activeRailKey={activeRailKey}
-              onLoadHolder={loadHolder}
-              onBegin={(key) => setActiveArea(key)}
-              onConfirm={confirmArea}
-              onConfirmMany={confirmAreas}
-              onClose={() => {
-                setWizardOpen(false);
-                setActiveArea(null);
-              }}
-            />
-          )}
           {packet && sheet && (
             <div className="no-print mb-2 flex items-center justify-end gap-1">
               <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
@@ -1413,37 +1385,64 @@ function AreaChip({
   );
 }
 
-/** Rail-side progress: which areas are done, which one is lit. */
+/**
+ * Rail-side progress. The review itself happens on the certificate — every
+ * area carries its own Review strip — so this is a checklist and a bulk
+ * confirm, not a second place to read the values. The sheet is the document
+ * being approved; it gets the page.
+ */
 function ReviewProgress({
   areas,
   confirmed,
   activeArea,
-  onOpenWizard,
+  rejectAreas,
+  onConfirmMany,
 }: {
   areas: AreaDef[];
   confirmed: Set<string>;
   activeArea: string | null;
-  onOpenWizard?: () => void;
+  rejectAreas: Set<string>;
+  onConfirmMany: (keys: string[]) => void;
 }) {
   const done = areas.filter((a) => confirmed.has(a.key)).length;
+  // Only the record-locked areas confirm in bulk. Holder and description are
+  // per-certificate — they get read on the sheet, one at a time.
+  const isPerCert = (key: string) => key === "holder" || key === "desc";
+  const bulk = areas.filter(
+    (a) => !isPerCert(a.key) && !confirmed.has(a.key),
+  );
+  const blocked = bulk.filter((a) => rejectAreas.has(a.key));
   return (
     <div className="rounded-xl border border-[var(--gold)]/50 bg-white p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="eyebrow">Area Review</p>
-        {onOpenWizard && (
+      <p className="eyebrow">Area Review</p>
+      <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--muted)]">
+        Confirm each area on the certificate — every area carries its own
+        Review strip. All {areas.length} unlock Sign &amp; Issue.
+      </p>
+      {bulk.length > 0 && (
+        <>
           <button
             type="button"
-            onClick={onOpenWizard}
-            className="rounded-full border border-[var(--gold)] bg-[var(--gold)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--ink)] transition hover:bg-[var(--gold)]/20"
+            onClick={() => onConfirmMany(bulk.map((a) => a.key))}
+            disabled={blocked.length > 0}
+            title={
+              blocked.length > 0
+                ? "An area carries a reject — resolve it in Checks first"
+                : "These areas are locked to the schedule of record and already verifier-checked"
+            }
+            className="mt-2 w-full rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-45"
           >
-            Guided Confirm
+            Confirm {bulk.length} Record Area{bulk.length === 1 ? "" : "s"}
           </button>
-        )}
-      </div>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--muted)]">
-        Review happens on the sheet — each area has its own strip. Confirm all{" "}
-        {areas.length} areas to unlock Sign &amp; Issue.
-      </p>
+          {blocked.length > 0 && (
+            <p className="mt-1.5 rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-[10.5px] text-red-800">
+              {blocked.length} area{blocked.length === 1 ? "" : "s"} carr
+              {blocked.length === 1 ? "ies" : "y"} a reject — resolve it in
+              Checks before confirming.
+            </p>
+          )}
+        </>
+      )}
       <p className="mt-2 text-[11px] font-semibold text-[var(--ink)]">
         {done} Of {areas.length} Areas Confirmed
       </p>
@@ -1471,305 +1470,6 @@ function ReviewProgress({
 }
 
 /** One extracted value inside the guided card — display + source cite. */
-function WizardValueRow({ s }: { s: FieldSuggestion }) {
-  return (
-    <li className="flex items-baseline justify-between gap-2 rounded-lg border border-[var(--rule)] bg-white px-2 py-1">
-      <span className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
-        {s.label}
-      </span>
-      <span className="min-w-0 text-right">
-        <span className="block truncate text-[11px] font-semibold text-[var(--ink)]">
-          {s.display}
-        </span>
-        <span className="block text-[9px] uppercase tracking-wide text-[var(--muted)]">
-          {s.source}
-        </span>
-      </span>
-    </li>
-  );
-}
-
-/**
- * The guided confirm card. Opens on its own as soon as the sheet fills.
- * Step one batches every record-locked area — the values are locked to the
- * schedule and verifier-checked, so a single read-through and one click
- * attests them all (refused while any of those areas carries a reject).
- * The two per-certificate decisions, Certificate Holder and Description,
- * then confirm one at a time; the holder step carries the rail so a ticket
- * holder loads without leaving the card. Closing it never blocks anything:
- * the on-sheet review strips are the same state machine.
- */
-function ConfirmWizard({
-  areas,
-  confirmed,
-  activeArea,
-  suggestions,
-  rejectAreas,
-  holderName,
-  holderAddress,
-  holderAddressOk,
-  rail,
-  activeRailKey,
-  onLoadHolder,
-  onBegin,
-  onConfirm,
-  onConfirmMany,
-  onClose,
-}: {
-  areas: AreaDef[];
-  confirmed: Set<string>;
-  activeArea: string | null;
-  suggestions: FieldSuggestion[];
-  rejectAreas: Set<string>;
-  holderName: string;
-  holderAddress: string;
-  holderAddressOk: boolean;
-  rail: RailEntry[];
-  activeRailKey: string | null;
-  onLoadHolder: (h: { name: string; address: string }) => void;
-  onBegin: (key: string) => void;
-  onConfirm: (key: string) => void;
-  onConfirmMany: (keys: string[]) => void;
-  onClose: () => void;
-}) {
-  const isPerCert = (key: string) => key === "holder" || key === "desc";
-  const recordPending = areas.filter(
-    (a) => !isPerCert(a.key) && !confirmed.has(a.key),
-  );
-  const perCertPending = areas.filter(
-    (a) => isPerCert(a.key) && !confirmed.has(a.key),
-  );
-  const done = areas.length - recordPending.length - perCertPending.length;
-  const onRecordStep = recordPending.length > 0;
-  const current = onRecordStep
-    ? null
-    : (perCertPending.find((a) => a.key === activeArea) ??
-      perCertPending[0] ??
-      null);
-
-  // Light the area under review on the sheet — the record step lights
-  // nothing (it spans areas); the per-certificate steps light their area.
-  const currentKey = current?.key ?? null;
-  useEffect(() => {
-    if (currentKey && activeArea !== currentKey) onBegin(currentKey);
-    // Re-light only when the card's target area changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentKey]);
-
-  if (!onRecordStep && !current) return null;
-
-  // Docked to the top of the sheet column rather than floated over the page:
-  // the operator reads the card and the form it is describing at the same
-  // time. Sticky so it survives the scroll down a long sheet, capped short
-  // enough that the form stays the larger thing on screen.
-  const frame = (title: string, body: React.ReactNode, foot: React.ReactNode) => (
-    <div className="no-print sticky top-2 z-30 mb-2 overflow-hidden rounded-2xl border border-[var(--gold)]/60 bg-[var(--paper)] shadow-lg">
-      <div className="flex items-center justify-between gap-2 border-b border-[var(--rule)] bg-white px-3 py-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
-          {title} · {done} Of {areas.length} Areas Done
-        </p>
-        <button
-          type="button"
-          onClick={onClose}
-          title="Close — the on-sheet review strips stay available"
-          className="rounded px-1 text-sm leading-none text-[var(--muted)] hover:text-[var(--ink)]"
-        >
-          ✕
-        </button>
-      </div>
-      <div className="max-h-[30vh] overflow-y-auto px-3 py-2.5">{body}</div>
-      <div className="flex items-center justify-between gap-2 border-t border-[var(--rule)] bg-white px-3 py-2">
-        {foot}
-      </div>
-    </div>
-  );
-
-  // ——— Step one: everything the file says, one attestation ———
-  if (onRecordStep) {
-    const blocked = recordPending.filter((a) => rejectAreas.has(a.key));
-    return frame(
-      "Confirm From The File",
-      <>
-        <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-          These values are locked to the schedule of record and already
-          verifier-checked — read them once and confirm them together.
-        </p>
-        {recordPending.map((a) => {
-          const values = suggestions.filter((s) => fieldArea(s.id) === a.key);
-          return (
-            <div key={a.key} className="mt-2">
-              <p className="flex items-center justify-between gap-2 text-[11px] font-semibold text-[var(--ink)]">
-                {a.label}
-                {rejectAreas.has(a.key) && (
-                  <span className="rounded-full border border-red-300 bg-red-50 px-1.5 py-0.5 text-[8.5px] font-semibold uppercase tracking-wide text-red-800">
-                    Carries A Reject
-                  </span>
-                )}
-              </p>
-              {values.length === 0 ? (
-                <p className="mt-0.5 text-[10px] text-[var(--muted)]">
-                  Nothing extracted — the area prints blank.
-                </p>
-              ) : (
-                <ul className="mt-1 space-y-1">
-                  {values.map((s) => (
-                    <WizardValueRow key={s.id} s={s} />
-                  ))}
-                </ul>
-              )}
-            </div>
-          );
-        })}
-        {blocked.length > 0 && (
-          <p className="mt-2 rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-[10.5px] text-red-800">
-            {blocked.length} area{blocked.length === 1 ? "" : "s"} carr
-            {blocked.length === 1 ? "ies" : "y"} a reject — resolve it in the
-            Checks panel before confirming.
-          </p>
-        )}
-      </>,
-      <>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg border border-[var(--rule)] bg-[var(--paper)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)] transition hover:text-[var(--ink)]"
-        >
-          Review On The Sheet
-        </button>
-        <button
-          type="button"
-          onClick={() => onConfirmMany(recordPending.map((a) => a.key))}
-          disabled={blocked.length > 0}
-          className="rounded-lg bg-emerald-600 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-45"
-        >
-          Confirm All ({recordPending.length} Area
-          {recordPending.length === 1 ? "" : "s"})
-        </button>
-      </>,
-    );
-  }
-
-  // ——— Per-certificate steps: Certificate Holder, then Description ———
-  if (!current) return null;
-  const values = suggestions.filter((s) => fieldArea(s.id) === current.key);
-  const holderStep = current.key === "holder";
-  const holderBlocked =
-    holderStep && (!holderAddressOk || !holderName.trim());
-
-  function advance(afterKey: string, alsoConfirm: boolean) {
-    if (alsoConfirm) onConfirm(afterKey);
-    const next = perCertPending.find(
-      (a) => a.key !== afterKey && !confirmed.has(a.key),
-    );
-    if (next) onBegin(next.key);
-  }
-
-  return frame(
-    current.label,
-    <>
-      {holderStep ? (
-        <>
-          {holderName.trim() ? (
-            <div className="rounded-lg border border-[var(--rule)] bg-white px-2 py-1.5">
-              <p className="text-[11.5px] font-semibold text-[var(--ink)]">
-                {holderName}
-              </p>
-              <p className="text-[10px] text-[var(--muted)]">
-                {holderAddress.trim() || "No address given"}
-              </p>
-            </div>
-          ) : (
-            <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-              No holder yet — load one from the rail below, or type it on the
-              sheet exactly as the contract spells it.
-            </p>
-          )}
-          {rail.length > 0 && (
-            <div className="mt-2">
-              <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
-                On The Rail
-              </p>
-              <ul className="mt-1 space-y-1">
-                {rail.map((e) => (
-                  <li
-                    key={e.key}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-[var(--rule)] bg-white px-2 py-1"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-[11px] font-semibold text-[var(--ink)]">
-                        {e.name}
-                      </span>
-                      <span className="block truncate text-[9.5px] text-[var(--muted)]">
-                        {e.source}
-                        {e.address ? ` · ${e.address}` : ""}
-                      </span>
-                    </span>
-                    {e.key === activeRailKey ? (
-                      <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
-                        ✓ On The Sheet
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onLoadHolder({ name: e.name, address: e.address })
-                        }
-                        className="shrink-0 rounded-lg border border-[var(--gold)] bg-white px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--ink)] hover:bg-[var(--gold)]/10"
-                      >
-                        Use
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {holderName.trim() && !holderAddressOk && (
-            <p className="mt-1.5 rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-[10.5px] text-red-800">
-              The holder address must verify before this area can be
-              confirmed.
-            </p>
-          )}
-        </>
-      ) : values.length === 0 ? (
-        <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-          Nothing extracted for this area — review it on the sheet, fill what
-          the certificate needs, then confirm.
-        </p>
-      ) : (
-        <ul className="space-y-1">
-          {values.map((s) => (
-            <WizardValueRow key={s.id} s={s} />
-          ))}
-        </ul>
-      )}
-    </>,
-    <>
-      <button
-        type="button"
-        onClick={() => advance(current.key, false)}
-        className="rounded-lg border border-[var(--rule)] bg-[var(--paper)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)] transition hover:text-[var(--ink)]"
-      >
-        Skip For Now
-      </button>
-      <button
-        type="button"
-        onClick={() => advance(current.key, true)}
-        disabled={holderBlocked}
-        title={
-          holderBlocked
-            ? !holderName.trim()
-              ? "A certificate has to name who it's issued to"
-              : "The holder address must verify first"
-            : undefined
-        }
-        className="rounded-lg bg-emerald-600 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-45"
-      >
-        Confirm &amp; Next
-      </button>
-    </>,
-  );
-}
 
 /* ————————————————————————— Holder rail ————————————————————————— */
 

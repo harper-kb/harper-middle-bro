@@ -315,14 +315,12 @@ export function CertificateStudio({
   // the two blocks can never disagree.
   const insuredNameDefault = chosen[0]?.quoteInsuredName ?? account.name;
   const insuredName = effStr(overrides, "insured.name", insuredNameDefault);
-  const insuredAddress = [
-    effStr(overrides, "insured.addr1", account.addressLine1 ?? ""),
-    effStr(overrides, "insured.city", account.city ?? ""),
-    `${effStr(overrides, "insured.state", account.state)} ${effStr(overrides, "insured.zip", account.zip ?? "")}`.trim(),
-  ]
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .join(", ");
+  const insuredAddress = holderBlock({
+    line1: effStr(overrides, "insured.addr1", account.addressLine1 ?? ""),
+    city: effStr(overrides, "insured.city", account.city ?? ""),
+    state: effStr(overrides, "insured.state", account.state),
+    zip: effStr(overrides, "insured.zip", account.zip ?? ""),
+  });
   const holderName = holderNameRaw.trim() ? holderNameRaw : insuredName;
   const holderAddress = holderAddressRaw.trim()
     ? holderAddressRaw
@@ -987,14 +985,19 @@ export function CertificateStudio({
               <span className="eyebrow">Holder Address</span>
               <AddressStatusChip
                 check={holderCheck}
-                onApplyStandardized={setHolderAddress}
+                onApplyStandardized={(_, parts) =>
+                  setHolderAddress(holderBlock(parts))
+                }
               />
             </span>
-            <input
+            {/* A textarea, not an input: the block is two lines, and an
+                input silently strips the newline out from under React. */}
+            <textarea
               value={holderAddress}
               onChange={(e) => setHolderAddress(e.target.value)}
-              placeholder="Street, City, ST ZIP"
-              className={`field mt-1 ${holderAddressOk ? "" : "field-bad"}`}
+              placeholder={"Street\nCity, ST ZIP"}
+              rows={2}
+              className={`field mt-1 resize-none ${holderAddressOk ? "" : "field-bad"}`}
             />
           </label>
 
@@ -2621,6 +2624,23 @@ function In({
   );
 }
 
+/**
+ * The holder block is addressed like a mailing label, the way it reads on
+ * issued paper: street on its own line, then "City, ST ZIP". Any part that
+ * is missing collapses rather than leaving a stray comma or an empty line.
+ */
+function holderBlock(a: {
+  line1: string;
+  city: string;
+  state: string;
+  zip: string;
+}): string {
+  const cityLine = [a.city.trim(), `${a.state} ${a.zip}`.trim()]
+    .filter(Boolean)
+    .join(", ");
+  return [a.line1.trim(), cityLine].filter(Boolean).join("\n");
+}
+
 /** Visual rows for the half-width holder box: hard newlines plus soft wraps
     at ~50 chars (the description box calibrates 100 chars across the full
     sheet). Overestimating only nudges the box taller; underestimating would
@@ -3081,7 +3101,9 @@ function AcordSheet({
             <span className="no-print flex shrink-0 items-center gap-1">
               <AddressStatusChip
                 check={holderCheck}
-                onApplyStandardized={setHolderAddress}
+                onApplyStandardized={(_, parts) =>
+                  setHolderAddress(holderBlock(parts))
+                }
               />
               <AreaChip area="holder" ctx={ctx} className="shrink-0" />
             </span>

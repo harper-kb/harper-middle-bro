@@ -246,7 +246,15 @@ export function AddressStatusChip({
   onApplyStandardized,
 }: {
   check: Check<AddressVerdict>;
-  onApplyStandardized?: (standardized: string) => void;
+  /**
+   * `standardized` is the one-line form; `parts` lets a caller lay the
+   * address out its own way (the certificate holder block prints the street
+   * and the city line on separate lines).
+   */
+  onApplyStandardized?: (
+    standardized: string,
+    parts: StandardizedAddress,
+  ) => void;
 }) {
   if (!check.value) return null;
   if (check.phase !== "done") {
@@ -269,7 +277,12 @@ export function AddressStatusChip({
           {v.standardized && onApplyStandardized && (
             <button
               type="button"
-              onClick={() => onApplyStandardized(formatStandardized(v.standardized!))}
+              onClick={() =>
+                onApplyStandardized(
+                  formatStandardized(v.standardized!),
+                  v.standardized!,
+                )
+              }
               className={FIX}
               title={v.matchedAddress ?? "Apply the standardized address"}
             >

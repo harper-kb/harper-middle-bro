@@ -1,0 +1,389 @@
+/* Palette lifted from the app's src/app/globals.css so the extension reads as part of it. */
+:root {
+  --harper-orange: #ff6d63;
+  --ink: #1a2c36;
+  --muted: #7a8790;
+  --paper: #fbfaf8;
+  --pierre: #f4f3f0;
+  --sand: #ebe8e2;
+  --coral: #c45c4a;
+  --green: #2f9e6e;
+  --amber: #d9a441;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Author display rules below would otherwise beat the user agent's [hidden] rule. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  width: 384px;
+  max-height: 600px;
+  overflow-y: auto;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 13px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+/* ——— Header ——— */
+
+.head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 12px 14px 10px;
+  background: var(--pierre);
+  border-bottom: 1px solid var(--sand);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mark {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  background: var(--harper-orange);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.09);
+}
+
+.profile-row,
+.rename-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.profile-row select,
+.rename-row input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--sand);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+
+/* ——— Buttons ——— */
+
+.chip {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--sand);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--muted);
+}
+
+.chip.solid {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.chip.danger,
+.link.danger {
+  color: var(--coral);
+}
+
+.primary {
+  width: 100%;
+  height: 44px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--harper-orange);
+  color: #fff;
+  font: 600 14px/1 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.primary:disabled {
+  background: var(--sand);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.primary.busy {
+  opacity: 0.75;
+  cursor: progress;
+}
+
+.ghost {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px dashed var(--sand);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ghost:hover {
+  border-color: var(--muted);
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ——— Fill zone ——— */
+
+.fill-zone {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--sand);
+}
+
+.status {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status.bad {
+  color: var(--coral);
+}
+
+.status.good {
+  color: var(--green);
+}
+
+.results {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.results li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border-top: 1px solid var(--sand);
+  font-size: 12px;
+}
+
+.results li:first-child {
+  border-top: 0;
+}
+
+.results .name {
+  color: var(--ink);
+}
+
+.results .detail {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.tag.filled {
+  background: color-mix(in srgb, var(--green) 15%, #fff);
+  color: var(--green);
+}
+
+.tag.already {
+  background: var(--pierre);
+  color: var(--muted);
+}
+
+.tag.not-found {
+  background: color-mix(in srgb, var(--amber) 18%, #fff);
+  color: #8a6516;
+}
+
+.tag.failed,
+.tag.blocked {
+  background: color-mix(in srgb, var(--coral) 15%, #fff);
+  color: var(--coral);
+}
+
+/* ——— Fields ——— */
+
+.fields {
+  padding: 12px 14px 4px;
+}
+
+.field {
+  margin-bottom: 11px;
+}
+
+.field > .label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.field input[type="text"],
+.field input[type="password"],
+.field select {
+  width: 100%;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--sand);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.field input:focus,
+.field select:focus,
+.chip:focus-visible,
+.primary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--harper-orange) 60%, #fff);
+  outline-offset: 1px;
+  border-color: var(--harper-orange);
+}
+
+.secret {
+  display: flex;
+  gap: 6px;
+}
+
+.secret input {
+  flex: 1;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.hint {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.hint.warn {
+  color: var(--coral);
+}
+
+/* Segmented on / off / leave control. */
+.segments {
+  display: flex;
+  gap: 4px;
+}
+
+.segments button {
+  flex: 1;
+  height: 30px;
+  border: 1px solid var(--sand);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.segments button[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #fff;
+}
+
+/* ——— Blocks ——— */
+
+.block {
+  padding: 10px 14px;
+  border-top: 1px solid var(--sand);
+}
+
+.block > summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.custom-row {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.custom-row input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--sand);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.custom-row .remove {
+  flex: none;
+  width: 30px;
+  border: 1px solid var(--sand);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--coral);
+  cursor: pointer;
+}
+
+.foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--sand);
+  background: var(--pierre);
+}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Harper Autofill</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="head">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <h1>Harper Autofill</h1>
+      </div>
+      <div class="profile-row">
+        <select id="profile-select" aria-label="Saved profile"></select>
+        <button id="profile-new" class="chip" type="button">New</button>
+        <button id="profile-rename" class="chip" type="button">Rename</button>
+        <button id="profile-delete" class="chip danger" type="button">Delete</button>
+      </div>
+      <div id="rename-row" class="rename-row" hidden>
+        <input id="rename-input" type="text" aria-label="Profile name" maxlength="40" />
+        <button id="rename-save" class="chip solid" type="button">Save</button>
+        <button id="rename-cancel" class="chip" type="button">Cancel</button>
+      </div>
+    </header>
+
+    <section class="fill-zone">
+      <button id="fill" class="primary" type="button">Fill this page</button>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <ul id="results" class="results"></ul>
+    </section>
+
+    <main id="fields" class="fields"></main>
+
+    <details class="block">
+      <summary>Other fields <span id="custom-count" class="count"></span></summary>
+      <p class="hint">
+        Match any other label on the page and give it a value. Matching is on the visible label
+        text, so “Business name” is enough.
+      </p>
+      <div id="custom-list"></div>
+      <button id="custom-add" class="ghost" type="button">Add a field</button>
+    </details>
+
+    <footer class="foot">
+      <p id="shortcut-hint" class="hint"></p>
+      <p class="hint">
+        Saved to this browser only, never synced. Nothing is read from a page until you press
+        Fill, and the form is never submitted for you.
+      </p>
+      <button id="clear" class="link danger" type="button">Erase saved details</button>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

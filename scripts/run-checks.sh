@@ -26,6 +26,7 @@ run() {
 
 for f in \
   agent-watch-check.ts \
+  autofill-check.ts \
   carrier-knowledge-check.ts \
   cert-invariants-check.ts \
   cert-run-check.ts \

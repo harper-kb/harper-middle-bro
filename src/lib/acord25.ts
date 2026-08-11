@@ -205,7 +205,13 @@ export const SECTION_DEFS: SectionDef[] = [
   {
     key: "auto",
     name: "Automobile Liability",
-    match: /\bauto\b|automobile|garage liability/i,
+    // Deliberately does NOT match garage liability. An ACORD 25 has no garage
+    // block, so claiming a garage policy here prints "Excluded" against every
+    // auto box the garage dec never states — certifying an exclusion that
+    // isn't on the paper. A garage policy that also writes a business auto or
+    // hired/non-owned part still lands here on the word "auto", and fills the
+    // row from its own schedule.
+    match: /\bautos?\b|automobile/i,
     slots: ["auto_combined_single"],
     typeCell: [
       { kind: "title", text: "Automobile Liability" },

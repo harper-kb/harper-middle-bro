@@ -1334,6 +1334,8 @@ function runControls(): ControlCheck[] {
     endorsementClaims: [
       { policy: probePolicy, set: probeSet, flag: "additionalInsured" },
     ],
+    formKey: "acord25",
+    formSets: { [probePolicy.id]: probeSet },
     holderAiRecords: [],
     requirementHolderName: null,
     scheduleSources: [],

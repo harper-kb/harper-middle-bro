@@ -1169,6 +1169,8 @@ scenario("H Check Registry — every fabrication-class check fails closed", () =
       verifierRejects: [{ id: "x", title: "Fabricated limit" }],
       redAlertActive: true,
       endorsementClaims: [{ policy: excess, set: unbackedExcess, flag: "additionalInsured" }],
+      formKey: "acord25",
+      formSets: { [excess.id]: unbackedExcess },
       holderAiRecords: [],
       requirementHolderName: "Someone Else LLC",
       scheduleSources: [{ kind: "coi", createdAt: "2020-01-01T00:00:00.000Z" }],

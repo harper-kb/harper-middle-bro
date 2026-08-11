@@ -242,6 +242,10 @@ export const FORM_SETS: Record<string, PolicyFormSet> = {
       { slot: "gar_other_than_auto_aggregate", amountCents: M(2) },
       { slot: "gk_comp_otc", amountCents: K(250), loc: "LOC 1" },
       { slot: "gk_collision", amountCents: K(250), loc: "LOC 1" },
+      // The hired / non-owned part shares the garage liability CSL. Stated
+      // here because the dec states it: without it the ACORD 25 auto row the
+      // HNOA part lands in would print Excluded against real coverage.
+      { slot: "auto_combined_single", amountCents: M(1) },
     ],
     endorsements: [
       { form: "CA 20 48", edition: "10 13", title: "Designated Insured — Covered Autos Liability", kind: "ai", scope: "scheduled", note: "Auto-side AI equivalent" },

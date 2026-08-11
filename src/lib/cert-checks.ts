@@ -1,3 +1,4 @@
+import type { CertFormKey } from "./acord25";
 import { evaluateKnowledgeForCertSection } from "./carrier-knowledge";
 import type { CoiFlags } from "./coi";
 import type { PolicyFormSet } from "./forms";
@@ -83,6 +84,10 @@ export interface CertCheckContext {
   redAlertActive: boolean;
   /** Endorsement-backed checkbox claims (Additional Insured / Waiver Of Subrogation) */
   endorsementClaims: EndorsementClaim[];
+  /** Which certificate form the artifact is being issued on */
+  formKey: CertFormKey;
+  /** Schedule of record per policy id */
+  formSets: Record<string, PolicyFormSet>;
   /** Additional Insured registry rows whose name matches the holder */
   holderAiRecords: HolderAiRecord[];
   /** Holder name carried on the originating service request, when one exists */
@@ -411,6 +416,30 @@ export const CERT_CHECK_REGISTRY: CertCheckDef[] = [
         };
       }
       return { ok: true, detail: "Prepared snapshot matches current facts and is inside its TTL." };
+    },
+  },
+  {
+    id: "garage-form-fit",
+    name: "Garage Risk On The Garage Form",
+    description:
+      "Garagekeepers coverage can only be evidenced on an ACORD 30 (Certificate of Garage Insurance). An ACORD 25 has no garagekeepers block — the basis (legal liability vs direct primary/excess), the perils, and the per-location limits have nowhere to print, so the coverage would leave the desk unstated. Switch the form rather than issue a certificate that drops it.",
+    severity: "blocking",
+    overridable: false,
+    evaluate: (ctx) => {
+      if (ctx.formKey === "acord30") {
+        return { ok: true, detail: "Issued on ACORD 30 — garage blocks available." };
+      }
+      const garage = ctx.policies.filter((p) =>
+        (ctx.formSets[p.id]?.limits ?? []).some((l) => l.slot.startsWith("gk_")),
+      );
+      return garage.length === 0
+        ? { ok: true, detail: "No garagekeepers coverage on the selected policies." }
+        : {
+            ok: false,
+            detail: `${garage
+              .map((p) => p.policyNumber)
+              .join(", ")} carries garagekeepers, which an ACORD 25 cannot evidence. Issue this certificate on the ACORD 30.`,
+          };
     },
   },
   {

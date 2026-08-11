@@ -221,6 +221,8 @@ export function performCertIssuance(input: IssuanceInput): IssuanceOutcome {
       verifierRejects,
       redAlertActive: input.redAlertActive,
       endorsementClaims: claimsOf(input, sheetClaims),
+      formKey: input.artifact.kind === "sheet" ? input.artifact.formKey : "acord25",
+      formSets: input.formSets,
       holderAiRecords: input.holderAiRecords,
       requirementHolderName: input.requirementHolderName ?? null,
       scheduleSources: input.scheduleSources,

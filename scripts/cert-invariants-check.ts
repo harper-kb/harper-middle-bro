@@ -708,6 +708,51 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
     "…and the policy still prints, in the row its own coverage belongs to",
   );
 
+  // A section may only read its own coverage parts. Structural, because the
+  // failure is silent: the general liability resolver used to fall back to
+  // the first part on the policy when nothing named general liability, which
+  // is how a cyber policy came to have OCCUR ticked under COMMERCIAL GENERAL
+  // LIABILITY. Resolvers now receive a scoped view and cannot reach past it.
+  const acordSrc = fs.readFileSync(
+    path.join(process.cwd(), "src/lib/acord25.ts"),
+    "utf-8",
+  );
+  check(
+    !/resolveChecks:\s*\(feeder/.test(acordSrc),
+    "No resolver takes the whole policy — they receive scoped evidence",
+  );
+  check(
+    /resolveChecks:\s*\(ev:\s*SectionEvidence\)/.test(acordSrc),
+    "The section contract hands resolvers a SectionEvidence",
+  );
+
+  // The behaviour that structure buys: a section backed by its limit lines
+  // but named by no coverage part earns no wording box. Previously the
+  // general liability resolver read an unrelated part and ticked OCCUR.
+  const slotsButNoName: PolicyFormSet = {
+    coverages: [
+      { code: "CL", label: "Cyber Liability", form: "HSX-CY 200", edition: "03 23" },
+    ],
+    limits: [{ slot: "gl_each_occurrence", amountCents: 1_000_000_00 }],
+    endorsements: [],
+  };
+  const oddPolicy = { ...policies[0], id: "probe-odd", policyNumber: "PROBE-ODD-1" };
+  const oddGl = resolveCertSheet(
+    "acord25",
+    buildCertificatePacket({
+      account,
+      policies: [oddPolicy],
+      formSets: { [oddPolicy.id]: slotsButNoName },
+      holderName: "Probe Holder",
+      holderAddress: "",
+    }).sections,
+  ).sections.find((rs) => rs.def.key === "gl")!;
+  check(
+    oddGl.backed && !oddGl.checks.occur && !oddGl.checks.claimsMade,
+    "No coverage part names the section — neither OCCUR nor CLAIMS-MADE is earned",
+    `backed=${oddGl.backed} occur=${oddGl.checks.occur} claimsMade=${oddGl.checks.claimsMade}`,
+  );
+
   const glRow = probeSheet.sections.find((rs) => rs.def.key === "gl")!;
   check(
     glRow.feeder != null && !glRow.backed,

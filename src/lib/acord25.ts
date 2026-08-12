@@ -115,8 +115,50 @@ export interface SectionDef {
    * these are declared pair by pair rather than a row at a time.
    */
   exclusive?: string[][];
-  /** Checkbox states earned from the feeder's schedule; missing keys = false. */
-  resolveChecks: (feeder: CertSection) => Record<string, boolean>;
+  /**
+   * Which coverage parts this section may read when deciding its boxes.
+   * Defaults to `match`. Widen it only where the form gives a row evidence
+   * from elsewhere — ACORD 30's garage row carries the policy's auto
+   * symbols because that form has no automobile section.
+   */
+  evidence?: RegExp;
+  /** Checkbox states earned from this section's own evidence. */
+  resolveChecks: (ev: SectionEvidence) => Record<string, boolean>;
+}
+
+/**
+ * Everything a section is allowed to read when deciding its checkboxes.
+ *
+ * The resolvers used to receive the whole `CertSection` and each decided
+ * for itself what to look at. Every one of them reached for a joined string
+ * of every coverage label on the policy, so one coverage's wording drove
+ * another's boxes: a part reading "excess" ticked EXCESS LIAB on the
+ * umbrella row, and the general liability resolver fell back to the first
+ * part on the policy when nothing named general liability — which is how a
+ * cyber policy came to have OCCUR ticked under COMMERCIAL GENERAL
+ * LIABILITY.
+ *
+ * Handing the resolver a scoped view instead of the policy makes that class
+ * of mistake unavailable rather than merely corrected. `text` is empty when
+ * the schedule names none of this section's coverage, and empty evidence
+ * must earn no box — there is no fallback to look at something else.
+ */
+export interface SectionEvidence {
+  /** Labels of the coverage parts belonging to this section, joined. */
+  text: string;
+  /**
+   * Form numbers of those parts. The label is a product name and lies about
+   * the distinction that matters — "Excess / Umbrella Liability" is sold as
+   * both — where the form number is the coverage itself.
+   */
+  forms: string[];
+  /** True when the schedule states this limit line. */
+  carries: (slot: LimitSlot) => boolean;
+  /**
+   * Endorsement titles on the policy. Not part-scoped: an endorsement
+   * amends the policy and names its own coverage in its title.
+   */
+  endorsementTitles: string[];
 }
 
 function coverageText(set: PolicyFormSet): string {
@@ -124,25 +166,19 @@ function coverageText(set: PolicyFormSet): string {
 }
 
 /**
- * The evidence a section's checkboxes may read: the coverage parts that
- * section is about, not every part on the policy.
- *
- * Reading the whole policy as one blob lets one coverage part's wording
- * drive another part's boxes. A general liability part reading "excess"
- * ticked EXCESS LIAB on the umbrella row; a "Primary & Noncontributory"
- * endorsement would tick the garagekeepers PRIMARY box. The general
- * liability resolver already scoped itself this way — this is that rule,
- * made available to the rest.
- *
- * Falls back to the whole policy only when no part names the coverage,
- * which is the case where the section was claimed by its limit slots
- * rather than by its wording.
+ * Build the scoped view a section is allowed to read. Only the coverage
+ * parts this section is about — and no fallback to the rest of the policy
+ * when none match, because "we found nothing that names this coverage" has
+ * to mean no box is earned, not "read something else instead".
  */
-function partText(set: PolicyFormSet, match: RegExp): string {
-  const named = set.coverages.filter((c) => match.test(c.label));
-  return (named.length > 0 ? named : set.coverages)
-    .map((c) => c.label)
-    .join(" · ");
+function evidenceFor(def: SectionDef, set: PolicyFormSet): SectionEvidence {
+  const parts = set.coverages.filter((c) => (def.evidence ?? def.match).test(c.label));
+  return {
+    text: parts.map((c) => c.label).join(" · "),
+    forms: parts.map((c) => c.form),
+    carries: (slot) => set.limits.some((l) => l.slot === slot),
+    endorsementTitles: set.endorsements.map((e) => e.title),
+  };
 }
 
 /**
@@ -234,32 +270,35 @@ export const SECTION_DEFS: SectionDef[] = [
       ["claimsMade", "occur"],
       ["aggProject", "aggLoc", "aggPolicy"],
     ],
-    resolveChecks: (feeder) => {
+    resolveChecks: (ev) => {
       // CG 00 01 is an occurrence form — claims-made only when the dec says
       // so. The statement lives in TWO places on real paper: the coverage
       // part's own label, or a scheduled claims-made endorsement (ISC decs
       // carry "Claims-Made and Reported Limitation", HS/SP CMR 00 00).
       // Checking OCCUR against claims-made paper overstates the coverage.
-      const glPart =
-        feeder.set.coverages.find((c) =>
-          /general liability|liability section/i.test(c.label),
-        ) ?? feeder.set.coverages[0];
+      // Every box below is earned only if the schedule names this coverage.
+      // OCCUR and POLICY are the ISO defaults for CG 00 01, but a default is
+      // a statement about a form that is on the policy — inferring them from
+      // the absence of contrary wording ticks boxes for a coverage nothing
+      // says is there.
+      const named = ev.text.trim() !== "";
       const claimsMade =
-        /claims-?made/i.test(glPart?.label ?? "") ||
-        feeder.set.endorsements.some((e) => /claims-?made/i.test(e.title));
+        named &&
+        (/claims-?made/i.test(ev.text) ||
+          ev.endorsementTitles.some((t) => /claims-?made/i.test(t)));
       // Per policy unless a per-project / per-location aggregate form is scheduled.
-      const perProject = feeder.set.endorsements.some((e) =>
-        /per[- ]project/i.test(e.title),
+      const perProject = ev.endorsementTitles.some((t) =>
+        /per[- ]project/i.test(t),
       );
       const perLoc =
         !perProject &&
-        feeder.set.endorsements.some((e) => /per[- ]location/i.test(e.title));
+        ev.endorsementTitles.some((t) => /per[- ]location/i.test(t));
       return {
         claimsMade,
-        occur: !claimsMade,
-        aggPolicy: !perProject && !perLoc,
-        aggProject: perProject,
-        aggLoc: perLoc,
+        occur: named && !claimsMade,
+        aggPolicy: named && !perProject && !perLoc,
+        aggProject: named && perProject,
+        aggLoc: named && perLoc,
       };
     },
   },
@@ -314,16 +353,15 @@ export const SECTION_DEFS: SectionDef[] = [
       ["anyAuto", "hiredOnly"],
       ["anyAuto", "nonOwnedOnly"],
     ],
-    resolveChecks: (feeder) => {
-      const text = partText(feeder.set, /\bautos?\b|automobile/i);
+    resolveChecks: (ev) => {
       // "Non-Owned" contains "Owned" — strip it before testing the owned box.
-      const withoutNonOwned = text.replace(/non-?owned/gi, "");
+      const withoutNonOwned = ev.text.replace(/non-?owned/gi, "");
       return {
-        anyAuto: /any auto/i.test(text),
+        anyAuto: /any auto/i.test(ev.text),
         ownedOnly: /owned autos?/i.test(withoutNonOwned),
-        scheduled: /scheduled/i.test(text),
-        hiredOnly: /hired/i.test(text),
-        nonOwnedOnly: /non-?owned/i.test(text),
+        scheduled: /scheduled/i.test(ev.text),
+        hiredOnly: /hired/i.test(ev.text),
+        nonOwnedOnly: /non-?owned/i.test(ev.text),
       };
     },
   },
@@ -365,13 +403,16 @@ export const SECTION_DEFS: SectionDef[] = [
       ["umbrella", "excess"],
       ["claimsMade", "occur"],
     ],
-    resolveChecks: (feeder) => {
+    evidence: /umbrella|excess/i,
+    resolveChecks: (ev) => {
       // CU 00 01 is occurrence — claims-made only when the dec states it,
       // on the part label or a scheduled claims-made endorsement.
-      const text = partText(feeder.set, /umbrella|excess/i);
+      const text = ev.text;
+      const named = text.trim() !== "";
       const claimsMade =
-        /claims-?made/i.test(text) ||
-        feeder.set.endorsements.some((e) => /claims-?made/i.test(e.title));
+        named &&
+        (/claims-?made/i.test(text) ||
+          ev.endorsementTitles.some((t) => /claims-?made/i.test(t)));
 
       // UMBRELLA LIAB and EXCESS LIAB are alternatives on the printed form,
       // not two independent boxes. An umbrella can drop down and broaden;
@@ -386,9 +427,7 @@ export const SECTION_DEFS: SectionDef[] = [
       // equivalent tell, so it is earned from an unambiguous label only.
       // When nothing distinguishes the two, neither box prints: the sheet
       // may not pick a coverage basis the schedule doesn't state.
-      const umbrellaForm = feeder.set.coverages.some((c) =>
-        /\bCU\s*00\s*01\b/i.test(c.form),
-      );
+      const umbrellaForm = ev.forms.some((f) => /\bCU\s*00\s*01\b/i.test(f));
       const saysUmbrella = /umbrella/i.test(text);
       const saysExcess = /excess/i.test(text);
       let umbrella = false;
@@ -396,7 +435,7 @@ export const SECTION_DEFS: SectionDef[] = [
       if (umbrellaForm || (saysUmbrella && !saysExcess)) umbrella = true;
       else if (saysExcess && !saysUmbrella) excess = true;
 
-      return { umbrella, excess, occur: !claimsMade, claimsMade };
+      return { umbrella, excess, occur: named && !claimsMade, claimsMade };
     },
   },
   {
@@ -499,19 +538,18 @@ const GARAGE_LIABILITY_DEF: SectionDef = {
     ["anyAuto", "hiredOnly"],
     ["anyAuto", "nonOwnedGarage"],
   ],
-  resolveChecks: (feeder) => {
-    // Garage AND auto parts: ACORD 30 has no separate Automobile Liability
-    // section, so this row is where a garage policy's covered-auto symbols
-    // get stated — including ones endorsed on as their own part, like a
-    // hired / non-owned addition. Scoping to the garage part alone dropped
-    // them off the form entirely.
-    const text = partText(feeder.set, /garage|\bautos?\b|automobile/i);
-    const withoutNonOwned = text.replace(/non-?owned/gi, "");
+  // Garage AND auto parts: ACORD 30 has no separate Automobile Liability
+  // section, so this row is where a garage policy's covered-auto symbols get
+  // stated — including ones endorsed on as their own part, like a hired /
+  // non-owned addition. Scoped to the garage part alone they vanish.
+  evidence: /garage|\bautos?\b|automobile/i,
+  resolveChecks: (ev) => {
+    const withoutNonOwned = ev.text.replace(/non-?owned/gi, "");
     return {
-      anyAuto: /any auto/i.test(text),
+      anyAuto: /any auto/i.test(ev.text),
       ownedOnly: /owned autos?/i.test(withoutNonOwned),
-      hiredOnly: /hired/i.test(text),
-      nonOwnedGarage: /non-?owned/i.test(text),
+      hiredOnly: /hired/i.test(ev.text),
+      nonOwnedGarage: /non-?owned/i.test(ev.text),
     };
   },
 };
@@ -569,12 +607,8 @@ const GARAGE_KEEPERS_DEF: SectionDef = {
     ["legalLiability", "directBasis"],
     ["primary", "excess"],
   ],
-  resolveChecks: (feeder) => {
-    // Scoped to the garagekeepers part: read as a whole-policy blob, a
-    // "Primary & Noncontributory" endorsement elsewhere ticked PRIMARY here.
-    const text = partText(feeder.set, /garage ?keepers/i);
-    const carries = (slot: LimitSlot) =>
-      feeder.set.limits.some((l) => l.slot === slot);
+  resolveChecks: (ev) => {
+    const text = ev.text;
     return {
       // Basis is earned from the coverage part's own wording, never assumed.
       legalLiability: /legal liability/i.test(text),
@@ -582,9 +616,9 @@ const GARAGE_KEEPERS_DEF: SectionDef = {
       primary: /direct basis/i.test(text) && /primary/i.test(text),
       excess: /direct basis/i.test(text) && /excess/i.test(text),
       // A perils box is checked exactly when the schedule states the row.
-      compOtcPeril: carries("gk_comp_otc"),
-      specifiedPerilsPeril: carries("gk_specified_perils"),
-      collisionPeril: carries("gk_collision"),
+      compOtcPeril: ev.carries("gk_comp_otc"),
+      specifiedPerilsPeril: ev.carries("gk_specified_perils"),
+      collisionPeril: ev.carries("gk_collision"),
     };
   },
 };
@@ -1052,7 +1086,7 @@ function resolveSections(
       ref: feeder ? refFor(feeder) : null,
       checks:
         feeder && !unscheduled
-          ? applyExclusive(def, def.resolveChecks(feeder))
+          ? applyExclusive(def, def.resolveChecks(evidenceFor(def, feeder.set)))
           : {},
       limits: Object.fromEntries(
         def.limitBoxes.map((b) => [

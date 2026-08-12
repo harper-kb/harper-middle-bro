@@ -108,12 +108,69 @@ export interface SectionDef {
    * generic unbacked-box reject.
    */
   flagChecks?: Record<string, keyof CoiFlags>;
+  /**
+   * Check keys that cannot print together, in precedence order — the first
+   * true key wins and the rest clear. Note that some boxes on the same row
+   * ARE legitimately co-checked (hired and non-owned autos, for one), so
+   * these are declared pair by pair rather than a row at a time.
+   */
+  exclusive?: string[][];
   /** Checkbox states earned from the feeder's schedule; missing keys = false. */
   resolveChecks: (feeder: CertSection) => Record<string, boolean>;
 }
 
 function coverageText(set: PolicyFormSet): string {
   return set.coverages.map((c) => c.label).join(" · ");
+}
+
+/**
+ * The evidence a section's checkboxes may read: the coverage parts that
+ * section is about, not every part on the policy.
+ *
+ * Reading the whole policy as one blob lets one coverage part's wording
+ * drive another part's boxes. A general liability part reading "excess"
+ * ticked EXCESS LIAB on the umbrella row; a "Primary & Noncontributory"
+ * endorsement would tick the garagekeepers PRIMARY box. The general
+ * liability resolver already scoped itself this way — this is that rule,
+ * made available to the rest.
+ *
+ * Falls back to the whole policy only when no part names the coverage,
+ * which is the case where the section was claimed by its limit slots
+ * rather than by its wording.
+ */
+function partText(set: PolicyFormSet, match: RegExp): string {
+  const named = set.coverages.filter((c) => match.test(c.label));
+  return (named.length > 0 ? named : set.coverages)
+    .map((c) => c.label)
+    .join(" · ");
+}
+
+/**
+ * Boxes that cannot be true together on the printed form, applied after the
+ * section resolves. Each group is in precedence order: the first true key
+ * wins and the rest clear.
+ *
+ * This is a backstop, not the mechanism — a resolver should return at most
+ * one side of a pair on its own. It exists because the failure mode is
+ * silent and serious: a certificate ticking both UMBRELLA LIAB and EXCESS
+ * LIAB certifies a policy that cannot exist, and nothing downstream was
+ * positioned to notice.
+ */
+function applyExclusive(
+  def: SectionDef,
+  checks: Record<string, boolean>,
+): Record<string, boolean> {
+  if (!def.exclusive) return checks;
+  const out = { ...checks };
+  for (const group of def.exclusive) {
+    let taken = false;
+    for (const key of group) {
+      if (!out[key]) continue;
+      if (taken) out[key] = false;
+      else taken = true;
+    }
+  }
+  return out;
 }
 
 export const SECTION_DEFS: SectionDef[] = [
@@ -173,6 +230,10 @@ export const SECTION_DEFS: SectionDef[] = [
       { key: "glBlank", label: "", slot: null },
     ],
     flagChecks: { aggProject: "perProjectAggregate" },
+    exclusive: [
+      ["claimsMade", "occur"],
+      ["aggProject", "aggLoc", "aggPolicy"],
+    ],
     resolveChecks: (feeder) => {
       // CG 00 01 is an occurrence form — claims-made only when the dec says
       // so. The statement lives in TWO places on real paper: the coverage
@@ -244,8 +305,17 @@ export const SECTION_DEFS: SectionDef[] = [
       { key: "pdPerAccident", label: "Property Damage (Per accident)", slot: null },
       { key: "autoBlank", label: "", slot: null },
     ],
+    // ANY AUTO is symbol 1 — it subsumes the narrower boxes, and each of
+    // those reads "ONLY", so it cannot print beside them. Hired and
+    // non-owned, by contrast, are routinely both on the same dec.
+    exclusive: [
+      ["anyAuto", "ownedOnly"],
+      ["anyAuto", "scheduled"],
+      ["anyAuto", "hiredOnly"],
+      ["anyAuto", "nonOwnedOnly"],
+    ],
     resolveChecks: (feeder) => {
-      const text = coverageText(feeder.set);
+      const text = partText(feeder.set, /\bautos?\b|automobile/i);
       // "Non-Owned" contains "Owned" — strip it before testing the owned box.
       const withoutNonOwned = text.replace(/non-?owned/gi, "");
       return {
@@ -291,10 +361,14 @@ export const SECTION_DEFS: SectionDef[] = [
       { key: "aggregate", label: "Aggregate", slot: "umb_aggregate" },
       { key: "umbBlank", label: "", slot: null },
     ],
+    exclusive: [
+      ["umbrella", "excess"],
+      ["claimsMade", "occur"],
+    ],
     resolveChecks: (feeder) => {
       // CU 00 01 is occurrence — claims-made only when the dec states it,
       // on the part label or a scheduled claims-made endorsement.
-      const text = coverageText(feeder.set);
+      const text = partText(feeder.set, /umbrella|excess/i);
       const claimsMade =
         /claims-?made/i.test(text) ||
         feeder.set.endorsements.some((e) => /claims-?made/i.test(e.title));
@@ -420,8 +494,18 @@ const GARAGE_LIABILITY_DEF: SectionDef = {
       slot: "gar_other_than_auto_aggregate",
     },
   ],
+  exclusive: [
+    ["anyAuto", "ownedOnly"],
+    ["anyAuto", "hiredOnly"],
+    ["anyAuto", "nonOwnedGarage"],
+  ],
   resolveChecks: (feeder) => {
-    const text = coverageText(feeder.set);
+    // Garage AND auto parts: ACORD 30 has no separate Automobile Liability
+    // section, so this row is where a garage policy's covered-auto symbols
+    // get stated — including ones endorsed on as their own part, like a
+    // hired / non-owned addition. Scoping to the garage part alone dropped
+    // them off the form entirely.
+    const text = partText(feeder.set, /garage|\bautos?\b|automobile/i);
     const withoutNonOwned = text.replace(/non-?owned/gi, "");
     return {
       anyAuto: /any auto/i.test(text),
@@ -479,8 +563,16 @@ const GARAGE_KEEPERS_DEF: SectionDef = {
     // The blank form carries an unlabeled spare LOC + $ row.
     { key: "gkSpare", label: "", slot: null, withLoc: true },
   ],
+  exclusive: [
+    // A garagekeepers is written on one basis, and Primary / Excess qualify
+    // Direct Basis — neither pair can print together.
+    ["legalLiability", "directBasis"],
+    ["primary", "excess"],
+  ],
   resolveChecks: (feeder) => {
-    const text = coverageText(feeder.set);
+    // Scoped to the garagekeepers part: read as a whole-policy blob, a
+    // "Primary & Noncontributory" endorsement elsewhere ticked PRIMARY here.
+    const text = partText(feeder.set, /garage ?keepers/i);
     const carries = (slot: LimitSlot) =>
       feeder.set.limits.some((l) => l.slot === slot);
     return {
@@ -915,7 +1007,10 @@ function resolveSections(
       def,
       feeder,
       ref: feeder ? refFor(feeder) : null,
-      checks: feeder && !unscheduled ? def.resolveChecks(feeder) : {},
+      checks:
+        feeder && !unscheduled
+          ? applyExclusive(def, def.resolveChecks(feeder))
+          : {},
       limits: Object.fromEntries(
         def.limitBoxes.map((b) => [
           b.key,

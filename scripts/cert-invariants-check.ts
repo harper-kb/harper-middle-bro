@@ -41,7 +41,11 @@ import {
   requirementKeyFor,
   upsertPrepared,
 } from "../src/lib/cert-ledger";
-import { resolveCertSheet } from "../src/lib/acord25";
+import {
+  ACORD30_SECTION_DEFS,
+  resolveCertSheet,
+  SECTION_DEFS,
+} from "../src/lib/acord25";
 import { runCertChecks } from "../src/lib/cert-checks";
 import { buildCertificatePacket } from "../src/lib/certificate";
 import { buildFactSnapshot } from "../src/lib/cert-snapshot";
@@ -573,12 +577,22 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
 }
 
 /* ————— Mutually exclusive coverage bases stay mutually exclusive —————
- * UMBRELLA LIAB / EXCESS LIAB and OCCUR / CLAIMS-MADE are alternatives on
- * the printed form. Ticking both sides certifies a policy that cannot
- * exist, and it happened: the two umbrella boxes were resolved by
- * independent regexes, so any part labelled "Excess / Umbrella Liability"
- * lit both. Checked across the whole seed book, on both forms. */
+ * Every pair a section declares in `exclusive`, over the whole seed book,
+ * on both forms. Ticking both sides certifies a policy that cannot exist,
+ * and it happened: the umbrella boxes were resolved by independent regexes,
+ * so any part labelled "Excess / Umbrella Liability" lit both.
+ *
+ * Reads the declarations rather than a hardcoded list, so a new pair is
+ * covered the moment a section declares it. */
 {
+  const declared = SECTION_DEFS.concat(ACORD30_SECTION_DEFS).flatMap(
+    (d) => d.exclusive ?? [],
+  );
+  check(
+    declared.length > 0,
+    "Sections declare their mutually exclusive boxes",
+    "no exclusive groups found — the sweep below would pass vacuously",
+  );
   const bad: string[] = [];
   for (const seed of SEED_ACCOUNTS) {
     const accountPolicies = SEED_POLICIES.filter((p) => p.accountId === seed.id);
@@ -596,12 +610,10 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
     for (const formKey of ["acord25", "acord30"] as const) {
       for (const rs of resolveCertSheet(formKey, packet.sections).sections) {
         if (!rs.feeder) continue;
-        for (const [a, b] of [
-          ["umbrella", "excess"],
-          ["occur", "claimsMade"],
-        ]) {
-          if (rs.checks[a] && rs.checks[b]) {
-            bad.push(`${seed.name} ${formKey} ${rs.def.key}: ${a}+${b}`);
+        for (const group of rs.def.exclusive ?? []) {
+          const on = group.filter((k) => rs.checks[k]);
+          if (on.length > 1) {
+            bad.push(`${seed.name} ${formKey} ${rs.def.key}: ${on.join("+")}`);
           }
         }
       }

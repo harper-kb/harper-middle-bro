@@ -1,5 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { ensureOperatorForClerkUser, getOperatorByClerkUserId } from "./db";
+import { LOCAL_OPERATOR, localAuthEnabled } from "./local-auth";
 import type { Operator } from "./types";
 
 /**
@@ -7,6 +8,15 @@ import type { Operator } from "./types";
  * Replaces the old cookie seat-picker.
  */
 export async function getSessionOperator(): Promise<Operator | null> {
+  // Development-only bypass: seat everyone as one local operator so the desk
+  // opens without a reachable Clerk instance. See lib/local-auth.
+  if (localAuthEnabled()) {
+    return (
+      getOperatorByClerkUserId(LOCAL_OPERATOR.clerkUserId) ??
+      ensureOperatorForClerkUser({ ...LOCAL_OPERATOR })
+    );
+  }
+
   let isAuthenticated = false;
   let userId: string | null = null;
   try {

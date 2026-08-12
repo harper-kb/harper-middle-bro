@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { LOCAL_AUTH_FLAG, localAuthEnabled } from "./local-auth";
 
 /**
  * Boot-time sanity check on the Clerk keys.
@@ -79,6 +80,14 @@ export async function instanceIsAttributable(
 }
 
 export async function verifyClerkKeys(): Promise<void> {
+  if (localAuthEnabled()) {
+    report([
+      "bypassed. Running as a single local operator, development only.",
+      `Unset ${LOCAL_AUTH_FLAG} in .env.local to sign in through Clerk again.`,
+    ]);
+    return;
+  }
+
   const envPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const secretKey = process.env.CLERK_SECRET_KEY;
 

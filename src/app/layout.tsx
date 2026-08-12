@@ -5,6 +5,7 @@ import { MiddleBroBot } from "@/components/MiddleBroBot";
 import { OperatorInbox } from "@/components/OperatorInbox";
 import { RedAlertBanner } from "@/components/RedAlertBanner";
 import { PRODUCT_NAME } from "@/lib/brand";
+import { localAuthEnabled } from "@/lib/local-auth";
 import "./globals.css";
 
 const display = Cormorant_Garamond({
@@ -36,18 +37,31 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const shell = (
+    <>
+      <RedAlertBanner />
+      {children}
+      <OperatorInbox />
+      <MiddleBroBot />
+    </>
+  );
+
   return (
     <html
       lang="en"
       className={`${display.variable} ${body.variable} ${mono.variable} h-full`}
     >
       <body className="min-h-full antialiased">
-        <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up">
-          <RedAlertBanner />
-          {children}
-          <OperatorInbox />
-          <MiddleBroBot />
-        </ClerkProvider>
+        {/* Mounting the provider boots clerk-js, which navigates away to Clerk's
+            Frontend API. In local operator mode there may be no instance to
+            navigate to, so leave it out entirely. */}
+        {localAuthEnabled() ? (
+          shell
+        ) : (
+          <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up">
+            {shell}
+          </ClerkProvider>
+        )}
       </body>
     </html>
   );

@@ -24,6 +24,7 @@ SQLite DB is created at `data/underwriter-desk.db` on first load (gitignored) an
 ## Fresh clone notes (collaborators)
 
 - `npm install` then `npm run dev` is the whole setup — the SQLite database creates and seeds itself on first boot. No migrations to run.
+- **Can't get past auth?** Put `NEXT_PUBLIC_DESK_LOCAL_AUTH=1` in `.env.local` and restart. The desk opens as a single local operator with Clerk out of the request path — no keys, no instance, no sign-up. Development only; a production build ignores the flag. Two escape hatches if you'd rather fix Clerk itself: `npx tsx scripts/clerk-keys-check.ts` reports which key is dead, and visiting `/clerk-reset` clears cached keyless credentials and cookies so a fresh instance is provisioned.
 - `.env.local` is gitignored, so a fresh clone has no Clerk keys. On first `npm run dev`, Clerk enters keyless development mode and provisions a dev instance automatically — sign-up works out of the box. To share one Clerk app across the team instead, pass the `.env.local` file directly (never commit it).
 - `data/verified-contacts.local.json` (the real underwriter contact list) is private and gitignored. Without it, verified-contact loaders return empty — expected. Request the file directly if needed; never commit it.
 

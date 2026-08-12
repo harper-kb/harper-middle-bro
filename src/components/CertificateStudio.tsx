@@ -996,41 +996,16 @@ export function CertificateStudio({
             hasPacket={packet != null}
           />
 
-          <label className="block">
-            <span className="eyebrow">Certificate Holder</span>
-            <input
-              value={holderName}
-              onChange={(e) => setHolderName(e.target.value)}
-              placeholder="Exactly as the contract spells it"
-              className="field mt-1"
-            />
-          </label>
-          <label className="block">
-            <span className="flex items-center justify-between gap-2">
-              <span className="eyebrow">Holder Address</span>
-              <AddressStatusChip
-                check={holderCheck}
-                onApplyStandardized={(_, parts) =>
-                  setHolderAddress(holderBlock(parts))
-                }
-              />
-            </span>
-            {/* A textarea, not an input: the block is two lines, and an
-                input silently strips the newline out from under React. */}
-            <textarea
-              value={holderAddress}
-              onChange={(e) => setHolderAddress(e.target.value)}
-              placeholder={"Street\nCity, ST ZIP"}
-              rows={2}
-              className={`field mt-1 resize-none ${holderAddressOk ? "" : "field-bad"}`}
-            />
-          </label>
+          {/* The holder name and address are edited in the holder block on
+              the certificate, where the operator can see what they'll print.
+              The rail used to carry a second copy of both fields directly
+              under a card called "Certificate Holders" — three stacked
+              controls for one value. */}
 
           {packet && areas.length > 0 && (
             <ReviewProgress
               areas={areas}
               confirmed={confirmedSet}
-              activeArea={activeArea}
               rejectAreas={rejectAreas}
               onConfirmMany={confirmAreas}
             />
@@ -1242,21 +1217,21 @@ function PolicyPicker({
               key={carrier}
               className="rounded-xl border border-[var(--rule)] bg-white p-2"
             >
-              <div className="flex items-center gap-2">
-                <CarrierLogo name={carrier} size={26} />
-                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--ink)]">
+              <div className="flex items-center gap-1.5">
+                <CarrierLogo name={carrier} size={18} />
+                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-[var(--ink)]">
                   {carrier}
                 </span>
                 {letter && (
                   <span
-                    className="shrink-0 rounded border border-[var(--rule)] bg-[var(--paper)] px-1.5 py-0.5 font-mono text-[10px] font-bold text-[var(--ink)]"
+                    className="shrink-0 font-mono text-[9.5px] font-bold text-[var(--muted)]"
                     title={`Prints as Insurer ${letter}`}
                   >
-                    Insurer {letter}
+                    {letter}
                   </span>
                 )}
               </div>
-              <div className="mt-1.5 flex flex-wrap gap-1">
+              <div className="mt-1 flex flex-wrap gap-1">
                 {group.map((p) => {
                   const on = selected.includes(p.id);
                   return (
@@ -1268,7 +1243,7 @@ function PolicyPicker({
                       title={`${p.policyNumber} · ${p.coverages
                         .map(coverageLabel)
                         .join(", ")}`}
-                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold transition ${
+                      className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9.5px] font-semibold transition ${
                         on
                           ? "border-[var(--gold)] bg-[var(--gold)]/10 text-[var(--ink)]"
                           : "border-[var(--rule)] bg-[var(--paper)] text-[var(--muted)] opacity-70"
@@ -1284,27 +1259,14 @@ function PolicyPicker({
           );
         })}
       </div>
-      <div className="mt-2 rounded-lg border border-dashed border-[var(--rule)] bg-[var(--paper)] px-2 py-1.5">
-        <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
-          Sections That Will Fill
+      {/* Which sections will fill is not a thing the rail needs to predict:
+          the certificate beside it prints them, with the policy numbers in
+          the rows. Only the empty state is worth saying out loud. */}
+      {willFill.length === 0 && (
+        <p className="mt-1.5 text-[10px] text-[var(--muted)]">
+          Nothing will print yet — turn on at least one policy.
         </p>
-        {willFill.length === 0 ? (
-          <p className="mt-0.5 text-[10px] text-[var(--muted)]">
-            Nothing yet — turn on at least one policy.
-          </p>
-        ) : (
-          <p className="mt-0.5 flex flex-wrap gap-1">
-            {willFill.map((name) => (
-              <span
-                key={name}
-                className="rounded bg-white px-1.5 py-0.5 text-[9.5px] font-semibold text-[var(--ink)] ring-1 ring-[var(--rule)]"
-              >
-                {name}
-              </span>
-            ))}
-          </p>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -1394,13 +1356,11 @@ function AreaChip({
 function ReviewProgress({
   areas,
   confirmed,
-  activeArea,
   rejectAreas,
   onConfirmMany,
 }: {
   areas: AreaDef[];
   confirmed: Set<string>;
-  activeArea: string | null;
   rejectAreas: Set<string>;
   onConfirmMany: (keys: string[]) => void;
 }) {
@@ -1412,12 +1372,14 @@ function ReviewProgress({
     (a) => !isPerCert(a.key) && !confirmed.has(a.key),
   );
   const blocked = bulk.filter((a) => rejectAreas.has(a.key));
+  const perCertLeft = areas.filter(
+    (a) => isPerCert(a.key) && !confirmed.has(a.key),
+  ).length;
   return (
     <div className="rounded-xl border border-[var(--gold)]/50 bg-white p-3">
       <p className="eyebrow">Area Review</p>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--muted)]">
-        Confirm each area on the certificate — every area carries its own
-        Review strip. All {areas.length} unlock Sign &amp; Issue.
+      <p className="mt-1 text-[11px] font-semibold text-[var(--ink)]">
+        {done} Of {areas.length} Areas Confirmed
       </p>
       {bulk.length > 0 && (
         <>
@@ -1432,7 +1394,7 @@ function ReviewProgress({
             }
             className="mt-2 w-full rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white transition hover:bg-emerald-700 disabled:opacity-45"
           >
-            Confirm {bulk.length} Record Area{bulk.length === 1 ? "" : "s"}
+            Confirm The {bulk.length} Locked Area{bulk.length === 1 ? "" : "s"}
           </button>
           {blocked.length > 0 && (
             <p className="mt-1.5 rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-[10.5px] text-red-800">
@@ -1443,28 +1405,14 @@ function ReviewProgress({
           )}
         </>
       )}
-      <p className="mt-2 text-[11px] font-semibold text-[var(--ink)]">
-        {done} Of {areas.length} Areas Confirmed
+      {/* Why the two counts differ: the locked areas are the schedule of
+          record and confirm together; holder and description belong to this
+          certificate alone and are read on the sheet, one at a time. */}
+      <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+        {perCertLeft > 0
+          ? `Then confirm ${perCertLeft === 1 ? "the last area" : `the remaining ${perCertLeft} areas`} on the certificate — each carries its own Review strip.`
+          : "Every area confirms on the certificate, through the Review strip it carries."}
       </p>
-      <ul className="mt-1.5 space-y-0.5">
-        {areas.map((a) => (
-          <li
-            key={a.key}
-            className={`flex items-center gap-1.5 text-[11px] ${
-              confirmed.has(a.key)
-                ? "text-emerald-700"
-                : a.key === activeArea
-                  ? "text-amber-700"
-                  : "text-[var(--muted)]"
-            }`}
-          >
-            <span className="font-mono text-[9px]">
-              {confirmed.has(a.key) ? "✓" : a.key === activeArea ? "●" : "○"}
-            </span>
-            {a.label}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

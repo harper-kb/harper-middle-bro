@@ -2,7 +2,8 @@ import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 // Plain path test — createRouteMatcher is deprecated in this Clerk release.
-const PUBLIC_ROUTE = /^\/sign-(?:in|up)(?:\/.*)?$/;
+// /clerk-reset has to be reachable while auth is broken; that is its whole job.
+const PUBLIC_ROUTE = /^(?:\/sign-(?:in|up)(?:\/.*)?|\/clerk-reset)$/;
 const isPublicRoute = (req: { nextUrl: { pathname: string } }) =>
   PUBLIC_ROUTE.test(req.nextUrl.pathname);
 

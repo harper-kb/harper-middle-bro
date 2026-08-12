@@ -298,12 +298,31 @@ export const SECTION_DEFS: SectionDef[] = [
       const claimsMade =
         /claims-?made/i.test(text) ||
         feeder.set.endorsements.some((e) => /claims-?made/i.test(e.title));
-      return {
-        umbrella: /umbrella/i.test(text),
-        excess: /excess/i.test(text),
-        occur: !claimsMade,
-        claimsMade,
-      };
+
+      // UMBRELLA LIAB and EXCESS LIAB are alternatives on the printed form,
+      // not two independent boxes. An umbrella can drop down and broaden;
+      // excess only follows form above the underlying. A dec page states
+      // one, and a certificate that ticks both certifies a policy that
+      // cannot exist.
+      //
+      // The label alone can't decide it, because the product is routinely
+      // sold as "Excess / Umbrella Liability" — which is what checked both.
+      // The coverage form can: CU 00 01 is ISO's Commercial Liability
+      // Umbrella. Excess paper is mostly proprietary follow-form with no
+      // equivalent tell, so it is earned from an unambiguous label only.
+      // When nothing distinguishes the two, neither box prints: the sheet
+      // may not pick a coverage basis the schedule doesn't state.
+      const umbrellaForm = feeder.set.coverages.some((c) =>
+        /\bCU\s*00\s*01\b/i.test(c.form),
+      );
+      const saysUmbrella = /umbrella/i.test(text);
+      const saysExcess = /excess/i.test(text);
+      let umbrella = false;
+      let excess = false;
+      if (umbrellaForm || (saysUmbrella && !saysExcess)) umbrella = true;
+      else if (saysExcess && !saysUmbrella) excess = true;
+
+      return { umbrella, excess, occur: !claimsMade, claimsMade };
     },
   },
   {

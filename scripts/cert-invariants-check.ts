@@ -41,7 +41,9 @@ import {
   requirementKeyFor,
   upsertPrepared,
 } from "../src/lib/cert-ledger";
+import { resolveCertSheet } from "../src/lib/acord25";
 import { runCertChecks } from "../src/lib/cert-checks";
+import { buildCertificatePacket } from "../src/lib/certificate";
 import { buildFactSnapshot } from "../src/lib/cert-snapshot";
 import { buildDraftFromPolicy } from "../src/lib/coi";
 import { bareFormSet, FORM_SETS, type PolicyFormSet } from "../src/lib/forms";
@@ -567,6 +569,48 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
   check(
     /export type PlacementMap = Record<string, string>;/.test(acord),
     "Placement rules carry routing only (policyId → sectionKey)",
+  );
+}
+
+/* ————— Mutually exclusive coverage bases stay mutually exclusive —————
+ * UMBRELLA LIAB / EXCESS LIAB and OCCUR / CLAIMS-MADE are alternatives on
+ * the printed form. Ticking both sides certifies a policy that cannot
+ * exist, and it happened: the two umbrella boxes were resolved by
+ * independent regexes, so any part labelled "Excess / Umbrella Liability"
+ * lit both. Checked across the whole seed book, on both forms. */
+{
+  const bad: string[] = [];
+  for (const seed of SEED_ACCOUNTS) {
+    const accountPolicies = SEED_POLICIES.filter((p) => p.accountId === seed.id);
+    if (accountPolicies.length === 0) continue;
+    const sets: Record<string, PolicyFormSet> = Object.fromEntries(
+      accountPolicies.map((p) => [p.id, FORM_SETS[p.id] ?? bareFormSet(p.coverages)]),
+    );
+    const packet = buildCertificatePacket({
+      account: { ...seed, status: "active" } as Account,
+      policies: accountPolicies,
+      formSets: sets,
+      holderName: "Test Holder",
+      holderAddress: "",
+    });
+    for (const formKey of ["acord25", "acord30"] as const) {
+      for (const rs of resolveCertSheet(formKey, packet.sections).sections) {
+        if (!rs.feeder) continue;
+        for (const [a, b] of [
+          ["umbrella", "excess"],
+          ["occur", "claimsMade"],
+        ]) {
+          if (rs.checks[a] && rs.checks[b]) {
+            bad.push(`${seed.name} ${formKey} ${rs.def.key}: ${a}+${b}`);
+          }
+        }
+      }
+    }
+  }
+  check(
+    bad.length === 0,
+    "No section ticks both sides of a mutually exclusive coverage basis",
+    bad.join("; "),
   );
 }
 

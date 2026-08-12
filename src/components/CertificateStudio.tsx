@@ -225,6 +225,9 @@ interface SheetCtx {
 /** Screen tint for a field: reject beats review-highlight beats confirmed. */
 function fieldTint(ctx: SheetCtx, id: string): string {
   if (ctx.bad.has(id)) return "is-bad";
+  // A record cell the desk typed over reads differently from one the
+  // schedule produced, and the sheet has to say which it is looking at.
+  if (isRecordField(id) && id in ctx.overrides) return "is-corrected";
   const area = fieldArea(id);
   if (area && area === ctx.activeArea) return "is-review";
   if (area && ctx.confirmed.has(area)) return "is-ok";
@@ -290,7 +293,23 @@ export function CertificateStudio({
   const [unlockTicketId, setUnlockTicketId] = useState<string | null>(null);
   const unlockTicket =
     endorsementTickets.find((t) => t.id === unlockTicketId) ?? null;
-  const coverageLocked = unlockTicket == null;
+  // The second way in. An endorsement unlock is for coverage that is
+  // CHANGING; this is for a value the sheet got wrong about coverage that
+  // already exists — a misread schedule, a box resolved from the wrong
+  // evidence. It needs no ticket, because nothing about the policy is
+  // changing, but it does need a reason, and it never outlives this
+  // certificate: corrections are per-sheet and teach nothing, so a wrong
+  // one cannot propagate to the next certificate the way a placement rule
+  // would.
+  //
+  // Opening the cells is safe because the lock was never what kept a
+  // certificate honest — the verifier is. Every edit re-runs it, and
+  // `verifier-clean` is blocking and non-overridable, so an edit the
+  // schedule cannot back still refuses to issue. What the lock was doing
+  // was also refusing the edits the schedule CAN back, which is every
+  // correction of a value we got wrong.
+  const [correctionReason, setCorrectionReason] = useState<string | null>(null);
+  const coverageLocked = unlockTicket == null && correctionReason == null;
 
   // ——— Issuance state: the single send path ———
   // The sheet renders in SPECIMEN mode (diagonal watermark baked into the
@@ -519,10 +538,18 @@ export function CertificateStudio({
   function unlockCoverage(ticketId: string) {
     setUnlockTicketId(ticketId);
   }
+  function beginCorrection(reason: string) {
+    const trimmed = reason.trim();
+    // A correction without a stated reason is an anonymous edit to the
+    // record. There is no such thing here.
+    if (!trimmed) return;
+    setCorrectionReason(trimmed);
+  }
   // Relock drops every coverage edit — the sheet snaps back to the record —
   // and re-opens the affected review areas so nothing stale stays confirmed.
   function relockCoverage() {
     setUnlockTicketId(null);
+    setCorrectionReason(null);
     setSigned(false);
     setOverrides((prev) => {
       const next: SheetOverrides = {};
@@ -974,6 +1001,11 @@ export function CertificateStudio({
             unlockTicket={unlockTicket}
             onUnlock={unlockCoverage}
             onRelock={relockCoverage}
+            correctionReason={correctionReason}
+            onCorrect={beginCorrection}
+            correctedFields={
+              Object.keys(overrides).filter((k) => isRecordField(k)).length
+            }
           />
 
           <PolicyPicker
@@ -1935,17 +1967,126 @@ function NextInsuranceAdvisory({ carriers }: { carriers: string[] }) {
  * cited on the panel while it is active, and relocking snaps every coverage
  * cell back to the record.
  */
+/**
+ * The way in when the sheet is simply wrong. Separate from the endorsement
+ * unlock because they answer different questions: that one is for coverage
+ * that is changing, this one for coverage that already exists and was read
+ * wrong. Both demand attribution — this one a reason, because an
+ * unexplained edit to the record is indistinguishable from a fabricated one.
+ */
+function CorrectSheetForm({ onCorrect }: { onCorrect: (reason: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-2 rounded-lg border border-[var(--rule)] bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ink)] transition hover:border-[var(--gold)]"
+      >
+        A Value Here Is Wrong
+      </button>
+    );
+  }
+  return (
+    <div className="mt-2 rounded-lg border border-[#1b2a5e]/30 bg-white p-2">
+      <label className="block">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+          What Is Wrong, And What Does The Paper Say?
+        </span>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={2}
+          placeholder="e.g. Dec page states Each Occurrence $2M; the sheet resolved $1M"
+          className="field mt-1 w-full resize-none !text-[11px]"
+        />
+      </label>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onCorrect(reason)}
+          disabled={!reason.trim()}
+          title={
+            reason.trim()
+              ? "Open the coverage cells for this certificate"
+              : "A correction needs a reason on the record"
+          }
+          className="rounded-lg bg-[#1b2a5e] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white transition disabled:opacity-45"
+        >
+          Correct The Sheet
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setReason("");
+          }}
+          className="rounded-lg border border-[var(--rule)] bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CoverageLockPanel({
   tickets,
   unlockTicket,
   onUnlock,
   onRelock,
+  correctionReason,
+  onCorrect,
+  correctedFields,
 }: {
   tickets: EndorsementTicketView[];
   unlockTicket: EndorsementTicketView | null;
   onUnlock: (ticketId: string) => void;
   onRelock: () => void;
+  /** Set while the desk is correcting values the sheet got wrong */
+  correctionReason: string | null;
+  onCorrect: (reason: string) => void;
+  /** How many record cells currently carry a desk value */
+  correctedFields: number;
 }) {
+  if (correctionReason) {
+    return (
+      <div className="rounded-xl border border-[#1b2a5e]/30 bg-[#1b2a5e]/[0.04] p-3">
+        <p className="eyebrow">Correcting The Sheet</p>
+        <p className="mt-0.5 text-[12px] font-semibold text-[var(--ink)]">
+          {correctionReason}
+        </p>
+        <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
+          Coverage cells are editable. Every edit re-runs the verifier, and a
+          value the schedule of record cannot back still blocks issuance —
+          that check is not overridable. Corrected cells are underlined on
+          the sheet and on paper.
+          {correctedFields > 0 && (
+            <>
+              {" "}
+              <span className="font-semibold text-[var(--ink)]">
+                {correctedFields} cell{correctedFields === 1 ? "" : "s"}{" "}
+                corrected.
+              </span>
+            </>
+          )}
+        </p>
+        <p className="mt-1 text-[10.5px] leading-relaxed text-[var(--muted)]">
+          This corrects one certificate. It teaches nothing and does not
+          touch the schedule — if the paper really says something else, fix
+          the schedule of record so every future certificate is right too.
+        </p>
+        <button
+          type="button"
+          onClick={onRelock}
+          className="mt-2 rounded-lg border border-[var(--rule)] bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ink)] transition hover:border-[var(--gold)]"
+        >
+          Discard Corrections
+        </button>
+      </div>
+    );
+  }
   if (unlockTicket) {
     return (
       <div className="rounded-xl border border-amber-600/30 bg-amber-50 p-3">
@@ -1979,11 +2120,11 @@ function CoverageLockPanel({
         </summary>
         <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--muted)]">
           Coverage rows, limits, and insurer identity print from the schedule
-          of record and are not editable. Holder, description, and the
-          Additional Insured / Waiver Of Subrogation cells remain workable per
-          certificate. To change what prints here, open an endorsement ticket
-          first.
+          of record. Holder, description, and the Additional Insured / Waiver
+          Of Subrogation cells are workable per certificate. To change what
+          the policy covers, open an endorsement ticket first.
         </p>
+        <CorrectSheetForm onCorrect={onCorrect} />
       </details>
     );
   }
@@ -1992,9 +2133,10 @@ function CoverageLockPanel({
       <p className="eyebrow">Coverage Data — Locked</p>
       <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
         Coverage rows, limits, and insurer identity print from the schedule of
-        record and are not editable. Holder, description, and the Additional
-        Insured / Waiver Of Subrogation cells remain workable per certificate.
+        record. Holder, description, and the Additional Insured / Waiver Of
+        Subrogation cells are workable per certificate.
       </p>
+      <CorrectSheetForm onCorrect={onCorrect} />
       <div className="mt-2 space-y-1.5">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
           Open Endorsements That Can Unlock Editing

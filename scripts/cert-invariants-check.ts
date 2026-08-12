@@ -46,10 +46,10 @@ import {
   resolveCertSheet,
   SECTION_DEFS,
 } from "../src/lib/acord25";
-import { runCertChecks } from "../src/lib/cert-checks";
+import { CERT_CHECK_REGISTRY, runCertChecks } from "../src/lib/cert-checks";
 import { buildCertificatePacket } from "../src/lib/certificate";
 import { buildFactSnapshot } from "../src/lib/cert-snapshot";
-import { displayLimit } from "../src/lib/cert-review";
+import { displayLimit, verifyEditedSheet } from "../src/lib/cert-review";
 import { buildDraftFromPolicy } from "../src/lib/coi";
 import { bareFormSet, FORM_SETS, type PolicyFormSet } from "../src/lib/forms";
 import { SEED_ACCOUNTS, SEED_POLICIES } from "../src/lib/seed";
@@ -767,6 +767,96 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
       .filter((b) => b.slot)
       .map((b) => `${b.label}=${displayLimit(glRow.limits[b.key]) || "blank"}`)
       .join(", "),
+  );
+}
+
+/* ————— Correcting a record cell is safe because the verifier gates it —————
+ * The coverage lock was never what kept a certificate honest. Opening the
+ * cells so the desk can fix a value the sheet got wrong is only defensible
+ * if an edit the schedule cannot back still refuses to issue — so prove it,
+ * on a field that is locked-class, through the same non-overridable check
+ * the issuance core runs. */
+{
+  const editedPacket = buildCertificatePacket({
+    account,
+    policies,
+    formSets,
+    holderName: "Correction Holder",
+    holderAddress: "1 Main St, Austin, TX 78701",
+  });
+  const editedSheet = resolveCertSheet("acord25", editedPacket.sections);
+  const glSection = editedSheet.sections.find((rs) => rs.def.key === "gl")!;
+  const fieldId = "gl.limit.eachOccurrence";
+  // isRecordField locks any field whose area is a section key, so a
+  // "gl.*" id is locked-class by that rule.
+  check(
+    SECTION_DEFS.some((d) => d.key === fieldId.split(".")[0]) &&
+      glSection.feeder != null,
+    "The field under test is a locked-class coverage cell",
+  );
+
+  // The schedule states $1M. Type $9M over it.
+  const verdict = verifyEditedSheet({
+    account,
+    packet: editedPacket,
+    sheet: editedSheet,
+    overrides: { [fieldId]: "9,000,000" },
+  });
+  check(
+    verdict.rejects.length > 0,
+    "An edit the schedule cannot back is a verifier reject",
+    `rejects=${verdict.rejects.length}`,
+  );
+
+  const registryDef = CERT_CHECK_REGISTRY.find((d) => d.id === "verifier-clean")!;
+  check(
+    registryDef.severity === "blocking" && registryDef.overridable === false,
+    "Verifier Clean is blocking and cannot be overridden",
+  );
+  const blockedResults = runCertChecks({
+    ctx: {
+      account,
+      policies,
+      holderName: "Correction Holder",
+      holderAddress: "1 Main St, Austin, TX 78701",
+      now: "2026-06-01T12:00:00.000Z",
+      verifierRejects: verdict.rejects.map((r) => ({
+        id: r.finding.id,
+        title: r.finding.title,
+      })),
+      redAlertActive: false,
+      endorsementClaims: [],
+      formKey: "acord25",
+      formSets,
+      holderAiRecords: [],
+      requirementHolderName: null,
+      scheduleSources: [],
+      prepared: null,
+      currentDigest: "probe",
+    },
+    // Push on it: an override request on a non-overridable check must not clear it.
+    overrides: [{ checkId: "verifier-clean", reason: "the desk is sure" }],
+    operator: "Rogue Operator",
+  });
+  const verifierResult = blockedResults.find((r) => r.id === "verifier-clean")!;
+  check(
+    verifierResult.status === "fail",
+    "…and issuance still blocks on it, override request and all",
+    `status=${verifierResult.status}`,
+  );
+
+  // The counterpart: correcting a cell TO what the schedule says is the
+  // whole point, and must come back clean.
+  const backToRecord = verifyEditedSheet({
+    account,
+    packet: editedPacket,
+    sheet: editedSheet,
+    overrides: { [fieldId]: "1,000,000" },
+  });
+  check(
+    backToRecord.rejects.length === 0,
+    "Correcting a cell to what the schedule states verifies clean",
+    backToRecord.rejects.map((r) => r.finding.title).join("; "),
   );
 }
 

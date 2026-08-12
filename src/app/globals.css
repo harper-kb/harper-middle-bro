@@ -728,6 +728,18 @@ body:has(.red-alert-banner) .desk-sidebar {
   background: rgba(196, 92, 74, 0.18);
 }
 
+/* A record cell the desk typed over. Distinct from the review tints on
+   screen, and — unlike them — it keeps its underline on paper, because a
+   reader of the issued certificate deserves to see which values came off
+   the schedule and which a person changed. */
+.acord-in.is-corrected,
+.acord-ta.is-corrected,
+.acord-ck.is-corrected,
+.acord-ycell.is-corrected {
+  background: rgba(27, 42, 94, 0.09);
+  box-shadow: inset 0 -1px 0 0 rgba(27, 42, 94, 0.5);
+}
+
 /* ACORD checkbox — a small bordered square, ✓ only when the schedule backs it */
 .acord-ck {
   display: inline-flex;
@@ -879,6 +891,16 @@ body:has(.red-alert-banner) .desk-sidebar {
   .acord-in::placeholder,
   .acord-ta::placeholder {
     color: transparent;
+  }
+  /* Every other tint is a screen affordance and goes. This one stays: a
+     value a person typed over the schedule is a fact about the certificate,
+     not about the editing session, and the holder reading the paper should
+     be able to see it. */
+  .acord-in.is-corrected,
+  .acord-ta.is-corrected,
+  .acord-ck.is-corrected,
+  .acord-ycell.is-corrected {
+    box-shadow: inset 0 -1px 0 0 #1b2a5e !important;
   }
   /* The signature stamp keeps its border on paper; only the tint goes. */
   .sig-stamp {

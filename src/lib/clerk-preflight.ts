@@ -23,7 +23,9 @@ const PROBE_TIMEOUT_MS = 5_000;
 type KeySource = "env" | "keyless";
 
 /** Clerk encodes the Frontend API host in the key itself, base64 with a `$` terminator. */
-function frontendApiFromPublishableKey(publishableKey: string): string | null {
+export function frontendApiFromPublishableKey(
+  publishableKey: string,
+): string | null {
   const prefix = PK_PREFIXES.find((candidate) =>
     publishableKey.startsWith(candidate),
   );
@@ -39,7 +41,7 @@ function frontendApiFromPublishableKey(publishableKey: string): string | null {
   }
 }
 
-function readKeylessPublishableKey(): string | null {
+export function readKeylessPublishableKey(): string | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(KEYLESS_FILE, "utf8"));
     const key =
@@ -61,7 +63,7 @@ function report(lines: string[]): void {
  * question can't be answered (offline, DNS failure, Clerk down) — an unreachable
  * network is not a bad key, and boot must not hinge on it either way.
  */
-async function instanceIsAttributable(
+export async function instanceIsAttributable(
   frontendApi: string,
 ): Promise<boolean | null> {
   try {

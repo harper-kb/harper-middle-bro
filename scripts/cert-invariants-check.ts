@@ -666,6 +666,48 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
       holderAddress: "",
     }).sections,
   );
+  // A placement rule routes; it cannot conjure coverage. Pin a cyber-only
+  // policy to the general liability section and the row must not print: a
+  // certificate showing that policy's number and term under COMMERCIAL
+  // GENERAL LIABILITY states a policy the insured does not hold.
+  const cyberOnly: PolicyFormSet = {
+    coverages: [
+      { code: "CL", label: "Cyber Liability", form: "HSX-CY 200", edition: "03 23" },
+    ],
+    limits: [{ slot: "cyber_aggregate", amountCents: 1_000_000_00 }],
+    endorsements: [],
+  };
+  const cyberPolicy = { ...policies[0], id: "probe-cyber", policyNumber: "PROBE-CY-1" };
+  const ruledSheet = resolveCertSheet(
+    "acord25",
+    buildCertificatePacket({
+      account,
+      policies: [cyberPolicy],
+      formSets: { [cyberPolicy.id]: cyberOnly },
+      holderName: "Probe Holder",
+      holderAddress: "",
+    }).sections,
+    { [cyberPolicy.id]: "gl" },
+  );
+  const ruledGl = ruledSheet.sections.find((rs) => rs.def.key === "gl")!;
+  check(
+    ruledGl.feeder == null,
+    "A placement rule cannot put a policy in a section whose coverage it lacks",
+    ruledGl.feeder
+      ? `cyber policy printed under ${ruledGl.def.name}`
+      : undefined,
+  );
+  check(
+    ruledSheet.unhonoredPlacements.includes(cyberPolicy.id),
+    "The refused rule is reported, so the desk sees the correction didn't take",
+  );
+  check(
+    ruledSheet.others.some((row) =>
+      row.lines.some((l) => /cyber/i.test(l.label) || l.slot === "cyber_aggregate"),
+    ),
+    "…and the policy still prints, in the row its own coverage belongs to",
+  );
+
   const glRow = probeSheet.sections.find((rs) => rs.def.key === "gl")!;
   check(
     glRow.feeder != null && !glRow.backed,

@@ -98,23 +98,48 @@ const packet = buildCertificatePacket({
   holderAddress: "",
 });
 
-// Pin the GL policy to the umbrella section — an artificial rule, but it
-// proves the override beats the coverage matcher.
-const ruled = resolveCertSheet("acord25", packet.sections, {
-  "pol-oakridge-gl": "umbrella",
+// A routing correction, which is the only thing a rule is: Meridian carries
+// two policies that can each feed the general liability row, the matcher
+// takes the first, and the desk picks the other. The rule must beat the
+// matcher without producing a duplicate row.
+//
+// This used to pin a GL-only policy to the umbrella section — the comment
+// called it artificial. It was, and worse: a rule cannot conjure coverage,
+// so that placement is now refused (see cert-invariants-check). The fixture
+// has to be a correction the desk could legitimately make.
+const meridianAccount = SEED_ACCOUNTS.find((a) => a.id === "acct-meridian")!;
+const meridianPolicies = SEED_POLICIES.filter(
+  (p) => p.accountId === "acct-meridian",
+);
+const meridianPacket = buildCertificatePacket({
+  account: { ...meridianAccount, status: "active" } as Account,
+  policies: meridianPolicies,
+  formSets: Object.fromEntries(
+    meridianPolicies.map((p) => [p.id, FORM_SETS[p.id] ?? bareFormSet(p.coverages)]),
+  ),
+  holderName: "Check Holder",
+  holderAddress: "",
 });
-const umb = ruled.sections.find((rs) => rs.def.key === "umbrella")!;
+const unruled = resolveCertSheet("acord25", meridianPacket.sections, {});
+const matcherPick = unruled.sections.find((rs) => rs.def.key === "gl")!.feeder
+  ?.policy.id;
+const deskPick =
+  matcherPick === "pol-meridian-gl" ? "pol-meridian-events" : "pol-meridian-gl";
+const ruled = resolveCertSheet("acord25", meridianPacket.sections, {
+  [deskPick]: "gl",
+});
 const glRuled = ruled.sections.find((rs) => rs.def.key === "gl")!;
 check(
-  umb.ref?.policyNumber === "NXT-GL-667788" && umb.placedByRule === true,
+  glRuled.feeder?.policy.id === deskPick && glRuled.placedByRule === true,
   "Ruled section claims the policy and carries placedByRule provenance",
+  `gl fed by ${glRuled.feeder?.policy.id ?? "nothing"} (matcher wanted ${matcherPick})`,
 );
 check(
-  glRuled.feeder === null,
-  "Coverage matcher skips a ruled policy — no duplicate row",
+  ruled.unhonoredPlacements.length === 0,
+  "A correction between sections the policy can feed is honored",
 );
 const feeds = ruled.sections.filter(
-  (rs) => rs.feeder?.policy.id === "pol-oakridge-gl",
+  (rs) => rs.feeder?.policy.id === deskPick,
 ).length;
 check(feeds === 1, "The policy feeds exactly one section under the rule");
 
@@ -138,11 +163,11 @@ check(
 
 console.log("\n━━━ S4 Rule-driven resolve is deterministic ━━━");
 const a = JSON.stringify(
-  resolveCertSheet("acord25", packet.sections, { "pol-oakridge-gl": "umbrella" })
+  resolveCertSheet("acord25", meridianPacket.sections, { [deskPick]: "gl" })
     .sections.map((rs) => [rs.def.key, rs.ref?.policyNumber ?? null, rs.placedByRule]),
 );
 const b = JSON.stringify(
-  resolveCertSheet("acord25", packet.sections, { "pol-oakridge-gl": "umbrella" })
+  resolveCertSheet("acord25", meridianPacket.sections, { [deskPick]: "gl" })
     .sections.map((rs) => [rs.def.key, rs.ref?.policyNumber ?? null, rs.placedByRule]),
 );
 check(a === b, "Same placements → byte-identical section layout");

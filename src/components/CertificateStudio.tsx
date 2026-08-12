@@ -1017,6 +1017,7 @@ export function CertificateStudio({
               rules={placementRules}
               policies={policies}
               form={form}
+              unhonored={sheet?.unhonoredPlacements ?? []}
             />
           )}
 
@@ -2050,11 +2051,14 @@ function DeskCorrections({
   rules,
   policies,
   form,
+  unhonored,
 }: {
   accountId: string;
   rules: PlacementRuleView[];
   policies: Policy[];
   form: CertFormDef;
+  /** Policy ids whose rule the sheet refused — see Acord25Sheet */
+  unhonored: string[];
 }) {
   return (
     <div className="rounded-xl border border-[var(--rule)] bg-white p-3">
@@ -2080,6 +2084,14 @@ function DeskCorrections({
                 {r.movedFrom ? ` · Was: ${r.movedFrom}` : ""}
                 {!stillOnForm ? " · Not A Section On This Form" : ""}
               </p>
+              {unhonored.includes(r.policyId) && (
+                <p className="mt-1 rounded border border-amber-300 bg-amber-50 px-1.5 py-1 text-[10px] leading-relaxed text-amber-900">
+                  Not Applied — this policy carries none of that section&apos;s
+                  coverage, and routing cannot add it. The policy prints where
+                  its own coverage belongs. Remove the rule, or correct the
+                  schedule of record if the coverage really is on the paper.
+                </p>
+              )}
               <form action={removePlacementRuleAction} className="mt-1">
                 <input type="hidden" name="accountId" value={accountId} />
                 <input type="hidden" name="ruleId" value={r.id} />

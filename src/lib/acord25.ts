@@ -757,6 +757,13 @@ export interface Acord25Sheet {
   others: OtherRow[];
   /** Coverages beyond the printed rows — Description Of Operations lines */
   overflow: OverflowLine[];
+  /**
+   * Placement rules that could not be honored, by policy id. A rule routes
+   * a policy to a section; it cannot conjure coverage. One pointing at a
+   * section the policy cannot feed is dropped rather than obeyed, and named
+   * here so the desk learns its correction did not take.
+   */
+  unhonoredPlacements: string[];
 }
 
 function refFor(s: CertSection): SectionPolicyRef {
@@ -980,18 +987,39 @@ function resolveSections(
   placements: PlacementMap = {},
 ): Acord25Sheet {
   const consumed = new Map<string, Set<LimitSlot>>();
+
+  // A placement rule routes a policy to a section; it cannot conjure
+  // coverage. The policy still has to be able to feed the section — carry
+  // one of its lines, or name the coverage — because the ruled branch
+  // bypasses the matcher entirely. Without this a rule pinned a cyber
+  // policy to COMMERCIAL GENERAL LIABILITY, and the row printed that
+  // policy's number and term under a coverage the insured does not have:
+  // a general liability policy invented by a routing correction.
+  //
+  // An unhonorable rule is dropped rather than obeyed, so the matcher
+  // places the policy where its own coverage belongs.
+  const canFeed = (s: CertSection, def: SectionDef) =>
+    carriesAny(s.set, def.slots) || def.match.test(coverageText(s.set));
+  const effective: PlacementMap = {};
+  const unhonoredPlacements: string[] = [];
+  for (const [policyId, sectionKey] of Object.entries(placements)) {
+    const s = sections.find((x) => x.policy.id === policyId);
+    if (!s) continue;
+    const def = defs.find((d) => d.key === sectionKey);
+    if (def && canFeed(s, def)) effective[policyId] = sectionKey;
+    else unhonoredPlacements.push(policyId);
+  }
+
   const resolved: ResolvedSection[] = defs.map((def) => {
     // A desk placement rule pins its policy to exactly one section: the
     // ruled section claims it first, and the coverage matcher below skips
     // every ruled policy so a correction can't leave a duplicate behind.
     const ruled =
-      sections.find((s) => placements[s.policy.id] === def.key) ?? null;
+      sections.find((s) => effective[s.policy.id] === def.key) ?? null;
     const feeder =
       ruled ??
       sections.find(
-        (s) =>
-          !placements[s.policy.id] &&
-          (carriesAny(s.set, def.slots) || def.match.test(coverageText(s.set))),
+        (s) => !effective[s.policy.id] && canFeed(s, def),
       ) ??
       null;
     if (feeder) {
@@ -1049,6 +1077,7 @@ function resolveSections(
     sections: resolved,
     others: rows.slice(0, 1),
     overflow: rows.slice(1).map(overflowLineFor),
+    unhonoredPlacements,
   };
 }
 

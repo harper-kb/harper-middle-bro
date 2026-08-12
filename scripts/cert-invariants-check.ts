@@ -49,6 +49,7 @@ import {
 import { runCertChecks } from "../src/lib/cert-checks";
 import { buildCertificatePacket } from "../src/lib/certificate";
 import { buildFactSnapshot } from "../src/lib/cert-snapshot";
+import { displayLimit } from "../src/lib/cert-review";
 import { buildDraftFromPolicy } from "../src/lib/coi";
 import { bareFormSet, FORM_SETS, type PolicyFormSet } from "../src/lib/forms";
 import { SEED_ACCOUNTS, SEED_POLICIES } from "../src/lib/seed";
@@ -594,6 +595,7 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
     "no exclusive groups found — the sweep below would pass vacuously",
   );
   const bad: string[] = [];
+  const allExcluded: string[] = [];
   for (const seed of SEED_ACCOUNTS) {
     const accountPolicies = SEED_POLICIES.filter((p) => p.accountId === seed.id);
     if (accountPolicies.length === 0) continue;
@@ -616,6 +618,18 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
             bad.push(`${seed.name} ${formKey} ${rs.def.key}: ${on.join("+")}`);
           }
         }
+        // A whole row of Excluded certifies that the policy excludes the
+        // coverage it was placed under. "Excluded" is a statement about a
+        // dec page that states the coverage; when the dec states none of
+        // the row's lines the row must print blank instead.
+        const stated = rs.def.limitBoxes
+          .filter((b) => b.slot)
+          .map((b) => displayLimit(rs.limits[b.key]));
+        if (stated.length > 0 && stated.every((v) => v === "Excluded")) {
+          allExcluded.push(
+            `${seed.name} ${formKey} ${rs.def.key} (${rs.feeder.policy.policyNumber})`,
+          );
+        }
       }
     }
   }
@@ -623,6 +637,49 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
     bad.length === 0,
     "No section ticks both sides of a mutually exclusive coverage basis",
     bad.join("; "),
+  );
+  check(
+    allExcluded.length === 0,
+    "No section prints Excluded across every one of its limit lines",
+    allExcluded.join("; "),
+  );
+
+  // No seed account carries the shape that produced it, so the sweep above
+  // would pass vacuously. This is the reported shape: the coverage part
+  // names general liability, so the section claims the policy on wording,
+  // and the dec then states none of the section's lines.
+  const namedButUnstated: PolicyFormSet = {
+    coverages: [
+      { code: "GL", label: "Commercial General Liability", form: "CG 00 01", edition: "04 13" },
+    ],
+    limits: [],
+    endorsements: [],
+  };
+  const probePolicy = { ...policies[0], policyNumber: "PROBE-0000657" };
+  const probeSheet = resolveCertSheet(
+    "acord25",
+    buildCertificatePacket({
+      account,
+      policies: [probePolicy],
+      formSets: { [probePolicy.id]: namedButUnstated },
+      holderName: "Probe Holder",
+      holderAddress: "",
+    }).sections,
+  );
+  const glRow = probeSheet.sections.find((rs) => rs.def.key === "gl")!;
+  check(
+    glRow.feeder != null && !glRow.backed,
+    "A policy whose dec states none of a section's lines still reaches the row",
+  );
+  check(
+    glRow.def.limitBoxes
+      .filter((b) => b.slot)
+      .every((b) => displayLimit(glRow.limits[b.key]) === ""),
+    "…and every one of its limit boxes prints blank, never Excluded",
+    glRow.def.limitBoxes
+      .filter((b) => b.slot)
+      .map((b) => `${b.label}=${displayLimit(glRow.limits[b.key]) || "blank"}`)
+      .join(", "),
   );
 }
 

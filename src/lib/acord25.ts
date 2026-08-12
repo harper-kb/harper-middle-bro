@@ -700,6 +700,13 @@ export interface ResolvedSection {
   limits: Record<string, ResolvedLimit | null>;
   /** LOC write-in text by limit-box key, off the schedule (`PolicyLimit.loc`) */
   locs: Record<string, string>;
+  /**
+   * The schedule of record states at least one of this section's lines.
+   * False means the policy landed on this row by its wording while the dec
+   * says nothing about the coverage's limits — every box prints blank, and
+   * none of them may print "Excluded".
+   */
+  backed: boolean;
   /** The feeder landed here via a desk placement rule, not the matcher */
   placedByRule?: boolean;
 }
@@ -995,6 +1002,14 @@ function resolveSections(
     // No schedule of record on file: the row identifies the policy and
     // claims nothing else — no checkbox, no limit statement (see header).
     const unscheduled = feeder?.set.unscheduled === true;
+    // "Excluded" is a statement about a dec page: this coverage is on the
+    // policy and this line is not granted. It is only sayable when the dec
+    // states the coverage at all. A policy can reach a section on its
+    // wording alone — the matcher reads coverage labels — and if the
+    // schedule then states none of the section's lines, filling every box
+    // with Excluded certifies that the policy excludes the whole coverage.
+    // That is the opposite of what an unstated line means. Blank instead.
+    const backed = feeder != null && carriesAny(feeder.set, def.slots);
     const locs: Record<string, string> = {};
     if (feeder && !unscheduled) {
       for (const b of def.limitBoxes) {
@@ -1014,10 +1029,13 @@ function resolveSections(
       limits: Object.fromEntries(
         def.limitBoxes.map((b) => [
           b.key,
-          feeder && !unscheduled && b.slot ? resolveBox(feeder.set, b.slot) : null,
+          feeder && !unscheduled && backed && b.slot
+            ? resolveBox(feeder.set, b.slot)
+            : null,
         ]),
       ),
       locs,
+      backed,
       placedByRule: Boolean(ruled),
     };
   });

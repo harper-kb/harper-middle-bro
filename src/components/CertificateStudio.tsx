@@ -3064,6 +3064,23 @@ function NoScheduleChip() {
   );
 }
 
+/**
+ * The policy reached this row on its coverage wording, but the schedule
+ * states none of the row's lines. Blank is the honest print — "Excluded"
+ * across the row would certify that the policy excludes the coverage — and
+ * the operator needs to know which of the two they are looking at.
+ */
+function NoLimitsChip() {
+  return (
+    <span
+      title="This policy matched the coverage, but the schedule of record states none of this section's limits. Nothing can print here until the dec page carries them — an all-Excluded row would certify the opposite of what a missing line means."
+      className="no-print mb-0.5 inline-flex items-center rounded border border-amber-400 bg-amber-50 px-1 py-0.5 text-[6.4px] font-bold uppercase tracking-wide text-amber-900"
+    >
+      No Limits On The Schedule
+    </span>
+  );
+}
+
 function SectionBlock({
   rs,
   ctx,
@@ -3115,7 +3132,11 @@ function SectionBlock({
             <>
               <AreaChip area={sec} ctx={ctx} className="float-right ml-1 mb-0.5" />
               {rule && <PlacementRuleChip accountId={accountId} rule={rule} />}
-              {rs.feeder?.set.unscheduled && <NoScheduleChip />}
+              {rs.feeder?.set.unscheduled ? (
+                <NoScheduleChip />
+              ) : (
+                rs.feeder && !rs.backed && <NoLimitsChip />
+              )}
               <TypeCellView rs={rs} ctx={ctx} />
             </>
           }

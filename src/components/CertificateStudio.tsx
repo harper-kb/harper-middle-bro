@@ -49,7 +49,11 @@ import {
   type CertInsurer,
 } from "@/lib/certificate";
 import type { CoiFlags } from "@/lib/coi";
-import { findEndorsement, type PolicyFormSet } from "@/lib/forms";
+import {
+  findEndorsement,
+  type EndorsementForm,
+  type PolicyFormSet,
+} from "@/lib/forms";
 import { getGuidance, type PriceGuidance } from "@/lib/price-guidance";
 import type { Account, Policy } from "@/lib/types";
 import { CarrierLogo } from "./CarrierLogo";
@@ -366,6 +370,13 @@ export function CertificateStudio({
     zip: effStr(overrides, "insured.zip", account.zip ?? ""),
   });
   const holderName = holderNameRaw.trim() ? holderNameRaw : insuredName;
+  // Certifying to the insured grants nothing to a third party, so the ADDL
+  // INSD and SUBR WVD columns stay blank. That is correct and it is also
+  // invisible — the rail has to say the endorsements are on the policy.
+  const normalizeName = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const holderIsInsured =
+    normalizeName(holderName) === normalizeName(insuredName);
   const holderAddress = holderAddressRaw.trim()
     ? holderAddressRaw
     : insuredAddress;
@@ -1017,6 +1028,12 @@ export function CertificateStudio({
             sheet={sheet}
           />
 
+          <EndorsementsOnFile
+            policies={chosen}
+            formSets={formSets}
+            holderIsInsured={holderIsInsured}
+          />
+
           <HolderRail
             accountId={account.id}
             rail={rail}
@@ -1451,6 +1468,83 @@ function ReviewProgress({
 }
 
 /** One extracted value inside the guided card — display + source cite. */
+
+/**
+ * What the schedule of record grants, per policy — the Additional Insured
+ * and Waiver Of Subrogation forms a certificate could cite, with their
+ * scope.
+ *
+ * This is a fact about the policy, not about the certificate on screen, and
+ * it needs saying separately because the two disagree by default. The
+ * holder box now defaults to the insured, and a certificate issued to the
+ * insured grants nothing to a third party — so the ADDL INSD column is
+ * blank on an untouched sheet even when the policy carries blanket AI. The
+ * form is right; without this the desk cannot tell blanket AI on file from
+ * no AI at all.
+ */
+function EndorsementsOnFile({
+  policies,
+  formSets,
+  holderIsInsured,
+}: {
+  policies: Policy[];
+  formSets: Record<string, PolicyFormSet>;
+  holderIsInsured: boolean;
+}) {
+  const rows = policies
+    .map((p) => {
+      const set = formSets[p.id];
+      if (!set) return null;
+      const ai = findEndorsement(set, "ai");
+      const wos = findEndorsement(set, "wos");
+      if (!ai && !wos) return null;
+      return { policy: p, ai, wos };
+    })
+    .filter((r): r is NonNullable<typeof r> => r != null);
+  if (rows.length === 0) return null;
+
+  const grant = (e: EndorsementForm) => (
+    <span className="flex items-baseline justify-between gap-2 text-[11px]">
+      <span className="text-[var(--muted)]">
+        {e.kind === "ai" ? "Additional Insured" : "Waiver Of Subrogation"}
+        {e.scope ? ` · ${e.scope === "blanket" ? "Blanket" : "Scheduled"}` : ""}
+      </span>
+      <span className="shrink-0 font-mono text-[10px] text-[var(--ink)]">
+        {e.form} {e.edition}
+      </span>
+    </span>
+  );
+
+  return (
+    <div className="rounded-xl border border-[var(--rule)] bg-white p-3">
+      <p className="eyebrow">Endorsements On File</p>
+      {holderIsInsured && (
+        <p className="mt-1 rounded-lg border border-[var(--gold)]/40 bg-[var(--gold)]/5 px-2 py-1 text-[10.5px] leading-relaxed text-[var(--ink)]">
+          The holder is the insured, so this certificate grants nothing and
+          the ADDL INSD / SUBR WVD columns print blank. Name a holder and the
+          boxes fill from these forms.
+        </p>
+      )}
+      <ul className="mt-2 space-y-2">
+        {rows.map(({ policy, ai, wos }) => (
+          <li key={policy.id}>
+            <p className="font-mono text-[10px] font-semibold text-[var(--muted)]">
+              {policy.policyNumber}
+            </p>
+            <div className="mt-0.5 space-y-0.5">
+              {ai && grant(ai)}
+              {wos && grant(wos)}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[10px] leading-relaxed text-[var(--muted)]">
+        Blanket attaches on the written contract alone. Scheduled needs the
+        holder named on the policy before a certificate may claim it.
+      </p>
+    </div>
+  );
+}
 
 /* ————————————————————————— Holder rail ————————————————————————— */
 

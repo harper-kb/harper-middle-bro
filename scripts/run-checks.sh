@@ -51,6 +51,7 @@ done
 
 run insured-box-render-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/insured-box-render-check.tsx
 run cert-upload-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/cert-upload-check.ts
+run harper-mapper-check npx tsx scripts/harper-mapper-check.ts
 run workitem-contracts-check npx tsx scripts/workitem-contracts-check.ts
 run bigbrother-adapter-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/bigbrother-adapter-check.ts
 run agent-tools-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/agent-tools-check.ts

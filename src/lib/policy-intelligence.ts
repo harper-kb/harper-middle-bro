@@ -1239,6 +1239,81 @@ export function attachCoterieScheduleFromLibrary(
  * every row at the filed source document. This is the one-time extraction:
  * from here on, certificates and the fast path read this record.
  */
+/**
+ * Write a schedule of record straight from a PolicyFormSet — the shape the
+ * real-book overlay carries for imported policies. Same tables and same
+ * replace-in-full semantics as the ISC attach below; the difference is only
+ * where the parse came from.
+ */
+export function attachPolicyFormSet(
+  db: Database.Database,
+  input: { policyId: string; set: PolicyFormSet },
+) {
+  const { policyId, set } = input;
+  const delParts = db.prepare(
+    `DELETE FROM policy_coverage_parts WHERE policy_id = ?`,
+  );
+  const delLimits = db.prepare(`DELETE FROM policy_limits WHERE policy_id = ?`);
+  const delEndt = db.prepare(
+    `DELETE FROM policy_endorsements WHERE policy_id = ?`,
+  );
+  const insPart = db.prepare(`
+    INSERT INTO policy_coverage_parts (id, policy_id, code, label, form, edition, sort_order)
+    VALUES (@id, @policyId, @code, @label, @form, @edition, @sortOrder)
+  `);
+  const insLimit = db.prepare(`
+    INSERT INTO policy_limits (id, policy_id, slot, mode, amount_cents, loc)
+    VALUES (@id, @policyId, @slot, @mode, @amountCents, @loc)
+  `);
+  const insEndt = db.prepare(`
+    INSERT INTO policy_endorsements (
+      id, policy_id, form, edition, title, kind, scope, note, verbatim, source_document_id, sort_order
+    ) VALUES (
+      @id, @policyId, @form, @edition, @title, @kind, @scope, @note, NULL, NULL, @sortOrder
+    )
+  `);
+  const tx = db.transaction(() => {
+    delParts.run(policyId);
+    delLimits.run(policyId);
+    delEndt.run(policyId);
+    set.coverages.forEach((c, i) => {
+      insPart.run({
+        id: `pcp-${policyId}-${i}`,
+        policyId,
+        code: c.code,
+        label: c.label,
+        form: c.form,
+        edition: c.edition,
+        sortOrder: i,
+      });
+    });
+    set.limits.forEach((l, i) => {
+      insLimit.run({
+        id: `pl-${policyId}-${l.slot}-${i}`,
+        policyId,
+        slot: l.slot,
+        mode: l.mode ?? "amount",
+        amountCents: l.amountCents ?? null,
+        loc: l.loc ?? null,
+      });
+    });
+    set.endorsements.forEach((e, i) => {
+      insEndt.run({
+        id: `pe-${policyId}-${i}`,
+        policyId,
+        form: e.form,
+        edition: e.edition,
+        title: e.title,
+        kind: e.kind,
+        scope: e.scope ?? null,
+        note: e.note ?? null,
+        sortOrder: i,
+      });
+    });
+  });
+  tx();
+}
+
 export function attachIscSchedule(
   db: Database.Database,
   input: {

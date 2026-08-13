@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import type { PolicyFormSet } from "./forms";
 import type { Account, Policy, Underwriter } from "./types";
 
 /**
@@ -17,6 +18,14 @@ export interface SupabaseBook {
   fetchedAt: string;
   accounts: Account[];
   policies: Policy[];
+  /**
+   * Schedule of record per policy id, when the export carried the coverage
+   * lines. Without it every imported policy resolves `unscheduled` and its
+   * certificate prints identity and nothing else — accounts and policies
+   * alone cannot fill an ACORD form. Optional so an older export still
+   * loads, minus the limits.
+   */
+  schedules?: Record<string, PolicyFormSet>;
 }
 
 const BOOK_PATH = path.join(process.cwd(), "data", "supabase-book.local.json");
@@ -86,10 +95,28 @@ function readBook(): SupabaseBook | null {
     );
     if (!accountsOk || !policiesOk) return null;
 
+    // A malformed schedule block drops rather than failing the whole book:
+    // the accounts and policies are still worth having, and a policy
+    // without a schedule already has an honest rendering.
+    const rawSchedules = (parsed as { schedules?: unknown }).schedules;
+    const schedules =
+      rawSchedules && typeof rawSchedules === "object" && !Array.isArray(rawSchedules)
+        ? Object.fromEntries(
+            Object.entries(rawSchedules as Record<string, PolicyFormSet>).filter(
+              ([, set]) =>
+                set &&
+                Array.isArray(set.coverages) &&
+                Array.isArray(set.limits) &&
+                Array.isArray(set.endorsements),
+            ),
+          )
+        : undefined;
+
     return {
       fetchedAt: typeof parsed.fetchedAt === "string" ? parsed.fetchedAt : "",
       accounts,
       policies,
+      schedules,
     };
   } catch {
     // Unreadable/invalid book → behave like a clean clone: fictional seed.

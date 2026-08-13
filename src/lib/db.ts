@@ -63,6 +63,7 @@ import type {
 import {
   fileDocument,
   attachIscSchedule,
+  attachPolicyFormSet,
   getCarrierByName,
   getCarrierBySlug,
   listAdditionalInsureds,
@@ -600,6 +601,16 @@ function syncAccountsAndPolicies(db: Database.Database) {
     if (book) pruneStaleBookRows(db, book.accounts, book.policies);
   });
   tx();
+
+  // The imported book's schedules of record. Without these an imported
+  // policy is `unscheduled` and its certificate prints identity only, which
+  // is the whole reason the real book produced empty ACORD forms.
+  if (book?.schedules) {
+    for (const [policyId, set] of Object.entries(book.schedules)) {
+      if (!policies.some((p) => p.id === policyId)) continue;
+      attachPolicyFormSet(db, { policyId, set });
+    }
+  }
 }
 
 /**

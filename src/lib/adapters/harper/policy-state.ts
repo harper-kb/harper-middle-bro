@@ -1,4 +1,11 @@
-import type { CoveragePart, PolicyFormSet, PolicyLimit } from "../../forms";
+import type {
+  CoveragePart,
+  EndorsementForm,
+  EndorsementKind,
+  EndorsementScope,
+  PolicyFormSet,
+  PolicyLimit,
+} from "../../forms";
 import type { LimitSlot } from "../../forms";
 import type { Account, Policy } from "../../types";
 
@@ -170,7 +177,135 @@ export function splitForm(raw: string | null | undefined): {
   if (!text) return { form: "—", edition: "" };
   const iso = /^([A-Z]{2}\s+\d{2}\s+\d{2})\s+(\d{2}\s+\d{2})$/i.exec(text);
   if (iso) return { form: iso[1].toUpperCase(), edition: iso[2] };
+  // Carrier-proprietary numbering carries the edition as a trailing MMYY:
+  // NXUS-GL-2037.2-0925, NXT-0005 IL 0225. Reading it is not a guess — it is
+  // the form number's own convention — but it only splits when the month is
+  // a real month, because an edition invented from four unrelated digits
+  // certifies the wrong paper, which is the whole reason editions are part
+  // of form identity.
+  const trailing = /^(.*[^\d])(\d{2})(\d{2})$/.exec(text);
+  if (trailing) {
+    const month = Number(trailing[2]);
+    if (month >= 1 && month <= 12) {
+      return {
+        form: trailing[1].replace(/[\s-]+$/, ""),
+        edition: `${trailing[2]} ${trailing[3]}`,
+      };
+    }
+  }
   return { form: text, edition: "" };
+}
+
+/* ————————————————————————— Endorsements ————————————————————————— */
+
+export interface HarperEndorsement {
+  form_number?: string | null;
+  title?: string | null;
+  additional_insured_name?: string | null;
+  modifies_coverage?: string | null;
+  summary?: string | null;
+}
+
+/** The endorsement block of a parsed policy document extraction. */
+export interface HarperExtraction {
+  extraction_data?: {
+    policy?: { endorsements?: HarperEndorsement[] | null } | null;
+  } | null;
+}
+
+/**
+ * Wording that makes an additional-insured or waiver endorsement BLANKET:
+ * it attaches to whoever a written contract requires, so a certificate can
+ * name a holder the policy never listed.
+ *
+ * Everything else is scheduled, and that default is deliberate. Scheduled
+ * means the holder has to be named on the policy before the certificate can
+ * claim the status; blanket means it does not. Reading an ambiguous
+ * endorsement as blanket issues paper the carrier will not honor, so the
+ * ambiguous case has to land on the side that asks a human.
+ */
+const BLANKET_WORDING =
+  /\bblanket\b|automatic status|as required by (a )?written (contract|agreement)|any person or organization|where required by (a )?written/i;
+
+function classifyEndorsement(
+  e: HarperEndorsement,
+): { kind: EndorsementKind; scope?: EndorsementScope } | null {
+  const form = (e.form_number ?? "").toUpperCase();
+  const title = e.title ?? "";
+  const aiName = e.additional_insured_name ?? "";
+  const blanket = BLANKET_WORDING.test(`${title} ${aiName} ${e.summary ?? ""}`);
+
+  // ISO numbering is the reliable signal and the title is the fallback:
+  // CG 20 xx is the additional-insured family, CG 24 04 and WC 00 03 13 are
+  // the waivers, CG 20 01 is primary & noncontributory.
+  if (/^CG\s*20\s*01\b/.test(form) || /primary and non-?contributory/i.test(title)) {
+    return { kind: "pnc" };
+  }
+  if (/^CG\s*20\b/.test(form) || /additional insured/i.test(title)) {
+    return { kind: "ai", scope: blanket ? "blanket" : "scheduled" };
+  }
+  if (
+    /^CG\s*24\s*04\b/.test(form) ||
+    /^WC\s*00\s*03\s*13\b/.test(form) ||
+    /waiver of (transfer|our right|subrogation)|waiver of subrogation/i.test(title)
+  ) {
+    return { kind: "wos", scope: blanket ? "blanket" : "scheduled" };
+  }
+  if (aiName.trim()) {
+    // A carrier-proprietary form the numbering rules don't recognize, but
+    // the extraction found an additional-insured schedule on it.
+    return { kind: "ai", scope: blanket ? "blanket" : "scheduled" };
+  }
+  if (/exclusion|limitation/i.test(title) || /^CG\s*2[12]\b/.test(form)) {
+    return { kind: "exclusion" };
+  }
+  return { kind: "other" };
+}
+
+/**
+ * Policy-document extraction → the endorsement schedule.
+ *
+ * Only endorsements with a complete form identity survive: `verifyCoi`
+ * ignores an endorsement missing its form or edition, because "CG 20 10
+ * 04 13" and "CG 20 10 10 01" are different paper. One without an edition
+ * is reported rather than filed under a form identity it does not have.
+ */
+export function mapEndorsements(extraction: HarperExtraction | null): {
+  endorsements: EndorsementForm[];
+  withoutIdentity: string[];
+} {
+  const rows = extraction?.extraction_data?.policy?.endorsements ?? [];
+  const endorsements: EndorsementForm[] = [];
+  const withoutIdentity: string[] = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    const title = (row.title ?? "").trim();
+    if (!title && !row.form_number) continue;
+    const { form, edition } = splitForm(row.form_number);
+    const classified = classifyEndorsement(row);
+    if (!classified) continue;
+
+    if (!edition.trim() || form === "—") {
+      withoutIdentity.push(`${row.form_number ?? "(no form)"} — ${title}`);
+      continue;
+    }
+    const key = `${form} ${edition}`.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    endorsements.push({
+      form,
+      edition,
+      title: title || form,
+      kind: classified.kind,
+      ...(classified.scope ? { scope: classified.scope } : {}),
+      ...(row.additional_insured_name?.trim()
+        ? { note: row.additional_insured_name.trim() }
+        : {}),
+    });
+  }
+  return { endorsements, withoutIdentity };
 }
 
 /** The desk's coverage code for a line, falling back to its canonical name. */

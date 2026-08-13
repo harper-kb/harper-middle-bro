@@ -27,7 +27,9 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   mapAccount,
+  mapEndorsements,
   mapPolicy,
+  type HarperExtraction,
   type HarperPolicyRow,
   type HarperPrefill,
 } from "../src/lib/adapters/harper/policy-state";
@@ -43,8 +45,10 @@ function main() {
     console.error(`No export at ${IN}.
 
 Produce one with the Harper MCP and save it verbatim:
-  data policy-state read --limit 200          -> .policies
-  forms acord prefill --company-id <id>       -> .prefills["<id>"] (values_125)
+  data policy-state read --limit 200            -> .policies
+  forms acord prefill --company-id <id>         -> .prefills["<id>"] (values_125)
+  documents company list --company-id <id>      -> find the POLICY_DOCUMENT artifact
+  documents extraction get --artifact-id <id>   -> .extractions["<policy_id>"]
 `);
     process.exit(1);
   }
@@ -53,10 +57,12 @@ Produce one with the Harper MCP and save it verbatim:
     policies?: HarperPolicyRow[];
     rows?: HarperPolicyRow[];
     prefills?: Record<string, HarperPrefill>;
+    extractions?: Record<string, HarperExtraction>;
   };
   // `rows` is what the read returns inside its envelope; accept either.
   const rows = raw.policies ?? raw.rows ?? [];
   const prefills = raw.prefills ?? {};
+  const extractions = raw.extractions ?? {};
   if (rows.length === 0) {
     console.error("Export carried no policy rows.");
     process.exit(1);
@@ -66,8 +72,11 @@ Produce one with the Harper MCP and save it verbatim:
   const policies: Policy[] = [];
   const schedules: Record<string, PolicyFormSet> = {};
   const dropped: string[] = [];
+  const noIdentity: string[] = [];
   let skipped = 0;
   let unscheduled = 0;
+  let endorsementCount = 0;
+  let backed = 0;
 
   for (const row of rows) {
     const companyId = row.company_id?.trim();
@@ -93,6 +102,21 @@ Produce one with the Harper MCP and save it verbatim:
         }),
       );
     }
+    // The endorsement schedule, when a parsed policy document is on hand.
+    // Without it the Additional Insured and Waiver Of Subrogation boxes have
+    // nothing backing them and the presend registry refuses to certify
+    // either — correctly, but on missing evidence rather than on the paper.
+    const extraction = extractions[row.policy_id ?? ""] ?? null;
+    if (extraction) {
+      const { endorsements, withoutIdentity } = mapEndorsements(extraction);
+      mapped.set.endorsements = endorsements;
+      endorsementCount += endorsements.length;
+      backed += endorsements.filter((e) => e.kind === "ai" || e.kind === "wos").length;
+      for (const w of withoutIdentity) {
+        noIdentity.push(`${mapped.policy.policyNumber}: ${w}`);
+      }
+    }
+
     policies.push(mapped.policy);
     schedules[mapped.policy.id] = mapped.set;
     if (mapped.set.unscheduled) unscheduled++;
@@ -120,6 +144,14 @@ Produce one with the Harper MCP and save it verbatim:
   console.log(`accounts        ${accounts.size}`);
   console.log(`policies        ${policies.length}   (skipped ${skipped} unusable rows)`);
   console.log(`schedules       ${withLimits} with limits · ${unscheduled} with no coverage lines`);
+  console.log(`endorsements    ${endorsementCount} filed · ${backed} that can back an AI / waiver claim`);
+  if (noIdentity.length > 0) {
+    // An endorsement without an edition is not filed as backing: the
+    // verifier treats form identity as form + edition, because two editions
+    // of the same form are different paper.
+    console.log(`\nendorsements with no edition, so not usable as backing (${noIdentity.length}):`);
+    for (const n of noIdentity.slice(0, 10)) console.log(`  ${n}`);
+  }
   if (dropped.length > 0) {
     // Never silent: a limit the desk has no box for is a gap on the
     // certificate, and the operator is the one who can judge whether it

@@ -16,6 +16,7 @@
 import {
   coveragePartLabel,
   mapAccount,
+  mapEndorsements,
   mapPolicy,
   parseMoneyCents,
   splitForm,
@@ -43,8 +44,9 @@ check(
 );
 const proprietary = splitForm("NXUS-GL-0001.1-0619");
 check(
-  proprietary.form === "NXUS-GL-0001.1-0619" && proprietary.edition === "",
-  "A carrier-proprietary form stays whole — it has no edition to split",
+  proprietary.form === "NXUS-GL-0001.1" && proprietary.edition === "06 19",
+  "A carrier-proprietary form's trailing MMYY is read as its edition",
+  JSON.stringify(proprietary),
 );
 check(splitForm(null).form === "—", "A missing form prints the em-dash, not a guess");
 
@@ -219,6 +221,76 @@ check(
     noPrefill.addressLine1 === null &&
     noPrefill.city === null,
   "No prefill means a blank address, never an invented one",
+);
+
+/* ————— Endorsements ————— */
+
+const endt = mapEndorsements({
+  extraction_data: {
+    policy: {
+      endorsements: [
+        {
+          form_number: "NXUS-GL-2037.2-0925",
+          title: "BLANKET ADDITIONAL INSURED",
+          additional_insured_name:
+            "Blanket (Managers or Lessors of Premises as required by written contract)",
+        },
+        {
+          form_number: "CG 20 10 04 13",
+          title: "Additional Insured — Owners, Lessees or Contractors",
+          additional_insured_name: "Desert Plaza Owners Association",
+        },
+        { form_number: "CG 24 04 05 09", title: "Waiver of Transfer of Rights" },
+        { form_number: "CG 20 01 04 13", title: "Primary And Noncontributory" },
+        { form_number: "CG 21 47 12 07", title: "EMPLOYMENT-RELATED PRACTICES EXCLUSION" },
+        { form_number: "NXT-BROKEN-9999", title: "Additional Insured — No Readable Edition" },
+      ],
+    },
+  },
+});
+const byForm = Object.fromEntries(endt.endorsements.map((e) => [e.form, e]));
+
+check(
+  byForm["NXUS-GL-2037.2"]?.edition === "09 25",
+  "A carrier-proprietary form's trailing MMYY is its edition",
+  JSON.stringify(byForm["NXUS-GL-2037.2"]),
+);
+check(
+  byForm["NXUS-GL-2037.2"]?.kind === "ai" &&
+    byForm["NXUS-GL-2037.2"]?.scope === "blanket",
+  "Blanket wording earns blanket scope",
+);
+check(
+  byForm["CG 20 10"]?.kind === "ai" && byForm["CG 20 10"]?.scope === "scheduled",
+  "A named additional insured is scheduled, not blanket",
+  JSON.stringify(byForm["CG 20 10"]),
+);
+check(
+  byForm["CG 24 04"]?.kind === "wos" && byForm["CG 20 01"]?.kind === "pnc",
+  "Waiver and primary-and-noncontributory are classified off their ISO numbers",
+);
+check(
+  byForm["CG 21 47"]?.kind === "exclusion",
+  "A CG 21 form is an exclusion, not something a certificate can claim",
+);
+check(
+  endt.withoutIdentity.length === 1 &&
+    /NXT-BROKEN-9999/.test(endt.withoutIdentity[0]),
+  "An endorsement with no readable edition is reported, never filed as backing",
+  JSON.stringify(endt.withoutIdentity),
+);
+check(
+  !endt.endorsements.some((e) => e.form === "NXT-BROKEN-9999"),
+  "…and it does not reach the schedule, so it cannot back a claim",
+);
+check(
+  splitForm("NXUS-GL-2158.1-GA-1324").edition === "",
+  "Four trailing digits that are not a month do not become an edition",
+  JSON.stringify(splitForm("NXUS-GL-2158.1-GA-1324")),
+);
+check(
+  mapEndorsements(null).endorsements.length === 0,
+  "No extraction means no endorsements, not an assumed empty schedule",
 );
 
 console.log(failed === 0 ? "\nAll mapper checks passed." : `\n${failed} FAILURE(S).`);

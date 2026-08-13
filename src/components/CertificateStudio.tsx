@@ -3113,8 +3113,17 @@ function IdentityCells({
 }) {
   return (
     <>
-      <td rowSpan={span} className="text-center text-[9px] font-bold">
-        {refP?.insurerLetter ?? ""}
+      {/* INSR LTR is data, not form furniture: it maps this row to one of
+          the insurers in the header block, and getting it wrong points the
+          holder at the wrong carrier. It was the one printed value on the
+          sheet with no field behind it. */}
+      <td rowSpan={span} className="!p-0 text-center">
+        <In
+          id={`${sec}.insurerLetter`}
+          def={refP?.insurerLetter ?? ""}
+          ctx={ctx}
+          className="text-center font-bold !text-[9px]"
+        />
       </td>
       <td rowSpan={span}>{typeCell}</td>
       <td rowSpan={span} className="!p-0 text-center">
@@ -3344,7 +3353,18 @@ function OtherBlock({
       return (
         <LimitCells
           id={`${sec}.limit.${line.slot}`}
-          label={line.label}
+          // The caption on an additional row is written, not printed on the
+          // blank — the form leaves these lines empty for whatever coverage
+          // lands here. The blank lines below were already typable; this
+          // makes the resolved ones correctable too.
+          label={
+            <In
+              id={`${sec}.limitLabel.${line.slot}`}
+              def={line.label}
+              ctx={ctx}
+              className="!text-[6.8px]"
+            />
+          }
           def={displayLimit(line.value)}
           ctx={ctx}
         />

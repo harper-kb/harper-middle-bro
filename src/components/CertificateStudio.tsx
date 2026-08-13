@@ -549,6 +549,30 @@ export function CertificateStudio({
   function unlockCoverage(ticketId: string) {
     setUnlockTicketId(ticketId);
   }
+  /**
+   * Put an on-sheet area in front of the operator: light it, size the sheet
+   * so the strip is readable, and scroll it into view. Confirming the locked
+   * areas in bulk is only half the job — the rest are strips on a form that
+   * is scaled to fit, and hunting for them is the step people give up on.
+   */
+  function jumpToArea(key: string) {
+    setActiveArea(key);
+    setZoomMode(1.25);
+    // Changing the zoom relaws out the whole sheet, which moves every strip.
+    // Scrolling on the next frame measures the old layout and lands on the
+    // wrong part of the form, so wait for the re-layout to settle first.
+    window.setTimeout(() => {
+      sheetColRef.current
+        ?.querySelector(`[data-area="${key}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+  }
+  /** The first area still unconfirmed once `justConfirmed` lands. */
+  function jumpToNextArea(justConfirmed: string[]) {
+    const done = new Set([...confirmedAreas, ...justConfirmed]);
+    const next = areas.find((a) => !done.has(a.key));
+    if (next) jumpToArea(next.key);
+  }
   function beginCorrection(reason: string) {
     const trimmed = reason.trim();
     // A correction without a stated reason is an anonymous edit to the
@@ -911,28 +935,36 @@ export function CertificateStudio({
                     ? "Prepared ✓ — Re-Prepare"
                     : "Prepare Certificate"}
               </button>
-            ) : (
+            ) : canSign || issuing || isIssuedRender ? (
               <button
                 type="button"
                 onClick={() => issueNow("studio")}
-                disabled={!canSign || issuing || isIssuedRender}
+                disabled={issuing || isIssuedRender}
                 className="btn-primary disabled:opacity-45"
                 title={
                   isIssuedRender
                     ? "This exact certificate is on the ledger"
-                    : canSign
-                      ? "Apply the standard signature, run the presend registry, and record the certificate on the ledger"
-                      : `Blocked — ${blockedReasons.join(", ")}`
+                    : "Apply the standard signature, run the presend registry, and record the certificate on the ledger"
                 }
               >
                 {issuing
                   ? "Running Presend Checks…"
                   : isIssuedRender
                     ? "Issued & On The Ledger"
-                    : canSign
-                      ? "Sign & Issue Certificate"
-                      : `Blocked — ${blockedReasons.join(" · ")}`}
+                    : "Sign & Issue Certificate"}
               </button>
+            ) : (
+              // Not a button. A disabled control in the primary slot reads as
+              // the thing to press and then refuses, which is the opposite of
+              // what it means — there is nothing here to do yet, and the work
+              // that would change that is in the rail.
+              <p className="max-w-xs text-[11px] leading-relaxed text-[var(--muted)]">
+                <span className="font-semibold uppercase tracking-wide">
+                  Not Ready To Issue
+                </span>
+                <br />
+                {blockedReasons.join(" · ")}
+              </p>
             )}
             <button
               type="button"
@@ -1056,7 +1088,11 @@ export function CertificateStudio({
               areas={areas}
               confirmed={confirmedSet}
               rejectAreas={rejectAreas}
-              onConfirmMany={confirmAreas}
+              onConfirmMany={(keys) => {
+                confirmAreas(keys);
+                jumpToNextArea(keys);
+              }}
+              onJump={(key) => jumpToArea(key)}
             />
           )}
 
@@ -1355,6 +1391,7 @@ function AreaChip({
         title="Confirmed — click to reopen this area"
         className={`no-print ${CHIP_BASE} border-emerald-300 bg-emerald-50 text-emerald-800 ${className ?? ""}`}
         data-area-state="confirmed"
+        data-area={area}
       >
         ✓ Confirmed
       </button>
@@ -1362,7 +1399,10 @@ function AreaChip({
   }
   if (state === "active") {
     return (
-      <span className={`no-print inline-flex items-center gap-1 ${className ?? ""}`}>
+      <span
+        className={`no-print inline-flex items-center gap-1 ${className ?? ""}`}
+        data-area={area}
+      >
         <button
           type="button"
           onClick={() => ctx.confirm(area)}
@@ -1383,16 +1423,19 @@ function AreaChip({
       </span>
     );
   }
-  const n = ctx.counts[area] ?? 0;
   return (
     <button
       type="button"
       onClick={() => ctx.begin(area)}
-      title="Highlight this area's extracted values for review"
+      title={`Highlight this area's ${ctx.counts[area] ?? 0} extracted values for review`}
       className={`no-print ${CHIP_BASE} border-amber-400 bg-amber-50 text-amber-900 ${className ?? ""}`}
       data-area-state="pending"
+      data-area={area}
     >
-      Review{n > 0 ? ` ${n}` : ""}
+      {/* The count used to print here — "Review 11" — and nothing on the page
+          said what eleven referred to. It is the number of extracted values
+          in the area, which is a detail for the tooltip, not a label. */}
+      Review
     </button>
   );
 }
@@ -1408,11 +1451,13 @@ function ReviewProgress({
   confirmed,
   rejectAreas,
   onConfirmMany,
+  onJump,
 }: {
   areas: AreaDef[];
   confirmed: Set<string>;
   rejectAreas: Set<string>;
   onConfirmMany: (keys: string[]) => void;
+  onJump: (key: string) => void;
 }) {
   const done = areas.filter((a) => confirmed.has(a.key)).length;
   // Only the record-locked areas confirm in bulk. Holder and description are
@@ -1422,9 +1467,6 @@ function ReviewProgress({
     (a) => !isPerCert(a.key) && !confirmed.has(a.key),
   );
   const blocked = bulk.filter((a) => rejectAreas.has(a.key));
-  const perCertLeft = areas.filter(
-    (a) => isPerCert(a.key) && !confirmed.has(a.key),
-  ).length;
   return (
     <div className="rounded-xl border border-[var(--gold)]/50 bg-white p-3">
       <p className="eyebrow">Area Review</p>
@@ -1455,13 +1497,46 @@ function ReviewProgress({
           )}
         </>
       )}
-      {/* Why the two counts differ: the locked areas are the schedule of
-          record and confirm together; holder and description belong to this
-          certificate alone and are read on the sheet, one at a time. */}
-      <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
-        {perCertLeft > 0
-          ? `Then confirm ${perCertLeft === 1 ? "the last area" : `the remaining ${perCertLeft} areas`} on the certificate — each carries its own Review strip.`
-          : "Every area confirms on the certificate, through the Review strip it carries."}
+      {/* One list, every area named off the sheet. The step chip counts, the
+          bulk button counts, and six unlabeled strips on the form were three
+          renderings of the same six things; this is the list, and the strips
+          on the sheet are where each one is actually read. */}
+      <ul className="mt-2 space-y-1">
+        {areas.map((a) => {
+          const isDone = confirmed.has(a.key);
+          const rejected = rejectAreas.has(a.key);
+          return (
+            <li key={a.key}>
+              <button
+                type="button"
+                onClick={() => onJump(a.key)}
+                title={`Show ${a.label} on the certificate`}
+                className="flex w-full items-baseline justify-between gap-2 rounded px-1 py-0.5 text-left transition hover:bg-[var(--paper)]"
+              >
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                  <span
+                    className={`font-mono text-[9px] ${isDone ? "text-emerald-700" : rejected ? "text-red-700" : "text-[var(--muted)]"}`}
+                  >
+                    {isDone ? "✓" : rejected ? "!" : "○"}
+                  </span>
+                  <span
+                    className={`truncate text-[11px] ${isDone ? "text-emerald-800" : "text-[var(--ink)]"}`}
+                  >
+                    {a.label}
+                  </span>
+                </span>
+                <span className="shrink-0 text-[9px] uppercase tracking-wide text-[var(--muted)]">
+                  {isPerCert(a.key) ? "On Sheet" : "Locked"}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2 text-[10px] leading-relaxed text-[var(--muted)]">
+        Locked areas come from the schedule of record and confirm together.
+        On-sheet areas belong to this certificate and are read one at a time —
+        pick one to bring it up on the form.
       </p>
     </div>
   );
@@ -1649,7 +1724,10 @@ function HolderRail({
         </ul>
       )}
 
-      {rail.length > 0 && (
+      {/* A batch of one is not a batch: with a single holder, Load Into
+          Certificate is the whole job and a second CTA beside it only asks
+          the operator which verb they meant. */}
+      {rail.length > 1 && (
         <button
           type="button"
           onClick={onRunAll}
@@ -2396,6 +2474,24 @@ function CorrectPlacement({
   movedFrom: string;
   form: CertFormDef;
 }) {
+  // Closed by default. Liquor, professional and cyber have no section of
+  // their own on an ACORD 25 — the additional row IS where they belong — so
+  // an always-open "Belongs In:" prompt reads as unfinished work sitting on
+  // the confirm path. The corrector is for the rarer case where the matcher
+  // put a policy in the wrong row, and it stays one click away.
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="This row's coverage has no fixed section on this form. Move it only if the matcher placed it wrongly."
+        className="no-print mt-1 text-[7px] font-semibold uppercase tracking-wide text-[var(--muted)] underline decoration-[var(--rule)] underline-offset-2 hover:text-[var(--ink)]"
+      >
+        Wrong Row?
+      </button>
+    );
+  }
   return (
     <form
       action={correctPlacementAction}
@@ -3105,6 +3201,12 @@ function AcordSheet({
                 >
                   Apply Signature
                 </button>
+              )}
+              {!signed && !canSign && (
+                <span className="no-print max-w-[9rem] text-[7px] leading-tight text-[var(--muted)]">
+                  Available once every area is confirmed and the verifier is
+                  clean.
+                </span>
               )}
             </div>
           </div>

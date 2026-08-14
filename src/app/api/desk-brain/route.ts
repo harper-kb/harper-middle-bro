@@ -15,7 +15,7 @@ import {
   listTickets,
 } from "@/lib/db";
 import { getPolicyFormSet } from "@/lib/forms";
-import { getSessionOperator } from "@/lib/session";
+import { getApiOperator } from "@/lib/session-core";
 import type { IntakeChannel, TicketStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,9 @@ export const dynamic = "force-dynamic";
  *   (none)           → desk-wide bundle
  */
 export async function GET(request: NextRequest) {
-  const operator = await getSessionOperator();
+  // Route handlers answer with a status, so this uses the non-redirecting
+  // resolver: an off-allowlist account lands here as null, same as signed out.
+  const operator = await getApiOperator();
   if (!operator) {
     return NextResponse.json({ error: "Sign In To Ask" }, { status: 401 });
   }

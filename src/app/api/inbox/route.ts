@@ -1,11 +1,15 @@
 import { listThreads } from "@/lib/db";
+import { guardApi } from "@/lib/api-guard";
 import { getRequestType } from "@/lib/catalog";
 import { formatMoney } from "@/lib/format";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
+export async function GET() {
+  const denied = await guardApi();
+  if (denied) return denied;
+
   const threads = listThreads({ status: "needs_human" });
   const items = threads.map((t) => ({
     id: t.id,

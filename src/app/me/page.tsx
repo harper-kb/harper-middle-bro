@@ -7,6 +7,7 @@ import { AUTO_SEND_UNLOCK_AT } from "@/lib/aidesk";
 import { getRequestType } from "@/lib/catalog";
 import { relativeAge } from "@/lib/format";
 import { listStreaks, listTickets } from "@/lib/db";
+import { localAuthEnabled } from "@/lib/local-auth";
 import { getSessionOperator } from "@/lib/session";
 import { TICKET_STATUS_STYLES, ticketStatusLabel } from "@/lib/tickets";
 
@@ -74,7 +75,8 @@ export default async function ProfilePage() {
                     {operator.email}
                   </p>
                 </div>
-                <UserButton />
+                {/* No provider is mounted in local operator mode. */}
+                {!localAuthEnabled() && <UserButton />}
               </div>
 
               <ProfileForm operator={operator} />

@@ -16,6 +16,7 @@ import {
   SERVICE_MAILBOX,
   SHORT_NAME,
 } from "@/lib/brand";
+import { localAuthEnabled } from "@/lib/local-auth";
 import { SERVICE_LANE_HREFS, SERVICE_LANE_IDS, SERVICE_LANE_LABELS } from "@/lib/types";
 import type { Operator } from "@/lib/types";
 import { useIdlePresence, type Presence } from "@/lib/use-presence";
@@ -273,6 +274,43 @@ function AccountRail({
   presence: Presence;
   onNavigate?: () => void;
 }) {
+  const operatorRow = (
+    <Link
+      href="/me"
+      onClick={onNavigate}
+      className="min-w-0 flex-1"
+      title={operator?.email}
+    >
+      <p className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--ink)]">
+        <span className="truncate">
+          {operator?.displayName ?? "Desk Operator"}
+        </span>
+        <PresenceDot presence={presence} />
+      </p>
+      <p className="truncate text-[11px] text-[var(--muted)]">
+        {operator?.title ?? "Profile"}
+      </p>
+    </Link>
+  );
+
+  // No Clerk provider is mounted in local operator mode, so Show/UserButton
+  // would have no context to read.
+  if (localAuthEnabled()) {
+    return (
+      <div className="border-t border-[var(--rule)] px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <span
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--rule)] text-[11px] font-semibold text-[var(--muted)]"
+            title="Local Operator Mode — Clerk Is Bypassed"
+          >
+            {(operator?.displayName ?? "L").slice(0, 1).toUpperCase()}
+          </span>
+          {operatorRow}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="border-t border-[var(--rule)] px-3 py-3">
       <Show when="signed-out">
@@ -294,22 +332,7 @@ function AccountRail({
           <UserButton
             appearance={{ elements: { avatarBox: "h-8 w-8" } }}
           />
-          <Link
-            href="/me"
-            onClick={onNavigate}
-            className="min-w-0 flex-1"
-            title={operator?.email}
-          >
-            <p className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--ink)]">
-              <span className="truncate">
-                {operator?.displayName ?? "Desk Operator"}
-              </span>
-              <PresenceDot presence={presence} />
-            </p>
-            <p className="truncate text-[11px] text-[var(--muted)]">
-              {operator?.title ?? "Profile"}
-            </p>
-          </Link>
+          {operatorRow}
         </div>
       </Show>
     </div>
@@ -371,9 +394,11 @@ export function Nav({
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           {brand}
           <div className="flex items-center gap-2">
-            <Show when="signed-in">
-              <UserButton appearance={{ elements: { avatarBox: "h-7 w-7" } }} />
-            </Show>
+            {!localAuthEnabled() && (
+              <Show when="signed-in">
+                <UserButton appearance={{ elements: { avatarBox: "h-7 w-7" } }} />
+              </Show>
+            )}
             <button
               type="button"
               onClick={() => setMobileOpen(true)}

@@ -670,6 +670,25 @@ body:has(.red-alert-banner) .desk-sidebar {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: inherit;
+}
+
+/* A locked cell still answers a click, so it has to look like it will. On
+   screen only: the dotted rule is an affordance, not something a holder
+   should see on the paper. */
+.acord-in.acord-lockable {
+  cursor: pointer;
+  border-bottom: 1px dotted rgba(26, 44, 54, 0.28);
+}
+
+.acord-in.acord-lockable:hover {
+  background: rgba(27, 42, 94, 0.06);
+}
+
+@media print {
+  .acord-in.acord-lockable {
+    border-bottom: none;
+  }
 }
 
 .acord-ck.acord-ro {

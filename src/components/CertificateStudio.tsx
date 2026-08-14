@@ -213,6 +213,8 @@ interface SheetCtx {
   bad: Set<string>;
   /** True when this field is locked to the schedule of record */
   locked: (id: string) => boolean;
+  /** Someone tried to change a locked cell — offer them the way to do it */
+  requestCorrection: () => void;
   setOverride: (id: string, v: string | boolean) => void;
   /** Area currently under review — its fields highlight */
   activeArea: string | null;
@@ -313,6 +315,8 @@ export function CertificateStudio({
   // was also refusing the edits the schedule CAN back, which is every
   // correction of a value we got wrong.
   const [correctionReason, setCorrectionReason] = useState<string | null>(null);
+  const [correctionPromptOpen, setCorrectionPromptOpen] = useState(false);
+  const coveragePanelRef = useRef<HTMLDivElement>(null);
   const coverageLocked = unlockTicket == null && correctionReason == null;
 
   // ——— Issuance state: the single send path ———
@@ -572,6 +576,22 @@ export function CertificateStudio({
     const done = new Set([...confirmedAreas, ...justConfirmed]);
     const next = areas.find((a) => !done.has(a.key));
     if (next) jumpToArea(next.key);
+  }
+  /**
+   * Someone clicked a locked cell. That IS the request to change it, so
+   * open the correction prompt and put it in front of them rather than
+   * leaving them to find it in the rail — which is what nobody did.
+   */
+  function requestCorrection() {
+    if (!coverageLocked) return;
+    setCorrectionPromptOpen(true);
+    window.setTimeout(() => {
+      coveragePanelRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      coveragePanelRef.current?.querySelector("textarea")?.focus();
+    }, 60);
   }
   function beginCorrection(reason: string) {
     const trimmed = reason.trim();
@@ -834,6 +854,7 @@ export function CertificateStudio({
       verdict.rejects.map((f) => f.fieldId).filter((x): x is string => Boolean(x)),
     ),
     locked: (id) => coverageLocked && isRecordField(id),
+    requestCorrection,
     setOverride,
     activeArea,
     confirmed: confirmedSet,
@@ -1049,6 +1070,9 @@ export function CertificateStudio({
             correctedFields={
               Object.keys(overrides).filter((k) => isRecordField(k)).length
             }
+            promptOpen={correctionPromptOpen}
+            onPromptOpenChange={setCorrectionPromptOpen}
+            panelRef={coveragePanelRef}
           />
 
           <PolicyPicker
@@ -2146,8 +2170,16 @@ function NextInsuranceAdvisory({ carriers }: { carriers: string[] }) {
  * wrong. Both demand attribution — this one a reason, because an
  * unexplained edit to the record is indistinguishable from a fabricated one.
  */
-function CorrectSheetForm({ onCorrect }: { onCorrect: (reason: string) => void }) {
-  const [open, setOpen] = useState(false);
+function CorrectSheetForm({
+  onCorrect,
+  open,
+  onOpenChange,
+}: {
+  onCorrect: (reason: string) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const setOpen = onOpenChange;
   const [reason, setReason] = useState("");
   if (!open) {
     return (
@@ -2211,6 +2243,9 @@ function CoverageLockPanel({
   correctionReason,
   onCorrect,
   correctedFields,
+  promptOpen,
+  onPromptOpenChange,
+  panelRef,
 }: {
   tickets: EndorsementTicketView[];
   unlockTicket: EndorsementTicketView | null;
@@ -2221,10 +2256,17 @@ function CoverageLockPanel({
   onCorrect: (reason: string) => void;
   /** How many record cells currently carry a desk value */
   correctedFields: number;
+  /** Open because someone clicked a locked cell on the sheet */
+  promptOpen: boolean;
+  onPromptOpenChange: (open: boolean) => void;
+  panelRef: React.RefObject<HTMLDivElement | null>;
 }) {
   if (correctionReason) {
     return (
-      <div className="rounded-xl border border-[#1b2a5e]/30 bg-[#1b2a5e]/[0.04] p-3">
+      <div
+        ref={panelRef}
+        className="rounded-xl border border-[#1b2a5e]/30 bg-[#1b2a5e]/[0.04] p-3"
+      >
         <p className="eyebrow">Correcting The Sheet</p>
         <p className="mt-0.5 text-[12px] font-semibold text-[var(--ink)]">
           {correctionReason}
@@ -2282,22 +2324,30 @@ function CoverageLockPanel({
       </div>
     );
   }
-  // The common case — no endorsement in flight — collapses to one line;
-  // the lock itself never loosens, so there is nothing to act on here.
+  // This used to be a collapsed disclosure whose only visible line read
+  // "Coverage Data — Locked To The Record", with the way to correct a wrong
+  // value hidden inside it. A tester spent thirty-five minutes and never
+  // found it: the one word on screen said the opposite of what the panel
+  // held. The card is open, and it leads with what the operator can do.
   if (tickets.length === 0) {
     return (
-      <details className="rounded-xl border border-[var(--rule)] bg-[var(--paper)] px-3 py-2">
-        <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
-          Coverage Data — Locked To The Record
-        </summary>
-        <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--muted)]">
-          Coverage rows, limits, and insurer identity print from the schedule
-          of record. Holder, description, and the Additional Insured / Waiver
-          Of Subrogation cells are workable per certificate. To change what
-          the policy covers, open an endorsement ticket first.
+      <div
+        ref={panelRef}
+        className="rounded-xl border border-[var(--rule)] bg-[var(--paper)] p-3"
+      >
+        <p className="eyebrow">Coverage Data</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
+          Coverage rows, limits and insurer identity come from the schedule of
+          record, so they read as plain text. Holder, description and the
+          Additional Insured / Waiver Of Subrogation cells are always
+          editable.
         </p>
-        <CorrectSheetForm onCorrect={onCorrect} />
-      </details>
+        <CorrectSheetForm onCorrect={onCorrect} open={promptOpen} onOpenChange={onPromptOpenChange} />
+        <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--muted)]">
+          To change what the policy covers rather than fix what the sheet
+          says, open an endorsement ticket.
+        </p>
+      </div>
     );
   }
   return (
@@ -2308,7 +2358,7 @@ function CoverageLockPanel({
         record. Holder, description, and the Additional Insured / Waiver Of
         Subrogation cells are workable per certificate.
       </p>
-      <CorrectSheetForm onCorrect={onCorrect} />
+      <CorrectSheetForm onCorrect={onCorrect} open={promptOpen} onOpenChange={onPromptOpenChange} />
       <div className="mt-2 space-y-1.5">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
           Open Endorsements That Can Unlock Editing
@@ -2635,14 +2685,19 @@ function In({
   ph?: string;
 }) {
   if (ctx.locked(id)) {
-    // Locked to the schedule of record — plain tabular text, no input.
+    // Locked to the schedule of record — plain tabular text, no input. But
+    // clicking the value you think is wrong is the first thing anyone tries,
+    // and answering that with nothing at all is how the correction path went
+    // undiscovered. The cell takes the click and offers the way in.
     return (
-      <span
-        title="Locked To The Schedule Of Record"
-        className={`acord-in acord-ro ${fieldTint(ctx, id)} ${className ?? ""}`}
+      <button
+        type="button"
+        onClick={ctx.requestCorrection}
+        title="From the schedule of record. Click if this value is wrong."
+        className={`acord-in acord-ro acord-lockable ${fieldTint(ctx, id)} ${className ?? ""}`}
       >
         {effStr(ctx.overrides, id, def) || "\u00A0"}
-      </span>
+      </button>
     );
   }
   return (

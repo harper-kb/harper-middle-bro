@@ -494,6 +494,24 @@ function emptyFlags(): CoiFlags {
 }
 
 /**
+ * "blanket " / "scheduled " / "" — the scope matters when reporting what a
+ * policy carries. A blanket form reaches a holder the policy never names; a
+ * scheduled one reaches only the parties on its schedule, and reporting the
+ * two the same way would let an insured assume cover they have to ask for.
+ */
+function scopeWord(e: { scope?: string | null }): string {
+  if (e.scope === "blanket") return "blanket ";
+  if (e.scope === "scheduled") return "scheduled ";
+  return "";
+}
+
+function joinList(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+/**
  * The structured fill: every box comes from the coverage tab, so it's correct
  * by construction. This is the certificate we'd actually issue.
  */
@@ -542,16 +560,38 @@ export function buildDraftFromPolicy(input: {
 
   const parts: string[] = [];
   if (input.projectWording?.trim()) parts.push(input.projectWording.trim());
-  if (ai && !holderIsInsured) {
-    parts.push(
-      `${input.holderName} is included as additional insured per ${ai.form} ${ai.edition}.`,
-    );
-  }
-  if (wos && !holderIsInsured) {
-    parts.push(`Waiver of subrogation applies per ${wos.form} ${wos.edition}.`);
-  }
-  if (pnc && !holderIsInsured) {
-    parts.push(`Coverage is primary and non-contributory per ${pnc.form} ${pnc.edition}.`);
+  if (holderIsInsured) {
+    // The insured asking for their own certificate wants to know what they
+    // bought. Saying so is not the same as granting it: these read as
+    // statements about the policy, in the passive, naming no beneficiary —
+    // where the third-party version names the holder and confers something.
+    // The ADDL INSD / SUBR WVD columns stay blank either way, because those
+    // describe the certificate holder and nobody is an additional insured
+    // of their own policy.
+    const carried: string[] = [];
+    if (ai) carried.push(`${scopeWord(ai)}additional insured per ${ai.form} ${ai.edition}`);
+    if (wos) {
+      carried.push(`${scopeWord(wos)}waiver of subrogation per ${wos.form} ${wos.edition}`);
+    }
+    if (pnc) {
+      carried.push(`primary and non-contributory coverage per ${pnc.form} ${pnc.edition}`);
+    }
+    if (carried.length > 0) {
+      parts.push(
+        `Issued to the named insured. The policy carries ${joinList(carried)}. ` +
+          `A certificate naming a third party is required to extend it to them.`,
+      );
+    }
+  } else {
+    if (ai) {
+      parts.push(
+        `${input.holderName} is included as additional insured per ${ai.form} ${ai.edition}.`,
+      );
+    }
+    if (wos) parts.push(`Waiver of subrogation applies per ${wos.form} ${wos.edition}.`);
+    if (pnc) {
+      parts.push(`Coverage is primary and non-contributory per ${pnc.form} ${pnc.edition}.`);
+    }
   }
 
   return {

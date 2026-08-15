@@ -100,8 +100,21 @@ import {
   listOwnerHistory,
   seedOwnershipFromServiceOwner,
 } from "./retention/ownership-store";
+import {
+  attachDefectEvidence,
+  createRenewalTransfer,
+  getDefectByIssue,
+  listDefects,
+  listRenewalTransfers,
+  raiseDefect,
+  setRenewalTransferState,
+  transitionDefect,
+  type RaiseDefectInput,
+} from "./retention/defect-store";
 import type { DerivedLedger } from "./retention/signals";
 import type { OwnerAssignment, OwnershipViolation } from "./retention/ownership";
+import type { DefectState, OriginationDefect } from "./retention/defects";
+import type { RenewalTransfer } from "./retention/renewal-transfer";
 import type { AtRiskOutcome, AtRiskWindow, RetentionEvent } from "./retention/types";
 import type {
   CarrierKnowledgeEntry,
@@ -3428,4 +3441,62 @@ export function seedAccountOwners(
 /** No-orphan rule check: orphans, double owners, and overlapping history. */
 export function auditAccountOwnership(): OwnershipViolation[] {
   return auditOwnership(getDb());
+}
+
+// ————————————————— Origination Defect Ledger —————————————————
+
+export function raiseOriginationDefect(
+  input: RaiseDefectInput,
+): OriginationDefect {
+  return raiseDefect(getDb(), input);
+}
+
+export function listOriginationDefects(
+  filter: Parameters<typeof listDefects>[1] = {},
+): OriginationDefect[] {
+  return listDefects(getDb(), filter);
+}
+
+export function getOriginationDefectForIssue(
+  issueId: string,
+): OriginationDefect | null {
+  return getDefectByIssue(getDb(), issueId);
+}
+
+/**
+ * Move a defect through adjudication. Throws rather than silently no-ops on an
+ * illegal move — a confirmed defect nobody agreed to is the failure mode this
+ * whole ledger has to avoid.
+ */
+export function adjudicateOriginationDefect(
+  id: string,
+  to: DefectState,
+  opts: { actor?: string | null; note?: string | null } = {},
+): OriginationDefect {
+  return transitionDefect(getDb(), id, to, opts);
+}
+
+export function attachOriginationDefectEvidence(
+  id: string,
+  refs: string[],
+): OriginationDefect {
+  return attachDefectEvidence(getDb(), id, refs);
+}
+
+/** The sanction: renewal credit moves from the producer to the pod that absorbed it. */
+export function transferRenewalForDefect(
+  defectId: string,
+  opts: { renewalCommissionCents?: number | null } = {},
+): RenewalTransfer {
+  return createRenewalTransfer(getDb(), defectId, opts);
+}
+
+export function listRenewalTransfersForAccount(
+  accountId?: string,
+): RenewalTransfer[] {
+  return listRenewalTransfers(getDb(), accountId ? { accountId } : {});
+}
+
+export function reverseRenewalTransfer(id: string, note?: string): void {
+  setRenewalTransferState(getDb(), id, "reversed", note ?? null);
 }

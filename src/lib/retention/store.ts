@@ -13,6 +13,7 @@
 
 import type Database from "better-sqlite3";
 import { migrateOwnershipTables } from "./ownership-store";
+import { migrateDefectTables } from "./defect-store";
 import type { DerivedLedger } from "./signals";
 import type {
   AtRiskOutcome,
@@ -75,6 +76,7 @@ export function migrateRetentionTables(db: Database.Database): void {
       ON retention_events(actor_agent_id);
   `);
   migrateOwnershipTables(db);
+  migrateDefectTables(db);
 }
 
 function mapWindow(row: Record<string, unknown>): AtRiskWindow {

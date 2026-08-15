@@ -53,6 +53,7 @@ run cert-upload-check npx tsx --tsconfig scripts/tsconfig.render-check.json scri
 run harper-mapper-check npx tsx scripts/harper-mapper-check.ts
 run harper-book-sync-check npx tsx --conditions react-server scripts/harper-book-sync-check.ts
 run harper-market-check npx tsx scripts/harper-market-check.ts
+run harper-company-check npx tsx scripts/harper-company-check.ts
 run workitem-contracts-check npx tsx scripts/workitem-contracts-check.ts
 run bigbrother-adapter-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/bigbrother-adapter-check.ts
 run agent-tools-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/agent-tools-check.ts

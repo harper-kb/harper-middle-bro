@@ -19,6 +19,11 @@ import {
   type HarperPrefill,
 } from "./policy-state";
 import { unmatchedMarket } from "./market";
+import {
+  industryFromCompany,
+  prefillFromCompany,
+  type HarperCompany,
+} from "./company";
 
 export interface BuiltBook {
   accounts: Account[];
@@ -47,10 +52,13 @@ export function buildBookFromRows(
   opts: {
     prefills?: Record<string, HarperPrefill>;
     extractions?: Record<string, HarperExtraction>;
+    /** Company records, keyed by company id — the insured's address. */
+    companies?: Record<string, HarperCompany>;
   } = {},
 ): BuiltBook {
   const prefills = opts.prefills ?? {};
   const extractions = opts.extractions ?? {};
+  const companies = opts.companies ?? {};
 
   const accounts = new Map<string, Account>();
   const policies: Policy[] = [];
@@ -82,7 +90,13 @@ export function buildBookFromRows(
         accountId,
         mapAccount({
           companyId,
-          prefill: prefills[companyId] ?? null,
+          // The mechanical prefill is the better source where it exists —
+          // it is the insured as the application states them. The company
+          // record is the fallback, and in practice the only one on hand.
+          prefill:
+            prefills[companyId] ??
+            (companies[companyId] ? prefillFromCompany(companies[companyId]) : null),
+          industry: companies[companyId] ? industryFromCompany(companies[companyId]) : null,
           fallbackName: row.named_insured?.trim() || `Company ${companyId}`,
           // The market its policy resolves to, so the account opens on a desk
           // that can actually be reached. Falls back to the placeholder, which

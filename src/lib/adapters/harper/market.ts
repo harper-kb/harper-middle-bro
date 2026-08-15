@@ -50,7 +50,11 @@ export const MARKET_BRANDS: readonly MarketBrand[] = [
     brand: "ISC",
     underwriterId: "uw-isc-1",
     kind: "mga",
-    prefixes: /^HSIC-/i,
+    // ISC stamps itself into the number rather than prefixing it uniformly:
+    // GLSISTC… on Third Coast, ISCP…/ISCCX… on Sutton, ISCSP… on
+    // SiriusPoint, HSIC-ISC01… on Hadron. Matching the stamp anywhere in the
+    // number catches all four; the paper still has to agree.
+    prefixes: /ISTC|ISC|ICX|HSIC/i,
     papers: /hadron|sutton|siriuspoint|third\s*coast/i,
   },
   // Direct markets. The record prints the legal name; the desk is filed
@@ -125,6 +129,37 @@ export function resolveMarket(
       underwriterId: m.underwriterId,
       issuingCarrier: m.kind === "mga" ? carrier : null,
     };
+  }
+  return null;
+}
+
+/**
+ * The desk to work, from the number alone, when the record names no paper.
+ *
+ * Two different decisions hide behind "which market is this". Relabelling
+ * the policy's carrier changes what prints on a certificate and needs the
+ * paper to corroborate. Choosing a desk does not print anywhere — it is who
+ * to call and which portal to open — so a number that unambiguously carries
+ * the brand's stamp is enough on its own.
+ *
+ * Only when the paper is silent. A stated carrier that the brand does not
+ * write on is a contradiction, and `unmatchedMarket` reports it rather than
+ * letting a desk be picked over the top of it.
+ */
+export function resolveDesk(
+  policyNumber: string | null | undefined,
+  paper: string | null | undefined,
+): { brand: string; underwriterId: string } | null {
+  const number = policyNumber?.trim() ?? "";
+  if (!number) return null;
+  const carrier = paper?.trim() ?? "";
+  if (carrier && carrier.toLowerCase() !== "unassigned") return null;
+
+  for (const m of MARKET_BRANDS) {
+    if (m.kind !== "mga") continue;
+    if (m.prefixes?.test(number)) {
+      return { brand: m.brand, underwriterId: m.underwriterId };
+    }
   }
   return null;
 }

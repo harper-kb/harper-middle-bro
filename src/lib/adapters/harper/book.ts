@@ -18,7 +18,7 @@ import {
   type HarperPolicyRow,
   type HarperPrefill,
 } from "./policy-state";
-import { unmatchedMarket } from "./market";
+import { resolveDesk, unmatchedMarket } from "./market";
 import {
   industryFromCompany,
   prefillFromCompany,
@@ -101,7 +101,11 @@ export function buildBookFromRows(
           // The market its policy resolves to, so the account opens on a desk
           // that can actually be reached. Falls back to the placeholder, which
           // says plainly that no contact is on file.
-          underwriterId: mapped.market?.underwriterId ?? UNASSIGNED_UNDERWRITER.id,
+          underwriterId:
+            mapped.market?.underwriterId ??
+            resolveDesk(mapped.policy.policyNumber, mapped.policy.quoteCarrier)
+              ?.underwriterId ??
+            UNASSIGNED_UNDERWRITER.id,
         }),
       );
     }
@@ -123,8 +127,11 @@ export function buildBookFromRows(
       }
     }
 
-    if (mapped.market) placed++;
-    else {
+    const deskOnly =
+      !mapped.market &&
+      resolveDesk(mapped.policy.policyNumber, mapped.policy.quoteCarrier);
+    if (mapped.market || deskOnly) placed++;
+    if (!mapped.market && !deskOnly) {
       const odd = unmatchedMarket(mapped.policy.policyNumber, mapped.policy.quoteCarrier);
       if (odd) unplaced.push(`${mapped.policy.policyNumber}: ${odd.brand}? on ${odd.paper}`);
     }

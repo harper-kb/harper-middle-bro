@@ -1004,13 +1004,40 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
       !toInsured.flags.primaryNonContributory,
     "Holder is the insured — no AI / WOS / P&NC column is claimed",
   );
+  // Reporting is not granting. An insured asking for their own certificate
+  // wants to know what they bought, and saying so in the passive — naming no
+  // beneficiary — tells them without certifying anything to anyone. What it
+  // may never do is name the holder as receiving it.
   check(
-    !/additional insured|waiver of subrogation|primary and non-contributory/i.test(
+    !new RegExp(`${account.name}\\s+is included as additional insured`, "i").test(
       toInsured.description,
-    ),
-    "Holder is the insured — no grant wording in the description",
+    ) && !/applies per|is included as/i.test(toInsured.description),
+    "Holder is the insured — the description confers nothing on the holder",
     toInsured.description,
   );
+  check(
+    /policy carries/i.test(toInsured.description) &&
+      /additional insured/i.test(toInsured.description),
+    "…but it does report what the policy carries, so the insured knows",
+    toInsured.description,
+  );
+  check(
+    /third party/i.test(toInsured.description),
+    "…and says a third party needs its own certificate to get it",
+  );
+  // Blanket reaches a holder the policy never names; scheduled reaches only
+  // the parties on its schedule. Reporting both the same way would let an
+  // insured assume cover they still have to ask for.
+  const blanketAi = (formSets[summitPolicy.id].endorsements ?? []).some(
+    (e) => e.kind === "ai" && e.scope === "blanket",
+  );
+  if (blanketAi) {
+    check(
+      /blanket additional insured/i.test(toInsured.description),
+      "A blanket form is reported as blanket",
+      toInsured.description,
+    );
+  }
 }
 
 /* ————— Every seed policy has a schedule of record —————

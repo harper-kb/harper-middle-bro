@@ -464,6 +464,7 @@ export function mapAccount(input: {
   prefill: HarperPrefill | null;
   fallbackName: string;
   underwriterId: string;
+  industry?: string | null;
 }): Account {
   const v = input.prefill ?? {};
   const line1 = v.NamedInsured_MailingAddress_LineOne_A?.trim() || null;
@@ -472,7 +473,7 @@ export function mapAccount(input: {
     id: `acct-h-${input.companyId}`,
     name: v.NamedInsured_FullName_A?.trim() || input.fallbackName,
     dba: null,
-    industry: "—",
+    industry: input.industry?.trim() || "—",
     addressLine1: [line1, line2].filter(Boolean).join(", ") || null,
     city: v.NamedInsured_MailingAddress_CityName_A?.trim() || null,
     state: v.NamedInsured_MailingAddress_StateOrProvinceCode_A?.trim() || "",

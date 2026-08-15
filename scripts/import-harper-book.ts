@@ -26,6 +26,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { buildBookFromRows } from "../src/lib/adapters/harper/book";
+import type { HarperCompany } from "../src/lib/adapters/harper/company";
 import type {
   HarperExtraction,
   HarperPolicyRow,
@@ -53,17 +54,19 @@ Produce one with the Harper MCP and save it verbatim:
     rows?: HarperPolicyRow[];
     prefills?: Record<string, HarperPrefill>;
     extractions?: Record<string, HarperExtraction>;
+    companies?: Record<string, HarperCompany>;
   };
   // `rows` is what the read returns inside its envelope; accept either.
   const rows = raw.policies ?? raw.rows ?? [];
   const prefills = raw.prefills ?? {};
   const extractions = raw.extractions ?? {};
+  const companies = raw.companies ?? {};
   if (rows.length === 0) {
     console.error("Export carried no policy rows.");
     process.exit(1);
   }
 
-  const built = buildBookFromRows(rows, { prefills, extractions });
+  const built = buildBookFromRows(rows, { prefills, extractions, companies });
   const accounts = new Map(built.accounts.map((a) => [a.id, a]));
   const policies = built.policies;
   const schedules = built.schedules;
@@ -90,7 +93,8 @@ Produce one with the Harper MCP and save it verbatim:
   );
 
   const withLimits = Object.values(schedules).filter((s) => s.limits.length > 0).length;
-  console.log(`accounts        ${accounts.size}`);
+  const addressed = [...accounts.values()].filter((a) => a.addressLine1).length;
+  console.log(`accounts        ${accounts.size}   (${addressed} with a mailing address)`);
   console.log(`policies        ${policies.length}   (skipped ${skipped} unusable rows)`);
   console.log(`schedules       ${withLimits} with limits · ${unscheduled} with no coverage lines`);
   console.log(`endorsements    ${endorsementCount} filed · ${backed} that can back an AI / waiver claim`);

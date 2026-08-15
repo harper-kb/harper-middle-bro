@@ -3,7 +3,7 @@ import { SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { Nav } from "@/components/Nav";
 import { PersonalScorecard } from "@/components/ServiceScorecard";
 import { ProfileForm } from "@/components/ProfileForm";
-import { loadScorecard } from "@/lib/retention/scorecard.server";
+import { loadScorecard, readPeriodState } from "@/lib/retention/scorecard.server";
 import type { PersonScorecard } from "@/lib/retention/scorecard";
 import type { Operator } from "@/lib/types";
 import { setAutoSendAction } from "@/lib/actions";
@@ -27,6 +27,11 @@ export default async function ProfilePage() {
   // table does not carry. Email is the only identifier both sides share.
   const scorecard = await loadScorecard();
   const mine = operator ? findMyScorecard(scorecard.people, operator) : null;
+  const myDisputes = operator
+    ? readPeriodState(scorecard.period.id).disputes.filter(
+        (d) => d.raisedBy === operator.id,
+      )
+    : [];
 
   return (
     <>
@@ -93,6 +98,7 @@ export default async function ProfilePage() {
               person={mine}
               period={scorecard.period}
               ledgerNote={scorecard.ledgerNote}
+              disputes={myDisputes}
             />
 
             <section className="space-y-3">

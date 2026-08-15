@@ -12,13 +12,21 @@ import "server-only";
  */
 
 import {
+  getScorecardPeriod,
   listAccountOwnerHistory,
   listOriginationDefects,
   listRetentionWindowEvents,
   listRetentionWindows,
+  listScorecardDisputes,
+  reconcileScorecardPeriod,
 } from "@/lib/db";
 import { loadPackColumns } from "./packs.server";
-import { currentPeriod, type ScorecardPeriod } from "./period";
+import {
+  currentPeriod,
+  type ReadinessCheck,
+  type ScorecardDispute,
+  type ScorecardPeriod,
+} from "./period";
 import { projectSaves, type SavesProjection } from "./saves";
 import {
   buildPersonScorecards,
@@ -149,6 +157,25 @@ function directoryFromLedger(
   return [...byId.values()];
 }
 
+/**
+ * The period as recorded, not as recomputed.
+ *
+ * Once a period has been published or had pay attached to it, that fact lives
+ * in the database, and a board that kept minting a fresh shadow period every
+ * request would quietly undo the ritual — publish would never look published,
+ * and the state would reset on the next page load.
+ */
+function readPeriod(poolCents: number, now: Date): ScorecardPeriod {
+  const fresh = currentPeriod(poolCents, now);
+  try {
+    const stored = getScorecardPeriod(fresh.id);
+    if (!stored) return fresh;
+    return { ...fresh, state: stored.state, publishedAt: stored.publishedAt };
+  } catch {
+    return fresh;
+  }
+}
+
 export async function loadScorecard(
   opts: { now?: Date; poolCents?: number } = {},
 ): Promise<ScorecardView> {
@@ -182,7 +209,7 @@ export async function loadScorecard(
   };
 
   return {
-    period: currentPeriod(opts.poolCents ?? DEFAULT_PERIOD_POOL_CENTS, now),
+    period: readPeriod(opts.poolCents ?? DEFAULT_PERIOD_POOL_CENTS, now),
     pods: buildPodScorecards(input),
     people: buildPersonScorecards(input),
     projection,
@@ -194,4 +221,28 @@ export async function loadScorecard(
         ? `Live spine packs, read ${packs.sla.source.fetchedAt}`
         : `${packs.sla.source.note} (captured ${packs.sla.source.fetchedAt})`,
   };
+}
+
+export interface PeriodState {
+  /** Null until the period exists in the ledger — nothing to reconcile yet. */
+  readiness: ReadinessCheck | null;
+  disputes: ScorecardDispute[];
+}
+
+/**
+ * Where the period stands: what has been argued with, and whether pay may be
+ * attached. Reconciliation reads the *published* board rather than a fresh one,
+ * so a period nobody has published reports no readiness at all.
+ */
+export function readPeriodState(periodId: string): PeriodState {
+  try {
+    const { readiness, disputes } = reconcileScorecardPeriod(periodId);
+    return { readiness, disputes };
+  } catch {
+    try {
+      return { readiness: null, disputes: listScorecardDisputes(periodId) };
+    } catch {
+      return { readiness: null, disputes: [] };
+    }
+  }
 }

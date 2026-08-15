@@ -57,6 +57,10 @@ import {
   SAMPLE_SLA_ISSUES,
 } from "../src/lib/retention/sample";
 import { SERVICE_PODS } from "../src/lib/retention/pods";
+import {
+  disputeSubjects,
+  ShadowPeriodPanel,
+} from "../src/components/ShadowPeriodPanel";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail?: unknown) {
@@ -364,6 +368,105 @@ check(
   emptyMarkup.includes("personal inbox"),
 );
 
+// ——— The ritual, as a surface ———
+
+const subjects = disputeSubjects(pods, people);
+check(
+  "a dispute can name a metric, a pod, or a seat",
+  subjects.some((s) => s.value === "metric:retained_commission") &&
+    subjects.some((s) => s.value === "pod:cancellations_payments") &&
+    subjects.some((s) => s.value === "person:svc-kai"),
+  subjects.slice(0, 3),
+);
+
+const unpublishedPanel = renderToStaticMarkup(
+  <ShadowPeriodPanel
+    period={period}
+    readiness={midPeriod}
+    disputes={[]}
+    subjects={subjects}
+    canManage
+  />,
+);
+check(
+  "an unpublished board offers nothing to dispute and says why",
+  unpublishedPanel.includes("nothing to raise one against") &&
+    !unpublishedPanel.includes("Raise Dispute"),
+);
+check(
+  "the panel prints every reason pay is still detached",
+  midPeriod.blockers.every((b) => unpublishedPanel.includes(escapeHtml(b))),
+  midPeriod.blockers,
+);
+
+const managerPanel = renderToStaticMarkup(
+  <ShadowPeriodPanel
+    period={published}
+    readiness={periodReadiness(published, disputes, metricSources, afterPeriod)}
+    disputes={disputes}
+    subjects={subjects}
+    canManage
+    seatNames={{ "svc-kai": "Kai Bloom" }}
+  />,
+);
+check(
+  "an open dispute is shown with its claim and its raiser by name",
+  managerPanel.includes(escapeHtml(disputes[0].claim)) &&
+    managerPanel.includes("Kai Bloom"),
+);
+check(
+  "a manager can settle it, and cannot settle it silently",
+  managerPanel.includes("Settle Dispute") && managerPanel.includes("resolutionNote"),
+);
+check(
+  "attach pay is offered but disabled while the board is blocked",
+  managerPanel.includes("Attach Pay") && managerPanel.includes("disabled"),
+);
+
+const seatPanel = renderToStaticMarkup(
+  <ShadowPeriodPanel
+    period={published}
+    readiness={periodReadiness(published, disputes, metricSources, afterPeriod)}
+    disputes={disputes}
+    subjects={subjects}
+    canManage={false}
+  />,
+);
+check(
+  "a non-manager can raise a dispute but not settle one or attach pay",
+  seatPanel.includes("Raise Dispute") &&
+    !seatPanel.includes("Settle Dispute") &&
+    !seatPanel.includes("Attach Pay"),
+);
+
+const paidPanel = renderToStaticMarkup(
+  <ShadowPeriodPanel
+    period={attached}
+    readiness={ready}
+    disputes={settled}
+    subjects={subjects}
+    canManage
+  />,
+);
+check(
+  "once pay is attached the panel stops listing blockers",
+  paidPanel.includes("Pay Attached") && !paidPanel.includes("Pay Stays Detached"),
+);
+
+const seatDisputeMarkup = renderToStaticMarkup(
+  <PersonalScorecard
+    person={kai}
+    period={published}
+    ledgerNote="sample ledger"
+    disputes={settled}
+  />,
+);
+check(
+  "a seat sees what it argued and what it was told back",
+  seatDisputeMarkup.includes(escapeHtml("Window re-owned and recomputed")) &&
+    seatDisputeMarkup.includes("Raise Dispute"),
+);
+
 // ——— Report ———
 
 console.log("\n— Pod board —");
@@ -385,4 +488,14 @@ function metric(
   key: ScorecardMetricKey,
 ): number | null {
   return row.metrics.find((m) => m.key === key)?.value ?? null;
+}
+
+/** Compare against rendered markup, where quotes and dashes arrive escaped. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
 }

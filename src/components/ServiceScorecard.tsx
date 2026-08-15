@@ -12,7 +12,12 @@ import {
   SCORECARD_METRIC_LABELS,
   SOURCE_LABELS,
 } from "@/lib/retention/scorecard";
-import { PERIOD_STATE_LABELS, type ScorecardPeriod } from "@/lib/retention/period";
+import {
+  PERIOD_STATE_LABELS,
+  type ScorecardDispute,
+  type ScorecardPeriod,
+} from "@/lib/retention/period";
+import { DisputeCard, RaiseDisputeForm } from "@/components/ShadowPeriodPanel";
 
 /**
  * The scorecard surface.
@@ -210,10 +215,13 @@ export function PersonalScorecard({
   person,
   period,
   ledgerNote,
+  disputes = [],
 }: {
   person: PersonScorecard | null;
   period: ScorecardPeriod;
   ledgerNote: string;
+  /** Disputes this seat raised, so an argument does not vanish once made. */
+  disputes?: ScorecardDispute[];
 }) {
   if (!person) {
     return (
@@ -267,6 +275,32 @@ export function PersonalScorecard({
         {person.decisiveActions} Decisive Action
         {person.decisiveActions === 1 ? "" : "s"}
       </p>
+
+      <div className="mt-4 border-t border-[var(--rule)] pt-3">
+        <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
+          Argue With It
+        </p>
+        <p className="mt-1 mb-2 text-[11px] leading-relaxed text-[var(--muted)]">
+          Shadow mode exists so wrong numbers get caught before they pay anyone.
+          Raise it here and a manager has to answer it in writing.
+        </p>
+        {disputes.length > 0 && (
+          <ul className="mb-2 space-y-2">
+            {disputes.map((d) => (
+              <DisputeCard key={d.id} dispute={d} canSettle={false} />
+            ))}
+          </ul>
+        )}
+        <RaiseDisputeForm
+          periodId={period.id}
+          subjects={person.metrics.map((m) => ({
+            value: `metric:${m.key}`,
+            label: m.label,
+          }))}
+          disabled={!period.publishedAt}
+          compact
+        />
+      </div>
     </DeskSection>
   );
 }

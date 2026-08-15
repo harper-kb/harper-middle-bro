@@ -7,9 +7,11 @@ import {
   PodScorecardTable,
   ShadowBanner,
 } from "@/components/ServiceScorecard";
+import { disputeSubjects, ShadowPeriodPanel } from "@/components/ShadowPeriodPanel";
+import { listOperators } from "@/lib/db";
 import { assumeManagerRoleAction } from "@/lib/desk-actions";
 import { SAVE_GATE_LABELS } from "@/lib/retention/saves";
-import { loadScorecard } from "@/lib/retention/scorecard.server";
+import { loadScorecard, readPeriodState } from "@/lib/retention/scorecard.server";
 import { formatCents } from "@/lib/retention/scorecard";
 import { getSessionOperator } from "@/lib/session";
 import type { ReactNode } from "react";
@@ -79,6 +81,10 @@ export default async function ServiceScorecardPage() {
   }
 
   const view = await loadScorecard();
+  const { readiness, disputes } = readPeriodState(view.period.id);
+  const seatNames = Object.fromEntries(
+    listOperators().map((o) => [o.id, o.displayName]),
+  );
   const totalRetained = view.pods.reduce(
     (n, p) =>
       n + (p.metrics.find((m) => m.key === "retained_commission")?.value ?? 0),
@@ -111,6 +117,17 @@ export default async function ServiceScorecardPage() {
           period={view.period}
           ledgerNote={view.ledgerNote}
           packNote={view.packNote}
+        />
+      </div>
+
+      <div className="mb-5">
+        <ShadowPeriodPanel
+          period={view.period}
+          readiness={readiness}
+          disputes={disputes}
+          subjects={disputeSubjects(view.pods, view.people)}
+          canManage
+          seatNames={seatNames}
         />
       </div>
 

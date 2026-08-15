@@ -7,6 +7,8 @@
  * inferred from whether a name looks like a name.
  */
 
+import type { ServicePodId } from "./pods";
+
 export interface InternalAgent {
   id: string;
   displayName: string;
@@ -14,7 +16,7 @@ export interface InternalAgent {
   /** Automation identities are first-class here, not filtered out upstream. */
   kind: "human" | "agent";
   /** Which service pod this person works in, when known. */
-  podId: string | null;
+  podId: ServicePodId | null;
 }
 
 /**
@@ -89,7 +91,7 @@ export function agentDisplayName(
 export function podForAgent(
   agentId: string | null,
   directory: InternalAgent[],
-): string | null {
+): ServicePodId | null {
   if (!agentId) return null;
   return directory.find((a) => a.id === agentId)?.podId ?? null;
 }

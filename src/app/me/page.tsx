@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { Nav } from "@/components/Nav";
+import { PersonalScorecard } from "@/components/ServiceScorecard";
 import { ProfileForm } from "@/components/ProfileForm";
+import { loadScorecard } from "@/lib/retention/scorecard.server";
+import type { PersonScorecard } from "@/lib/retention/scorecard";
+import type { Operator } from "@/lib/types";
 import { setAutoSendAction } from "@/lib/actions";
 import { AUTO_SEND_UNLOCK_AT } from "@/lib/aidesk";
 import { getRequestType } from "@/lib/catalog";
@@ -18,6 +22,11 @@ export default async function ProfilePage() {
     ? listTickets({ operatorId: operator.id, openOnly: true })
     : [];
   const streaks = operator ? listStreaks(operator.id) : [];
+
+  // The retention ledger keys on internal-agent ids, which the desk's operator
+  // table does not carry. Email is the only identifier both sides share.
+  const scorecard = await loadScorecard();
+  const mine = operator ? findMyScorecard(scorecard.people, operator) : null;
 
   return (
     <>
@@ -79,6 +88,12 @@ export default async function ProfilePage() {
 
               <ProfileForm operator={operator} />
             </section>
+
+            <PersonalScorecard
+              person={mine}
+              period={scorecard.period}
+              ledgerNote={scorecard.ledgerNote}
+            />
 
             <section className="space-y-3">
               <div>
@@ -212,4 +227,23 @@ export default async function ProfilePage() {
       </main>
     </>
   );
+}
+
+/**
+ * Match a signed-in seat to its ledger row. Email is the shared key; display
+ * name is a fallback for seats the internal-agent directory has not synced.
+ * No match means no row rather than a guessed one — attributing someone
+ * else's saves to your desk is worse than showing nothing.
+ */
+function findMyScorecard(
+  people: PersonScorecard[],
+  operator: Operator,
+): PersonScorecard | null {
+  const email = operator.email?.trim().toLowerCase();
+  if (email) {
+    const byEmail = people.find((p) => p.email?.trim().toLowerCase() === email);
+    if (byEmail) return byEmail;
+  }
+  const name = operator.displayName.trim().toLowerCase();
+  return people.find((p) => p.displayName.trim().toLowerCase() === name) ?? null;
 }

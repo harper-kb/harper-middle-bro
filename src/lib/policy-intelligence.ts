@@ -148,6 +148,15 @@ export function migrateIntelligenceTables(db: Database.Database) {
   if (endtCols.length > 0 && !endtCols.some((c) => c.name === "scope")) {
     db.exec(`ALTER TABLE policy_endorsements ADD COLUMN scope TEXT`);
   }
+  // Same for the coverage basis: databases written before the sheet read it
+  // from the record just need the column, and NULL is the correct value for
+  // every row already in them — those parts never stated a basis.
+  const partCols = db
+    .prepare(`PRAGMA table_info(policy_coverage_parts)`)
+    .all() as { name: string }[];
+  if (partCols.length > 0 && !partCols.some((c) => c.name === "basis")) {
+    db.exec(`ALTER TABLE policy_coverage_parts ADD COLUMN basis TEXT`);
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS carriers (
@@ -182,6 +191,9 @@ export function migrateIntelligenceTables(db: Database.Database) {
       label TEXT NOT NULL,
       form TEXT NOT NULL,
       edition TEXT NOT NULL DEFAULT '',
+      -- 'occurrence' | 'claims-made', or NULL when the dec does not say.
+      -- NULL is a distinct answer here: the sheet prints neither box.
+      basis TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0
     );
 
@@ -498,8 +510,8 @@ function syncPolicySchedules(db: Database.Database) {
   const delEndt = db.prepare(`DELETE FROM policy_endorsements WHERE policy_id = ?`);
 
   const insPart = db.prepare(`
-    INSERT INTO policy_coverage_parts (id, policy_id, code, label, form, edition, sort_order)
-    VALUES (@id, @policyId, @code, @label, @form, @edition, @sortOrder)
+    INSERT INTO policy_coverage_parts (id, policy_id, code, label, form, edition, basis, sort_order)
+    VALUES (@id, @policyId, @code, @label, @form, @edition, @basis, @sortOrder)
   `);
   const insLimit = db.prepare(`
     INSERT INTO policy_limits (id, policy_id, slot, mode, amount_cents, loc)
@@ -551,6 +563,7 @@ function syncPolicySchedules(db: Database.Database) {
           label: c.label,
           form: c.form,
           edition: c.edition,
+          basis: c.basis ?? null,
           sortOrder: i,
         });
       });
@@ -800,12 +813,19 @@ export function loadPolicyFormSetFromDb(
   db: Database.Database,
   policyId: string,
 ): PolicyFormSet | null {
-  const parts = db
+  const parts = (db
     .prepare(
-      `SELECT code, label, form, edition FROM policy_coverage_parts
+      `SELECT code, label, form, edition, basis FROM policy_coverage_parts
        WHERE policy_id = ? ORDER BY sort_order ASC`,
     )
-    .all(policyId) as CoveragePart[];
+    .all(policyId) as { code: string; label: string; form: string; edition: string; basis: string | null }[])
+    .map((r) => ({
+      code: r.code,
+      label: r.label,
+      form: r.form,
+      edition: r.edition,
+      ...(r.basis === "occurrence" || r.basis === "claims-made" ? { basis: r.basis } : {}),
+    })) satisfies CoveragePart[];
   if (parts.length === 0) return null;
 
   const limits = (
@@ -1258,8 +1278,8 @@ export function attachPolicyFormSet(
     `DELETE FROM policy_endorsements WHERE policy_id = ?`,
   );
   const insPart = db.prepare(`
-    INSERT INTO policy_coverage_parts (id, policy_id, code, label, form, edition, sort_order)
-    VALUES (@id, @policyId, @code, @label, @form, @edition, @sortOrder)
+    INSERT INTO policy_coverage_parts (id, policy_id, code, label, form, edition, basis, sort_order)
+    VALUES (@id, @policyId, @code, @label, @form, @edition, @basis, @sortOrder)
   `);
   const insLimit = db.prepare(`
     INSERT INTO policy_limits (id, policy_id, slot, mode, amount_cents, loc)
@@ -1284,6 +1304,7 @@ export function attachPolicyFormSet(
         label: c.label,
         form: c.form,
         edition: c.edition,
+        basis: c.basis ?? null,
         sortOrder: i,
       });
     });
@@ -1332,8 +1353,8 @@ export function attachIscSchedule(
     `DELETE FROM policy_endorsements WHERE policy_id = ?`,
   );
   const insPart = db.prepare(`
-    INSERT INTO policy_coverage_parts (id, policy_id, code, label, form, edition, sort_order)
-    VALUES (@id, @policyId, @code, @label, @form, @edition, @sortOrder)
+    INSERT INTO policy_coverage_parts (id, policy_id, code, label, form, edition, basis, sort_order)
+    VALUES (@id, @policyId, @code, @label, @form, @edition, @basis, @sortOrder)
   `);
   const insLimit = db.prepare(`
     INSERT INTO policy_limits (id, policy_id, slot, mode, amount_cents, loc)
@@ -1362,6 +1383,7 @@ export function attachIscSchedule(
         label: c.label,
         form: c.form,
         edition: c.edition,
+        basis: c.basis ?? null,
         sortOrder: i,
       });
     });

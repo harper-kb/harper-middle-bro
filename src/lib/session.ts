@@ -7,6 +7,13 @@ import type { Operator } from "./types";
  * Replaces the old cookie seat-picker.
  */
 export async function getSessionOperator(): Promise<Operator | null> {
+  // Render the desk without Clerk keys. Guarded by NODE_ENV as well as the
+  // flag: `next build` sets production, so this cannot engage on a deployed
+  // instance even if the variable is set there by accident.
+  if (process.env.NODE_ENV !== "production" && process.env.DEV_NO_AUTH === "1") {
+    const { listOperators } = await import("./db");
+    return listOperators()[0] ?? null;
+  }
   let isAuthenticated = false;
   let userId: string | null = null;
   try {

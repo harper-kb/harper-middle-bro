@@ -14,6 +14,7 @@
  */
 
 import {
+  coveragePartBasis,
   coveragePartLabel,
   mapAccount,
   mapEndorsements,
@@ -121,23 +122,45 @@ check(
 /* ————— Coverage basis ————— */
 
 check(
-  !/claims/i.test(coveragePartLabel(gl.coverage_lines![0])),
-  "An occurrence line's label says nothing about claims-made",
+  coveragePartBasis(gl.coverage_lines![0]) === "occurrence",
+  "An occurrence line states occurrence as a fact, not as prose in its label",
 );
 check(
-  /\(Claims-Made\)$/.test(coveragePartLabel(gl.coverage_lines![1])),
-  "A claims-made line says so in its label, where the sheet reads it",
-  coveragePartLabel(gl.coverage_lines![1]),
+  coveragePartBasis(gl.coverage_lines![1]) === "claims-made",
+  "A claims-made line states claims-made as a fact",
 );
 check(
-  !/claims/i.test(
-    coveragePartLabel({
-      canonical_coverage_type: "GENERAL_LIABILITY",
-      source_coverage_label: "Commercial General Liability",
-      coverage_basis: "UNKNOWN",
-    }),
-  ),
-  "An UNKNOWN basis claims nothing either way",
+  coveragePartBasis({
+    canonical_coverage_type: "GENERAL_LIABILITY",
+    source_coverage_label: "Commercial General Liability",
+    coverage_basis: "UNKNOWN",
+  }) === undefined,
+  "An UNKNOWN basis states nothing either way",
+);
+check(
+  coveragePartBasis({
+    canonical_coverage_type: "GENERAL_LIABILITY",
+    source_coverage_label: "Commercial General Liability",
+  }) === undefined,
+  "A missing basis states nothing either way",
+);
+// The label carried the basis once, and real paper punished it: a part
+// named for a claims-made product sits on a line the dec calls occurrence.
+// The fact must survive the label saying otherwise.
+check(
+  coveragePartBasis({
+    canonical_coverage_type: "PROFESSIONAL_LIABILITY",
+    source_coverage_label: "Claims-Made Professional Package",
+    coverage_basis: "OCCURRENCE",
+  }) === "occurrence" &&
+    /claims-made/i.test(
+      coveragePartLabel({
+        canonical_coverage_type: "PROFESSIONAL_LIABILITY",
+        source_coverage_label: "Claims-Made Professional Package",
+        coverage_basis: "OCCURRENCE",
+      }),
+    ),
+  "The dec outranks the product name when the two disagree",
 );
 
 /* ————— What the desk cannot print ————— */

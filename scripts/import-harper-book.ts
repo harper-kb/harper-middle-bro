@@ -94,6 +94,15 @@ Produce one with the Harper MCP and save it verbatim:
   console.log(`policies        ${policies.length}   (skipped ${skipped} unusable rows)`);
   console.log(`schedules       ${withLimits} with limits · ${unscheduled} with no coverage lines`);
   console.log(`endorsements    ${endorsementCount} filed · ${backed} that can back an AI / waiver claim`);
+  console.log(
+    `markets         ${built.stats.placed} policies on a known market desk · ${policies.length - built.stats.placed} left with the placeholder`,
+  );
+  if (built.stats.unplaced.length > 0) {
+    console.log(
+      `\nnumbers that look like a brand's but sit on other paper (${built.stats.unplaced.length}):`,
+    );
+    for (const u of built.stats.unplaced.slice(0, 10)) console.log(`  ${u}`);
+  }
   if (noIdentity.length > 0) {
     // An endorsement without an edition is not filed as backing: the
     // verifier treats form identity as form + edition, because two editions

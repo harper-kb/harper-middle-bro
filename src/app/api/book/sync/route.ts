@@ -1,8 +1,28 @@
 import { NextResponse } from "next/server";
 import { syncBookFromHarper } from "@/lib/adapters/harper/book-sync";
+import { listAccounts } from "@/lib/db";
 import { getSessionOperator } from "@/lib/session";
+import { bookSource } from "@/lib/supabase-book.server";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * What book this instance is serving, and where it came from.
+ *
+ * Counts and a source name only — no account names, no policy numbers —
+ * so it can answer "is the deployed desk on real data?" without a session
+ * and without disclosing anything about the book itself.
+ */
+export async function GET() {
+  const accounts = listAccounts();
+  const real = accounts.filter((a) => a.id.startsWith("acct-h-")).length;
+  return NextResponse.json({
+    source: bookSource(),
+    accounts: accounts.length,
+    real,
+    seed: accounts.length - real,
+  });
+}
 
 /**
  * Refresh the book from Harper on a running instance.

@@ -317,22 +317,36 @@ export function coverageCode(line: HarperCoverageLine): string {
 }
 
 /**
- * The coverage part label. Claims-made is stated in the label because that
- * is where the sheet's resolver reads it from, and it is real evidence
- * here: the policy state carries `coverage_basis` per line, which is the
- * one thing Harper's own ACORD prefill refuses to guess
- * (`judgment:claims_made_vs_occurrence`). An UNKNOWN basis adds nothing —
- * the sheet then treats the line as the form's default rather than
- * printing a basis the record does not state.
+ * The coverage part label — the product name, and nothing else.
+ *
+ * The basis used to be appended here, because the label was where the
+ * sheet's resolver read it from. That was wrong in both directions on the
+ * real book: labels that say claims-made sit on lines the dec calls
+ * OCCURRENCE, and a section that merely had a name earned OCCUR. It is
+ * carried as a stated fact now, on `basis`.
  */
 export function coveragePartLabel(line: HarperCoverageLine): string {
-  const base =
+  return (
     line.source_coverage_label?.trim() ||
     line.coverage_type?.trim() ||
-    (line.canonical_coverage_type ?? "Coverage").replace(/_/g, " ");
-  return /claims[-_ ]?made/i.test(line.coverage_basis ?? "")
-    ? `${base} (Claims-Made)`
-    : base;
+    (line.canonical_coverage_type ?? "Coverage").replace(/_/g, " ")
+  );
+}
+
+/**
+ * The basis the dec states, or undefined when it doesn't state one.
+ *
+ * `coverage_basis` is the one thing Harper's own ACORD prefill refuses to
+ * guess (`judgment:claims_made_vs_occurrence`), and UNKNOWN appears on 131
+ * of the 523 lines in a 400-policy pull. Undefined here prints neither box.
+ */
+export function coveragePartBasis(
+  line: HarperCoverageLine,
+): "occurrence" | "claims-made" | undefined {
+  const raw = line.coverage_basis ?? "";
+  if (/claims[-_ ]?made/i.test(raw)) return "claims-made";
+  if (/occurrence/i.test(raw)) return "occurrence";
+  return undefined;
 }
 
 /* ————————————————————————— The mapping ————————————————————————— */
@@ -370,7 +384,13 @@ export function mapPolicy(row: HarperPolicyRow, accountId: string): MappedPolicy
   for (const line of lines) {
     const code = coverageCode(line);
     const { form, edition } = splitForm(line.coverage_form);
-    coverages.push({ code, label: coveragePartLabel(line), form, edition });
+    coverages.push({
+      code,
+      label: coveragePartLabel(line),
+      form,
+      edition,
+      basis: coveragePartBasis(line),
+    });
 
     const linePremium = parseMoneyCents(line.premium);
     if (linePremium != null) premiumCents += linePremium;

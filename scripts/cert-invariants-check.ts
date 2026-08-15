@@ -643,6 +643,80 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
     "No section prints Excluded across every one of its limit lines",
     allExcluded.join("; "),
   );
+}
+
+/* ————— A basis box is a claim about the dec —————
+ *
+ * OCCUR and CLAIMS-MADE state how the policy is triggered. Found on the
+ * real book: 24 certificates ticked OCCUR where the record stated no basis
+ * at all, and one ticked CLAIMS-MADE on a line the record called
+ * OCCURRENCE. Both came from resolving the box off the coverage part's
+ * label — a product name — instead of the stated fact, and from treating
+ * "no contrary wording" as evidence of occurrence.
+ */
+{
+  const basisOf = (b?: "occurrence" | "claims-made") => ({
+    code: "GL",
+    label: "Commercial General Liability",
+    form: "CG 00 01",
+    edition: "04 13",
+    ...(b ? { basis: b } : {}),
+  });
+  const sheetFor = (part: ReturnType<typeof basisOf>) => {
+    const set: PolicyFormSet = {
+      coverages: [part],
+      limits: [
+        { slot: "gl_each_occurrence", amountCents: 100_000_000 },
+        { slot: "gl_general_aggregate", amountCents: 200_000_000 },
+      ],
+      endorsements: [],
+    };
+    const packet = buildCertificatePacket({
+      account,
+      policies: [policies[0]],
+      formSets: { [policies[0].id]: set },
+      holderName: "A Holder",
+      holderAddress: "1 Road",
+    });
+    const sheet = resolveCertSheet("acord25", packet.sections);
+    const gl = sheet.sections.find((s) => s.def.key === "gl")!;
+    return { occur: gl.checks?.occur === true, claimsMade: gl.checks?.claimsMade === true };
+  };
+
+  const stated = sheetFor(basisOf("occurrence"));
+  check(
+    stated.occur && !stated.claimsMade,
+    "A dec that states occurrence prints OCCUR",
+  );
+  const cm = sheetFor(basisOf("claims-made"));
+  check(
+    cm.claimsMade && !cm.occur,
+    "A dec that states claims-made prints CLAIMS-MADE",
+  );
+
+  // The contradiction that shipped: the label says one thing, the dec says
+  // the other. The dec wins, or the certificate misstates the policy.
+  const contradicted = sheetFor({
+    ...basisOf("occurrence"),
+    label: "Claims-Made General Liability Package",
+  });
+  check(
+    contradicted.occur && !contradicted.claimsMade,
+    "A claims-made product name cannot override a dec that states occurrence",
+  );
+
+  // Unstated must stay blank — including when the coverage is plainly named,
+  // which is what made 24 real certificates assert a trigger nobody wrote.
+  const unstated = sheetFor({
+    code: "GL",
+    label: "Commercial General Liability",
+    form: "GL-PROPRIETARY-01",
+    edition: "01 20",
+  });
+  check(
+    !unstated.occur && !unstated.claimsMade,
+    "A named coverage with no stated basis and no ISO form prints neither box",
+  );
 
   // No seed account carries the shape that produced it, so the sweep above
   // would pass vacuously. This is the reported shape: the coverage part

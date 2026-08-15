@@ -81,6 +81,16 @@ export interface CoveragePart {
   label: string;
   form: string;
   edition: string;
+  /**
+   * How the dec states this part is triggered, when it states it at all.
+   *
+   * Kept apart from `label` because a label is a product name written by
+   * whoever keyed the policy, and on real paper it disagrees with the dec:
+   * a part whose record says OCCURRENCE can still be labelled with the
+   * carrier's claims-made product name. Omitted means the record does not
+   * say, and the sheet then prints neither box rather than inferring one.
+   */
+  basis?: "occurrence" | "claims-made";
 }
 
 /**

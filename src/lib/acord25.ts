@@ -96,6 +96,17 @@ export interface SectionDef {
   name: string;
   /** Coverage-part matcher that claims a policy as this section's feeder */
   match: RegExp;
+  /**
+   * Coverage-part codes belonging to this section.
+   *
+   * A part's code is a classification; its label is whatever the carrier
+   * calls the product. Matching prose misses real paper — a businessowners
+   * policy names its liability part "Section II – Liability", which no
+   * amount of general-liability regex will catch — so the code is checked
+   * first and the label is the fallback for parts that carry no code we
+   * recognise.
+   */
+  codes?: string[];
   /** Slots this section's boxes consume (kept off the additional rows) */
   slots: LimitSlot[];
   typeCell: TypeCellLine[];
@@ -159,6 +170,13 @@ export interface SectionEvidence {
    * amends the policy and names its own coverage in its title.
    */
   endorsementTitles: string[];
+  /**
+   * The basis the record states for this section's parts, when they agree
+   * and state one at all. Undefined means unstated — the sheet prints
+   * neither box, because a certificate that ticks OCCUR on a policy whose
+   * record is silent is asserting a coverage trigger nobody wrote down.
+   */
+  basis?: "occurrence" | "claims-made";
 }
 
 function coverageText(set: PolicyFormSet): string {
@@ -172,12 +190,19 @@ function coverageText(set: PolicyFormSet): string {
  * to mean no box is earned, not "read something else instead".
  */
 function evidenceFor(def: SectionDef, set: PolicyFormSet): SectionEvidence {
-  const parts = set.coverages.filter((c) => (def.evidence ?? def.match).test(c.label));
+  const re = def.evidence ?? def.match;
+  const parts = set.coverages.filter(
+    (c) => (def.codes?.includes(c.code) ?? false) || re.test(c.label),
+  );
+  const stated = new Set(parts.map((c) => c.basis).filter(Boolean));
   return {
     text: parts.map((c) => c.label).join(" · "),
     forms: parts.map((c) => c.form),
     carries: (slot) => set.limits.some((l) => l.slot === slot),
     endorsementTitles: set.endorsements.map((e) => e.title),
+    // Parts that disagree cannot resolve to one box on one row, so the
+    // section states nothing and the desk is left to say which it is.
+    basis: stated.size === 1 ? [...stated][0] : undefined,
   };
 }
 
@@ -214,6 +239,7 @@ export const SECTION_DEFS: SectionDef[] = [
     key: "gl",
     name: "Commercial General Liability",
     match: /general liability|liability section/i,
+    codes: ["GL"],
     slots: [
       "gl_each_occurrence",
       "gl_damage_premises",
@@ -282,10 +308,18 @@ export const SECTION_DEFS: SectionDef[] = [
       // the absence of contrary wording ticks boxes for a coverage nothing
       // says is there.
       const named = ev.text.trim() !== "";
+      // The record's own statement outranks the label. Real books carry
+      // parts whose product name says claims-made while the dec says
+      // occurrence; printing the label's version contradicts the file.
       const claimsMade =
-        named &&
-        (/claims-?made/i.test(ev.text) ||
-          ev.endorsementTitles.some((t) => /claims-?made/i.test(t)));
+        ev.basis === "claims-made" ||
+        (ev.basis === undefined &&
+          named &&
+          (/claims-?made/i.test(ev.text) ||
+            ev.endorsementTitles.some((t) => /claims-?made/i.test(t))));
+      // CG 00 01 is the occurrence form: its presence is a statement that
+      // the policy is occurrence-triggered. Naming a coverage is not.
+      const occurrenceForm = ev.forms.some((f) => /CG\s*00\s*01/i.test(f));
       // Per policy unless a per-project / per-location aggregate form is scheduled.
       const perProject = ev.endorsementTitles.some((t) =>
         /per[- ]project/i.test(t),
@@ -295,10 +329,14 @@ export const SECTION_DEFS: SectionDef[] = [
         ev.endorsementTitles.some((t) => /per[- ]location/i.test(t));
       return {
         claimsMade,
-        occur: named && !claimsMade,
-        aggPolicy: named && !perProject && !perLoc,
-        aggProject: named && perProject,
-        aggLoc: named && perLoc,
+        occur:
+          !claimsMade && (ev.basis === "occurrence" || (ev.basis === undefined && occurrenceForm)),
+        // The aggregate boxes are the same kind of claim: POLICY is the ISO
+        // default for CG 00 01, so it is earned by that form being on the
+        // schedule — not by the section merely having a name.
+        aggPolicy: occurrenceForm && !perProject && !perLoc,
+        aggProject: occurrenceForm && perProject,
+        aggLoc: occurrenceForm && perLoc,
       };
     },
   },
@@ -312,6 +350,7 @@ export const SECTION_DEFS: SectionDef[] = [
     // hired/non-owned part still lands here on the word "auto", and fills the
     // row from its own schedule.
     match: /\bautos?\b|automobile/i,
+    codes: ["CA", "HNOA"],
     slots: ["auto_combined_single"],
     typeCell: [
       { kind: "title", text: "Automobile Liability" },
@@ -369,6 +408,7 @@ export const SECTION_DEFS: SectionDef[] = [
     key: "umbrella",
     name: "Umbrella / Excess Liability",
     match: /umbrella|excess liab/i,
+    codes: ["EXCESS_UMB"],
     slots: ["umb_each_occurrence", "umb_aggregate"],
     typeCell: [
       {
@@ -410,9 +450,11 @@ export const SECTION_DEFS: SectionDef[] = [
       const text = ev.text;
       const named = text.trim() !== "";
       const claimsMade =
-        named &&
-        (/claims-?made/i.test(text) ||
-          ev.endorsementTitles.some((t) => /claims-?made/i.test(t)));
+        ev.basis === "claims-made" ||
+        (ev.basis === undefined &&
+          named &&
+          (/claims-?made/i.test(text) ||
+            ev.endorsementTitles.some((t) => /claims-?made/i.test(t))));
 
       // UMBRELLA LIAB and EXCESS LIAB are alternatives on the printed form,
       // not two independent boxes. An umbrella can drop down and broaden;
@@ -435,13 +477,20 @@ export const SECTION_DEFS: SectionDef[] = [
       if (umbrellaForm || (saysUmbrella && !saysExcess)) umbrella = true;
       else if (saysExcess && !saysUmbrella) excess = true;
 
-      return { umbrella, excess, occur: named && !claimsMade, claimsMade };
+      return {
+        umbrella,
+        excess,
+        occur:
+          !claimsMade && (ev.basis === "occurrence" || (ev.basis === undefined && umbrellaForm)),
+        claimsMade,
+      };
     },
   },
   {
     key: "wc",
     name: "Workers Compensation",
     match: /workers comp/i,
+    codes: ["WC"],
     slots: ["wc_el_each_accident", "wc_el_disease_employee", "wc_el_disease_policy"],
     typeCell: [
       { kind: "title", text: "Workers Compensation And Employers' Liability" },

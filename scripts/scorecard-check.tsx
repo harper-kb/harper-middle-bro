@@ -361,11 +361,20 @@ check(
 );
 
 const emptyMarkup = renderToStaticMarkup(
-  <PersonalScorecard person={null} period={period} ledgerNote="sample ledger" />,
+  <PersonalScorecard
+    person={null}
+    period={{ ...period, publishedAt: "2026-09-01T00:00:00.000Z" }}
+    ledgerNote="sample ledger"
+  />,
 );
 check(
   "a seat with no attribution is told why, not shown zeros",
   emptyMarkup.includes("personal inbox"),
+);
+check(
+  "a seat missing from the board entirely can still say so",
+  emptyMarkup.includes("Raise Dispute") &&
+    emptyMarkup.includes("My Seat Is Missing From The Board"),
 );
 
 // ——— The ritual, as a surface ———

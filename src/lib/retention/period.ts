@@ -103,7 +103,9 @@ export function periodReadiness(
   const blockers: string[] = [];
 
   if (now.toISOString() < period.to) {
-    blockers.push(`Period runs through ${period.to} — attach pay only after a full period`);
+    blockers.push(
+      `Period closes ${period.to.slice(0, 10)} — attach pay only after a full period`,
+    );
   }
   if (!period.publishedAt) {
     blockers.push("Numbers were never published — nobody has had a chance to argue with them");
@@ -111,10 +113,14 @@ export function periodReadiness(
   if (open.length > 0) {
     blockers.push(`${open.length} dispute(s) still open`);
   }
-  const modeled = metricSources.filter((m) => m.source === "sample");
+  // Count distinct measures, not cells. Six measures reading sample across six
+  // pods is one problem stated six times, and "36 metrics" overstates it.
+  const modeled = [
+    ...new Set(metricSources.filter((m) => m.source === "sample").map((m) => m.key)),
+  ];
   if (modeled.length > 0) {
     blockers.push(
-      `${modeled.length} metric(s) still sample-labeled: ${[...new Set(modeled.map((m) => m.key))].join(", ")}`,
+      `${modeled.length} measure(s) still sample-labeled: ${modeled.join(", ")}`,
     );
   }
 

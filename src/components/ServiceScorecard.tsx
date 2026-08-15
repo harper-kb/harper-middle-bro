@@ -216,12 +216,14 @@ export function PersonalScorecard({
   period,
   ledgerNote,
   disputes = [],
+  seatNames = {},
 }: {
   person: PersonScorecard | null;
   period: ScorecardPeriod;
   ledgerNote: string;
   /** Disputes this seat raised, so an argument does not vanish once made. */
   disputes?: ScorecardDispute[];
+  seatNames?: Record<string, string>;
 }) {
   if (!person) {
     return (
@@ -233,6 +235,14 @@ export function PersonalScorecard({
           state. Work done out of a personal inbox leaves no record to credit.
         </p>
         <p className="mt-2 text-[11px] text-[var(--muted)]">{ledgerNote}</p>
+        {/* An empty row is the most disputable row on the board. */}
+        <ArgueWithIt
+          period={period}
+          disputes={disputes}
+          seatNames={seatNames}
+          subjects={[{ value: "person:me", label: "My Seat Is Missing From The Board" }]}
+          lead="If you worked a save this period and this says otherwise, that is the dispute worth raising."
+        />
       </DeskSection>
     );
   }
@@ -276,31 +286,56 @@ export function PersonalScorecard({
         {person.decisiveActions === 1 ? "" : "s"}
       </p>
 
-      <div className="mt-4 border-t border-[var(--rule)] pt-3">
-        <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
-          Argue With It
-        </p>
-        <p className="mt-1 mb-2 text-[11px] leading-relaxed text-[var(--muted)]">
-          Shadow mode exists so wrong numbers get caught before they pay anyone.
-          Raise it here and a manager has to answer it in writing.
-        </p>
-        {disputes.length > 0 && (
-          <ul className="mb-2 space-y-2">
-            {disputes.map((d) => (
-              <DisputeCard key={d.id} dispute={d} canSettle={false} />
-            ))}
-          </ul>
-        )}
-        <RaiseDisputeForm
-          periodId={period.id}
-          subjects={person.metrics.map((m) => ({
-            value: `metric:${m.key}`,
-            label: m.label,
-          }))}
-          disabled={!period.publishedAt}
-          compact
-        />
-      </div>
+      <ArgueWithIt
+        period={period}
+        disputes={disputes}
+        seatNames={seatNames}
+        subjects={person.metrics.map((m) => ({
+          value: `metric:${m.key}`,
+          label: m.label,
+        }))}
+      />
     </DeskSection>
+  );
+}
+
+function ArgueWithIt({
+  period,
+  disputes,
+  subjects,
+  seatNames,
+  lead = "Shadow mode exists so wrong numbers get caught before they pay anyone. Raise it here and a manager has to answer it in writing.",
+}: {
+  period: ScorecardPeriod;
+  disputes: ScorecardDispute[];
+  subjects: { value: string; label: string }[];
+  seatNames: Record<string, string>;
+  lead?: string;
+}) {
+  return (
+    <div className="mt-4 border-t border-[var(--rule)] pt-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
+        Argue With It
+      </p>
+      <p className="mt-1 mb-2 text-[11px] leading-relaxed text-[var(--muted)]">{lead}</p>
+      {disputes.length > 0 && (
+        <ul className="mb-2 space-y-2">
+          {disputes.map((d) => (
+            <DisputeCard
+              key={d.id}
+              dispute={d}
+              canSettle={false}
+              seatNames={seatNames}
+            />
+          ))}
+        </ul>
+      )}
+      <RaiseDisputeForm
+        periodId={period.id}
+        subjects={subjects}
+        disabled={!period.publishedAt}
+        compact
+      />
+    </div>
   );
 }

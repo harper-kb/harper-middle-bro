@@ -75,7 +75,8 @@ export async function raiseDisputeAction(formData: FormData) {
   raiseScorecardDispute({
     periodId: String(formData.get("periodId") ?? ""),
     subject,
-    subjectId,
+    // A seat disputing its own absence has no board row to point at.
+    subjectId: subjectId === "me" ? operator.id : subjectId,
     raisedBy: operator.id,
     claim,
   });

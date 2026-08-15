@@ -10,8 +10,10 @@
  *   npx tsx --conditions react-server scripts/shadow-period-report.ts          # print only
  *   npx tsx --conditions react-server scripts/shadow-period-report.ts --publish
  *   npx tsx --conditions react-server scripts/shadow-period-report.ts --reconcile
+ *   npx tsx --conditions react-server scripts/shadow-period-report.ts --attach
  */
 import {
+  attachScorecardPeriodPay,
   listScorecardDisputes,
   publishScorecardPeriod,
   reconcileScorecardPeriod,
@@ -26,7 +28,8 @@ import {
 } from "../src/lib/retention/scorecard";
 
 const publish = process.argv.includes("--publish");
-const reconcile = process.argv.includes("--reconcile");
+const attach = process.argv.includes("--attach");
+const reconcile = process.argv.includes("--reconcile") || attach;
 
 function rule(char = "—", width = 92) {
   console.log(char.repeat(width));
@@ -136,6 +139,18 @@ async function main() {
     } else {
       console.log("\n  Pay stays detached:");
       for (const b of result.readiness.blockers) console.log(`    - ${b}`);
+    }
+  }
+
+  // The last step of the ritual, and the one that is supposed to be hard to
+  // reach. Refusing here is a correct outcome, not a failed run.
+  if (attach) {
+    rule();
+    try {
+      attachScorecardPeriodPay(period.id, process.env.USER ?? "cli");
+      console.log(`Pay attached to ${period.id}. Pools are now payable.`);
+    } catch (err) {
+      console.log(err instanceof Error ? err.message : String(err));
     }
   }
 

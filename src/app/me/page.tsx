@@ -99,6 +99,7 @@ export default async function ProfilePage() {
               period={scorecard.period}
               ledgerNote={scorecard.ledgerNote}
               disputes={myDisputes}
+              seatNames={{ [operator.id]: operator.displayName }}
             />
 
             <section className="space-y-3">

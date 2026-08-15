@@ -18,6 +18,7 @@ import {
   type HarperPolicyRow,
   type HarperPrefill,
 } from "./policy-state";
+import { unmatchedMarket } from "./market";
 
 export interface BuiltBook {
   accounts: Account[];
@@ -32,6 +33,12 @@ export interface BuiltBook {
     backing: number;
     droppedLimits: string[];
     endorsementsWithoutIdentity: string[];
+    /** Accounts opened on a real market desk rather than the placeholder. */
+    placed: number;
+    /** Numbers that look like a brand's but sit on paper it is not known to
+     * write — reported, because either the brand added a fronting carrier or
+     * the prefix means something else. */
+    unplaced: string[];
   };
 }
 
@@ -54,6 +61,8 @@ export function buildBookFromRows(
   let unscheduled = 0;
   let endorsements = 0;
   let backing = 0;
+  let placed = 0;
+  const unplaced: string[] = [];
 
   for (const row of rows) {
     const companyId = row.company_id?.trim();
@@ -75,7 +84,10 @@ export function buildBookFromRows(
           companyId,
           prefill: prefills[companyId] ?? null,
           fallbackName: row.named_insured?.trim() || `Company ${companyId}`,
-          underwriterId: UNASSIGNED_UNDERWRITER.id,
+          // The market its policy resolves to, so the account opens on a desk
+          // that can actually be reached. Falls back to the placeholder, which
+          // says plainly that no contact is on file.
+          underwriterId: mapped.market?.underwriterId ?? UNASSIGNED_UNDERWRITER.id,
         }),
       );
     }
@@ -97,6 +109,12 @@ export function buildBookFromRows(
       }
     }
 
+    if (mapped.market) placed++;
+    else {
+      const odd = unmatchedMarket(mapped.policy.policyNumber, mapped.policy.quoteCarrier);
+      if (odd) unplaced.push(`${mapped.policy.policyNumber}: ${odd.brand}? on ${odd.paper}`);
+    }
+
     policies.push(mapped.policy);
     schedules[mapped.policy.id] = mapped.set;
     if (mapped.set.unscheduled) unscheduled++;
@@ -116,6 +134,8 @@ export function buildBookFromRows(
       backing,
       droppedLimits,
       endorsementsWithoutIdentity,
+      placed,
+      unplaced,
     },
   };
 }

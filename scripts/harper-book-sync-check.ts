@@ -27,7 +27,6 @@ const row: HarperPolicyRow = {
   effective_date: "2026-08-15T00:00:00.000Z",
   expiration_date: "2027-08-15T00:00:00.000Z",
   company_id: "910666",
-  carrier_id: 1026,
   in_force: true,
   coverage_lines: [
     {
@@ -35,6 +34,7 @@ const row: HarperPolicyRow = {
       coverage_type: "General Liability",
       coverage_basis: "OCCURRENCE",
       coverage_form: "CG 00 01 04 13",
+      carrier: { name: "Third Coast Insurance Company" },
       limits: [
         {
           canonical_limit_type: "EACH_OCCURRENCE_OR_CLAIM",
@@ -61,6 +61,11 @@ check(
 check(
   built.schedules[built.policies[0].id]?.coverages[0]?.basis === "occurrence",
   "The stated basis survives into the schedule",
+);
+check(
+  built.policies[0].carrier === "Third Coast Insurance Company",
+  "The carrier comes off the coverage line, where the read states it",
+  built.policies[0].carrier,
 );
 
 /* ————— Rows the read cannot place ————— */

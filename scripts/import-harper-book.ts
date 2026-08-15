@@ -25,17 +25,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import {
-  mapAccount,
-  mapEndorsements,
-  mapPolicy,
-  type HarperExtraction,
-  type HarperPolicyRow,
-  type HarperPrefill,
+import { buildBookFromRows } from "../src/lib/adapters/harper/book";
+import type {
+  HarperExtraction,
+  HarperPolicyRow,
+  HarperPrefill,
 } from "../src/lib/adapters/harper/policy-state";
-import type { PolicyFormSet } from "../src/lib/forms";
-import { UNASSIGNED_UNDERWRITER } from "../src/lib/supabase-book.server";
-import type { Account, Policy } from "../src/lib/types";
 
 const IN = path.join(process.cwd(), "data", "harper-policy-state.local.json");
 const OUT = path.join(process.cwd(), "data", "supabase-book.local.json");
@@ -68,62 +63,16 @@ Produce one with the Harper MCP and save it verbatim:
     process.exit(1);
   }
 
-  const accounts = new Map<string, Account>();
-  const policies: Policy[] = [];
-  const schedules: Record<string, PolicyFormSet> = {};
-  const dropped: string[] = [];
-  const noIdentity: string[] = [];
-  let skipped = 0;
-  let unscheduled = 0;
-  let endorsementCount = 0;
-  let backed = 0;
-
-  for (const row of rows) {
-    const companyId = row.company_id?.trim();
-    if (!companyId) {
-      skipped++;
-      continue;
-    }
-    const accountId = `acct-h-${companyId}`;
-    const mapped = mapPolicy(row, accountId);
-    if (!mapped) {
-      skipped++;
-      continue;
-    }
-
-    if (!accounts.has(accountId)) {
-      accounts.set(
-        accountId,
-        mapAccount({
-          companyId,
-          prefill: prefills[companyId] ?? null,
-          fallbackName: row.named_insured?.trim() || `Company ${companyId}`,
-          underwriterId: UNASSIGNED_UNDERWRITER.id,
-        }),
-      );
-    }
-    // The endorsement schedule, when a parsed policy document is on hand.
-    // Without it the Additional Insured and Waiver Of Subrogation boxes have
-    // nothing backing them and the presend registry refuses to certify
-    // either — correctly, but on missing evidence rather than on the paper.
-    const extraction = extractions[row.policy_id ?? ""] ?? null;
-    if (extraction) {
-      const { endorsements, withoutIdentity } = mapEndorsements(extraction);
-      mapped.set.endorsements = endorsements;
-      endorsementCount += endorsements.length;
-      backed += endorsements.filter((e) => e.kind === "ai" || e.kind === "wos").length;
-      for (const w of withoutIdentity) {
-        noIdentity.push(`${mapped.policy.policyNumber}: ${w}`);
-      }
-    }
-
-    policies.push(mapped.policy);
-    schedules[mapped.policy.id] = mapped.set;
-    if (mapped.set.unscheduled) unscheduled++;
-    for (const d of mapped.droppedLimits) {
-      dropped.push(`${mapped.policy.policyNumber} ${d.coverage} ${d.type}: ${d.label}`);
-    }
-  }
+  const built = buildBookFromRows(rows, { prefills, extractions });
+  const accounts = new Map(built.accounts.map((a) => [a.id, a]));
+  const policies = built.policies;
+  const schedules = built.schedules;
+  const dropped = built.stats.droppedLimits;
+  const noIdentity = built.stats.endorsementsWithoutIdentity;
+  const skipped = built.stats.skipped;
+  const unscheduled = built.stats.unscheduled;
+  const endorsementCount = built.stats.endorsements;
+  const backed = built.stats.backing;
 
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(

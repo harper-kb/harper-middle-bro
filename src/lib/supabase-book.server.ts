@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { gunzipSync } from "node:zlib";
 import type { PolicyFormSet } from "./forms";
 import type { Account, Policy, Underwriter } from "./types";
 
@@ -58,10 +59,45 @@ export function loadSupabaseBook(): SupabaseBook | null {
   return cache;
 }
 
+/**
+ * The book as an environment variable: gzipped JSON, base64, optionally
+ * split across numbered parts because a whole book of real policies is
+ * larger than some platforms allow in one value.
+ *
+ * A deployed instance has no `data/` — the directory is gitignored, which
+ * is the right call for customer data and also the reason production has
+ * only ever booted the fictional seed. This is how the real book reaches a
+ * running instance without ever entering the repository.
+ */
+function readBookFromEnv(): string | null {
+  const parts: string[] = [];
+  if (process.env.HARPER_BOOK_B64) parts.push(process.env.HARPER_BOOK_B64);
+  for (let i = 1; i <= 40; i++) {
+    const part = process.env[`HARPER_BOOK_B64_${i}`];
+    if (!part) break;
+    parts.push(part);
+  }
+  if (parts.length === 0) return null;
+  try {
+    return gunzipSync(Buffer.from(parts.join(""), "base64")).toString("utf-8");
+  } catch {
+    // A truncated or mis-pasted value must not look like an empty book:
+    // returning null here falls back to the seed, which is visibly
+    // fictional, rather than to a half-book that looks real.
+    console.error(
+      "[supabase-book] HARPER_BOOK_B64 present but unreadable — falling back to seed.",
+    );
+    return null;
+  }
+}
+
 function readBook(): SupabaseBook | null {
   try {
-    if (!fs.existsSync(BOOK_PATH)) return null;
-    const parsed = JSON.parse(fs.readFileSync(BOOK_PATH, "utf-8")) as {
+    const raw = fs.existsSync(BOOK_PATH)
+      ? fs.readFileSync(BOOK_PATH, "utf-8")
+      : readBookFromEnv();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
       fetchedAt?: unknown;
       accounts?: unknown;
       policies?: unknown;

@@ -161,7 +161,10 @@ Produce one with the Harper MCP and save it verbatim:
     if (dropped.length > 20) console.log(`  …and ${dropped.length - 20} more`);
   }
   console.log(`\nwrote ${OUT}`);
-  console.log("Delete data/underwriter-desk.db* and restart to boot from it.");
+  console.log("Locally: delete data/underwriter-desk.db* and restart to boot from it.");
+  console.log(
+    "Deployed: node scripts/pack-harper-book.mjs, then paste the variables into the service.",
+  );
 }
 
 main();

@@ -84,9 +84,12 @@ export function buildCertificatePacket(input: {
   // carry different letters. The key is the resolved issuing company when
   // known, else the brand.
   const letterByPaper = new Map<string, string>();
+  // Case-folded: a book keyed by hand carries the same writer in two
+  // spellings, and two letters for one company certifies two insurers that
+  // do not exist.
   const paperKey = (p: Policy) => {
     const identity = naicForPolicy(p.carrier, p.coverages, p.issuingCarrier);
-    return identity?.issuingCompany ?? p.carrier;
+    return (identity?.issuingCompany ?? p.carrier).trim().toLowerCase();
   };
   for (const p of input.policies) {
     const key = paperKey(p);

@@ -57,9 +57,15 @@ check("SiriusPoint America → 38776", sirius?.naic === "38776");
 const thirdCoast = naicForPolicy("ISC", [], "Third Coast Insurance Company");
 check("Third Coast → 10713", thirdCoast?.naic === "10713");
 check("bare ISC stays blank", naicForPolicy("ISC") === null);
+// An unrecognised writer used to resolve to nothing, which left the INSURER
+// line falling back to the brand — printing "ISC", an MGA that carries no
+// risk, as the company affording coverage. The dec's writer prints instead,
+// with the code blank because this desk has not verified one.
+const unknownWriter = naicForPolicy("ISC", [], "Some Other Insurance Company");
+check("unknown writer keeps its code blank", unknownWriter?.naic === null);
 check(
-  "unknown writer stays blank",
-  naicForPolicy("ISC", [], "Some Other Insurance Company") === null,
+  "unknown writer prints as the dec states it, not as the brand",
+  unknownWriter?.issuingCompany === "Some Other Insurance Company",
 );
 
 // ——— 2. Parse the sample dec ———

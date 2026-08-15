@@ -8,6 +8,7 @@ import type {
 } from "../../forms";
 import type { LimitSlot } from "../../forms";
 import type { Account, Policy } from "../../types";
+import { resolveMarket, type MarketResolution } from "./market";
 
 /**
  * Harper `data.policy-state.v1` → this desk's account / policy / schedule
@@ -356,6 +357,8 @@ export interface MappedPolicy {
   set: PolicyFormSet;
   /** Limits the contract carried that no ACORD box on this desk accepts */
   droppedLimits: { coverage: string; type: string; label: string }[];
+  /** The market behind the paper, when the number and the writer agree. */
+  market: MarketResolution | null;
 }
 
 /**
@@ -419,17 +422,24 @@ export function mapPolicy(row: HarperPolicyRow, accountId: string): MappedPolicy
     }
   }
 
+  // The record names the paper. When the policy number and that paper both
+  // point at a market the desk knows, the brand becomes the carrier and the
+  // paper is kept as the writer — so the desk works Coterie while the
+  // certificate still names Spinnaker on the INSURER line.
+  const market = resolveMarket(policyNumber, carrierName);
+
   const policy: Policy = {
     id: `pol-h-${row.policy_id}`,
     accountId,
     policyNumber,
-    carrier: carrierName ?? "Unassigned",
+    carrier: market?.brand ?? carrierName ?? "Unassigned",
     coverages: Array.from(new Set(coverages.map((c) => c.code))),
     effectiveDate,
     expirationDate,
     premiumCents,
     quoteInsuredName: row.named_insured?.trim() || null,
     quoteCarrier: carrierName,
+    issuingCarrier: market?.issuingCarrier ?? null,
   };
 
   // A policy whose lines carried no readable limit has no dec behind it.
@@ -440,7 +450,7 @@ export function mapPolicy(row: HarperPolicyRow, accountId: string): MappedPolicy
       ? { coverages: [], limits: [], endorsements: [], unscheduled: true }
       : { coverages, limits, endorsements: [] };
 
-  return { policy, set, droppedLimits };
+  return { policy, set, droppedLimits, market };
 }
 
 /**

@@ -20,8 +20,12 @@ export const NAIC_SOURCE = "NAIC registry (verified)";
 export interface NaicIdentity {
   /** Writing company legal name as it prints on the INSURER line */
   issuingCompany: string;
-  /** NAIC company code, verified — see docs/acord-forms-research.md §3 */
-  naic: string;
+  /**
+   * NAIC company code, verified — see docs/acord-forms-research.md §3.
+   * Null when the dec names a writer whose code is not verified here: the
+   * cell prints blank rather than borrowing another company's code.
+   */
+  naic: string | null;
   /** Provenance worth surfacing where the brand ≠ the paper */
   note?: string;
 }
@@ -137,6 +141,29 @@ const NAIC_RULES: NaicRule[] = [
  * - Third Coast 10713 — AM Best AMB 011876, NAIC company listing, SLTX
  *   (WI domicile, AmeriTrust Group, AM Best A)
  */
+/**
+ * Writers a brand issues on, beyond ISC's. Coterie's own note has always
+ * listed these; the real book turned up policies on each, so they need to
+ * resolve from the dec rather than fall back to the brand's default paper.
+ */
+export const COTERIE_WRITERS: readonly NaicIdentity[] = [
+  {
+    issuingCompany: "Spinnaker Insurance Company",
+    naic: "24376",
+    note: "Coterie (MGA) writer — Spinnaker, admitted fronting paper",
+  },
+  {
+    issuingCompany: "Benchmark Insurance Company",
+    naic: "41394",
+    note: "Coterie (MGA) writer — Benchmark, admitted paper",
+  },
+  {
+    issuingCompany: "Clear Spring Property and Casualty Company",
+    naic: "15563",
+    note: "Coterie (MGA) writer — Clear Spring P&C",
+  },
+];
+
 export const ISC_WRITERS: readonly NaicIdentity[] = [
   {
     issuingCompany: "Hadron Specialty Insurance Company",
@@ -181,7 +208,7 @@ export function identityForIssuingCompany(
   if (!name) return null;
   const n = name.trim().toLowerCase();
   if (!n) return null;
-  for (const w of ISC_WRITERS) {
+  for (const w of [...ISC_WRITERS, ...COTERIE_WRITERS]) {
     const full = w.issuingCompany.toLowerCase();
     const distinctive = full.replace(/\s+insurance (company|corporation)$/, "");
     if (n === full || n.includes(distinctive)) return w;
@@ -202,6 +229,17 @@ export function naicForPolicy(
 ): NaicIdentity | null {
   const fromDec = identityForIssuingCompany(issuingCarrier);
   if (fromDec) return fromDec;
+  // The dec named a writer this table cannot verify. Falling back to the
+  // brand rule here would print a different company on the INSURER line —
+  // an MGA's default paper in place of the one that actually wrote the
+  // policy. Print what the dec says and leave the code blank.
+  if (issuingCarrier?.trim()) {
+    return {
+      issuingCompany: issuingCarrier.trim(),
+      naic: null,
+      note: "Writer taken from the dec page; NAIC code not verified on this desk",
+    };
+  }
   const brand = carrier.trim().toLowerCase();
   for (const rule of NAIC_RULES) {
     if (rule.brand.toLowerCase() !== brand) continue;

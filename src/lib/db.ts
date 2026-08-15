@@ -84,6 +84,53 @@ import {
   listOperatorKnowledgeEntries,
   migrateCarrierKnowledgeTable,
 } from "./carrier-knowledge-store";
+import {
+  listAtRiskWindows,
+  listRetentionEvents,
+  migrateRetentionTables,
+  setWindowOwner,
+  setWindowValuation,
+  syncDerivedLedger,
+  type LedgerSyncResult,
+} from "./retention/store";
+import {
+  assignOwner,
+  auditOwnership,
+  getCurrentOwner,
+  listOwnerHistory,
+  seedOwnershipFromServiceOwner,
+} from "./retention/ownership-store";
+import {
+  attachDefectEvidence,
+  createRenewalTransfer,
+  getDefectByIssue,
+  listDefects,
+  listRenewalTransfers,
+  raiseDefect,
+  setRenewalTransferState,
+  transitionDefect,
+  type RaiseDefectInput,
+} from "./retention/defect-store";
+import {
+  getPeriod,
+  getPublishedBoard,
+  listDisputes,
+  listPeriods,
+  markPeriodAttached,
+  publishPeriod,
+  raiseDispute,
+  reconcilePeriod,
+  settleDispute,
+  upsertPeriod,
+  type PublishedBoard,
+} from "./retention/period-store";
+import type { ScorecardDispute, ScorecardPeriod } from "./retention/period";
+import type { PersonScorecard, PodScorecard } from "./retention/scorecard";
+import type { DerivedLedger } from "./retention/signals";
+import type { OwnerAssignment, OwnershipViolation } from "./retention/ownership";
+import type { DefectState, OriginationDefect } from "./retention/defects";
+import type { RenewalTransfer } from "./retention/renewal-transfer";
+import type { AtRiskOutcome, AtRiskWindow, RetentionEvent } from "./retention/types";
 import type {
   CarrierKnowledgeEntry,
   KnowledgeKind,
@@ -109,6 +156,7 @@ function getDb(): Database.Database {
   ensureColumn(db, "operators", "clerk_user_id", "clerk_user_id TEXT");
   migrateIntelligenceTables(db);
   migrateCarrierKnowledgeTable(db);
+  migrateRetentionTables(db);
   seedIfEmpty(db);
   syncAccountsAndPolicies(db);
   syncUnderwriterChannels(db);
@@ -3321,4 +3369,210 @@ export type {
  */
 export function applyBook(book: SupabaseBook): void {
   syncAccountsAndPolicies(getDb(), book);
+}
+
+// ————————————————— Retention Ledger —————————————————
+
+/**
+ * Persist a ledger derived from `lifecycle.signals` and carrier notices.
+ * Idempotent on the derived window id, so a re-sync reconciles rather than
+ * duplicating.
+ */
+export function applyRetentionLedger(derived: DerivedLedger): LedgerSyncResult {
+  return syncDerivedLedger(getDb(), derived);
+}
+
+export function listRetentionWindows(
+  filter: {
+    accountId?: string;
+    outcome?: AtRiskOutcome;
+    openedFrom?: string;
+    openedTo?: string;
+  } = {},
+): AtRiskWindow[] {
+  return listAtRiskWindows(getDb(), filter);
+}
+
+export function listRetentionWindowEvents(windowId?: string): RetentionEvent[] {
+  return listRetentionEvents(getDb(), windowId);
+}
+
+/** Attach premium and carrier rate so a save on this window can be valued. */
+export function valueRetentionWindow(
+  windowId: string,
+  valuation: {
+    premiumCents: number | null;
+    commissionRateBps: number | null;
+    commissionAtRiskCents: number | null;
+    replacementCommissionCents?: number | null;
+  },
+): void {
+  setWindowValuation(getDb(), windowId, valuation);
+}
+
+export function setRetentionWindowOwner(
+  windowId: string,
+  ownerAgentId: string | null,
+): void {
+  setWindowOwner(getDb(), windowId, ownerAgentId);
+}
+
+// ————————————————— Account Owner Of Record —————————————————
+
+export function getAccountOwner(accountId: string): OwnerAssignment | null {
+  return getCurrentOwner(getDb(), accountId);
+}
+
+export function listAccountOwnerHistory(accountId?: string): OwnerAssignment[] {
+  return listOwnerHistory(getDb(), accountId);
+}
+
+/**
+ * Move ownership of an account. Every move is recorded with a reason — an
+ * unexplained reassignment is how ownership quietly evaporates under load.
+ */
+export function reassignAccountOwner(input: {
+  accountId: string;
+  ownerAgentId: string | null;
+  ownerDisplayName: string | null;
+  reason: OwnerAssignment["reason"];
+  assignedBy?: string | null;
+  note?: string | null;
+}): OwnerAssignment {
+  return assignOwner(getDb(), input);
+}
+
+export function seedAccountOwners(
+  rows: {
+    accountId: string;
+    serviceOwnerAgentId: string | null;
+    serviceOwnerName: string | null;
+    since?: string;
+  }[],
+): { seeded: number; orphans: number } {
+  return seedOwnershipFromServiceOwner(getDb(), rows);
+}
+
+/** No-orphan rule check: orphans, double owners, and overlapping history. */
+export function auditAccountOwnership(): OwnershipViolation[] {
+  return auditOwnership(getDb());
+}
+
+// ————————————————— Origination Defect Ledger —————————————————
+
+export function raiseOriginationDefect(
+  input: RaiseDefectInput,
+): OriginationDefect {
+  return raiseDefect(getDb(), input);
+}
+
+export function listOriginationDefects(
+  filter: Parameters<typeof listDefects>[1] = {},
+): OriginationDefect[] {
+  return listDefects(getDb(), filter);
+}
+
+export function getOriginationDefectForIssue(
+  issueId: string,
+): OriginationDefect | null {
+  return getDefectByIssue(getDb(), issueId);
+}
+
+/**
+ * Move a defect through adjudication. Throws rather than silently no-ops on an
+ * illegal move — a confirmed defect nobody agreed to is the failure mode this
+ * whole ledger has to avoid.
+ */
+export function adjudicateOriginationDefect(
+  id: string,
+  to: DefectState,
+  opts: { actor?: string | null; note?: string | null } = {},
+): OriginationDefect {
+  return transitionDefect(getDb(), id, to, opts);
+}
+
+export function attachOriginationDefectEvidence(
+  id: string,
+  refs: string[],
+): OriginationDefect {
+  return attachDefectEvidence(getDb(), id, refs);
+}
+
+/** The sanction: renewal credit moves from the producer to the pod that absorbed it. */
+export function transferRenewalForDefect(
+  defectId: string,
+  opts: { renewalCommissionCents?: number | null } = {},
+): RenewalTransfer {
+  return createRenewalTransfer(getDb(), defectId, opts);
+}
+
+export function listRenewalTransfersForAccount(
+  accountId?: string,
+): RenewalTransfer[] {
+  return listRenewalTransfers(getDb(), accountId ? { accountId } : {});
+}
+
+export function reverseRenewalTransfer(id: string, note?: string): void {
+  setRenewalTransferState(getDb(), id, "reversed", note ?? null);
+}
+
+// ————————————————— Scorecard Periods And Disputes —————————————————
+
+export function saveScorecardPeriod(period: ScorecardPeriod): void {
+  upsertPeriod(getDb(), period);
+}
+
+export function getScorecardPeriod(id: string): ScorecardPeriod | null {
+  return getPeriod(getDb(), id);
+}
+
+export function listScorecardPeriods(): ScorecardPeriod[] {
+  return listPeriods(getDb());
+}
+
+/** Freeze the board and publish it, so disputes argue with fixed figures. */
+export function publishScorecardPeriod(
+  period: ScorecardPeriod,
+  board: { pods: PodScorecard[]; people: PersonScorecard[] },
+  publishedAt?: string,
+): ScorecardPeriod {
+  return publishPeriod(getDb(), period, board, publishedAt);
+}
+
+export function getPublishedScorecard(periodId: string): PublishedBoard | null {
+  return getPublishedBoard(getDb(), periodId);
+}
+
+export function raiseScorecardDispute(
+  input: Parameters<typeof raiseDispute>[1],
+): ScorecardDispute {
+  return raiseDispute(getDb(), input);
+}
+
+export function settleScorecardDispute(
+  input: Parameters<typeof settleDispute>[1],
+): ScorecardDispute {
+  return settleDispute(getDb(), input);
+}
+
+export function listScorecardDisputes(
+  periodId?: string,
+  state?: ScorecardDispute["state"],
+): ScorecardDispute[] {
+  return listDisputes(getDb(), periodId, state);
+}
+
+/** The shadow-period ritual: reconcile the published board against disputes. */
+export function reconcileScorecardPeriod(periodId: string, now?: Date) {
+  return reconcilePeriod(getDb(), periodId, now);
+}
+
+export function attachScorecardPeriodPay(periodId: string, attachedBy: string): void {
+  const { readiness } = reconcilePeriod(getDb(), periodId);
+  if (!readiness.ready) {
+    throw new Error(
+      `Cannot attach pay to ${periodId}: ${readiness.blockers.join("; ")}`,
+    );
+  }
+  markPeriodAttached(getDb(), periodId, attachedBy);
 }

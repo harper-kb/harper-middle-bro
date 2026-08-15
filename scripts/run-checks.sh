@@ -65,6 +65,13 @@ run agentification-check npx tsx --tsconfig scripts/tsconfig.render-check.json s
 run hardening-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/hardening-check.ts
 run manager-kpi-check npx tsx scripts/manager-kpi-check.ts
 run manager-qa-check npx tsx scripts/manager-qa-check.ts
+run retention-ledger-check npx tsx scripts/retention-ledger-check.ts
+run saves-projection-check npx tsx scripts/saves-projection-check.ts
+run defect-ledger-check npx tsx scripts/defect-ledger-check.ts
+run vocabulary-normalize-check npx tsx scripts/vocabulary-normalize-check.ts
+run live-packs-check npx tsx scripts/live-packs-check.ts
+run scorecard-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/scorecard-check.tsx
+run shadow-period-check npx tsx scripts/shadow-period-check.ts
 
 echo "---"
 if [ $fails -eq 0 ]; then

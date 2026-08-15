@@ -300,8 +300,20 @@ export function ShadowPeriodPanel({
 
           {canManage && (
             <div className="mt-4 flex flex-wrap gap-2">
+              {/* Republishing over an argument would erase the figure being
+                  argued with. The store refuses it; the button says so first,
+                  rather than letting the refusal arrive as a crash. */}
               <form action={publishPeriodAction}>
-                <button type="submit" className="btn-ghost text-xs">
+                <button
+                  type="submit"
+                  disabled={published && disputes.length > 0}
+                  title={
+                    published && disputes.length > 0
+                      ? "Settle the disputes first — republishing would replace the figures they argue with"
+                      : undefined
+                  }
+                  className="btn-ghost text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                >
                   {published ? "Republish Numbers" : "Publish Numbers"}
                 </button>
               </form>

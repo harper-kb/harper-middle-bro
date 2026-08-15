@@ -431,6 +431,25 @@ check(
   "attach pay is offered but disabled while the board is blocked",
   managerPanel.includes("Attach Pay") && managerPanel.includes("disabled"),
 );
+check(
+  "republishing over a live dispute is refused in the button, not in a stack trace",
+  managerPanel.includes("Settle the disputes first"),
+);
+
+const undisputedPanel = renderToStaticMarkup(
+  <ShadowPeriodPanel
+    period={published}
+    readiness={periodReadiness(published, [], metricSources, afterPeriod)}
+    disputes={[]}
+    subjects={subjects}
+    canManage
+  />,
+);
+check(
+  "republishing stays open while the board is still moving",
+  undisputedPanel.includes("Republish Numbers") &&
+    !undisputedPanel.includes("Settle the disputes first"),
+);
 
 const seatPanel = renderToStaticMarkup(
   <ShadowPeriodPanel

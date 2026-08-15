@@ -6,6 +6,7 @@ import { SEED_ACCOUNTS, SEED_POLICIES, SEED_UNDERWRITERS } from "./seed";
 import {
   loadSupabaseBook,
   UNASSIGNED_UNDERWRITER,
+  type SupabaseBook,
 } from "./supabase-book.server";
 import { SEED_ACCOUNT_GRANTS, SEED_OPERATORS } from "./operators-seed";
 import { SEED_INTAKE_EVENTS } from "./intake-seed";
@@ -493,7 +494,10 @@ function seedIfEmpty(db: Database.Database) {
 }
 
 /** Upsert seed accounts/policies so expanding the book lands on existing DBs. */
-function syncAccountsAndPolicies(db: Database.Database) {
+function syncAccountsAndPolicies(
+  db: Database.Database,
+  bookOverride?: SupabaseBook,
+) {
   const insertUw = db.prepare(`
     INSERT INTO underwriters (
       id, name, email, phone, portal, carrier, notes,
@@ -559,7 +563,7 @@ function syncAccountsAndPolicies(db: Database.Database) {
   // upsert carries the real Harper slice instead of the fictional seed.
   // Fictional rows already in the DB stay put (seeded tickets/threads
   // reference them); stale co-*/deal-* rows from older syncs are pruned.
-  const book = loadSupabaseBook();
+  const book = bookOverride ?? loadSupabaseBook();
   const accounts = book ? book.accounts : SEED_ACCOUNTS;
   const policies = book ? book.policies : SEED_POLICIES;
 
@@ -3307,3 +3311,14 @@ export type {
   CarrierRecord,
   DeskDocument,
 };
+
+/**
+ * Replace the book in the open database with one fetched at runtime.
+ *
+ * Same write path as boot — the upsert, the prune of rows that fell out of
+ * the book, and the schedules of record — so a refresh from Harper lands
+ * exactly where an imported overlay does and cannot drift from it.
+ */
+export function applyBook(book: SupabaseBook): void {
+  syncAccountsAndPolicies(getDb(), book);
+}

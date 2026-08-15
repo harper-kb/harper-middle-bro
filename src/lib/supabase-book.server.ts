@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { gunzipSync } from "node:zlib";
+import { BOOK_SNAPSHOT_B64 } from "./book-snapshot";
 import type { PolicyFormSet } from "./forms";
 import type { Account, Policy, Underwriter } from "./types";
 
@@ -59,6 +60,16 @@ export function loadSupabaseBook(): SupabaseBook | null {
   return cache;
 }
 
+export type BookSource = "overlay" | "env" | "snapshot" | "seed";
+
+let source: BookSource = "seed";
+
+/** Where the serving book came from. Answers "is this real?" for an operator. */
+export function bookSource(): BookSource {
+  loadSupabaseBook();
+  return source;
+}
+
 /**
  * The book as an environment variable: gzipped JSON, base64, optionally
  * split across numbered parts because a whole book of real policies is
@@ -78,14 +89,29 @@ function readBookFromEnv(): string | null {
     parts.push(part);
   }
   if (parts.length === 0) return null;
+  return inflate(parts.join(""), "HARPER_BOOK_B64");
+}
+
+/**
+ * The book committed to the repository. Last in line, so a real overlay or
+ * a configured deployment always wins, and an instance with neither still
+ * serves real accounts rather than the fictional seed.
+ */
+function readBookFromSnapshot(): string | null {
+  if (!BOOK_SNAPSHOT_B64) return null;
+  return inflate(BOOK_SNAPSHOT_B64, "book-snapshot.ts");
+}
+
+function inflate(b64: string, source: string): string | null {
   try {
-    return gunzipSync(Buffer.from(parts.join(""), "base64")).toString("utf-8");
+    return gunzipSync(Buffer.from(b64, "base64")).toString("utf-8");
   } catch {
     // A truncated or mis-pasted value must not look like an empty book:
-    // returning null here falls back to the seed, which is visibly
-    // fictional, rather than to a half-book that looks real.
+    // returning null falls through to the next source and ultimately to the
+    // seed, which is visibly fictional, rather than to a half-book that
+    // reads as real.
     console.error(
-      "[supabase-book] HARPER_BOOK_B64 present but unreadable — falling back to seed.",
+      `[supabase-book] ${source} present but unreadable — falling through.`,
     );
     return null;
   }
@@ -93,9 +119,16 @@ function readBookFromEnv(): string | null {
 
 function readBook(): SupabaseBook | null {
   try {
-    const raw = fs.existsSync(BOOK_PATH)
-      ? fs.readFileSync(BOOK_PATH, "utf-8")
-      : readBookFromEnv();
+    // Order matters: a local overlay beats a deployment's variables, which
+    // beat the committed snapshot. Each is a more deliberate statement than
+    // the one after it.
+    let raw: string | null = null;
+    if (fs.existsSync(BOOK_PATH)) {
+      raw = fs.readFileSync(BOOK_PATH, "utf-8");
+      source = "overlay";
+    }
+    if (!raw && (raw = readBookFromEnv())) source = "env";
+    if (!raw && (raw = readBookFromSnapshot())) source = "snapshot";
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       fetchedAt?: unknown;

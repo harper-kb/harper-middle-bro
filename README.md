@@ -45,6 +45,15 @@ SQLite DB is created at `data/underwriter-desk.db` on first load (gitignored) an
 
 The former `/pending` intake board has been removed; intake triage lives under **Comms** going forward.
 
+## Browser extension
+
+`extension/` is a Chrome extension that fills a payment page's bank details in one click —
+account holder, account and routing numbers, the confirmation box, autopay, and the Terms of
+Use checkbox. Load it unpacked from `chrome://extensions`; there is no build step. It asks for
+no host permissions, stores details locally, and never submits the form. See
+[`extension/README.md`](extension/README.md), and `npx tsx scripts/autofill-check.ts` for its
+harness.
+
 ## Auth (Clerk)
 
 This repo is a **standalone Clerk application** (not Harper production auth). Development keys live in `.env.local` (gitignored). First Clerk login creates/links an `operators` row so signatures and streaks stick to the user.

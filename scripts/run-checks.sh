@@ -69,6 +69,7 @@ run defect-ledger-check npx tsx scripts/defect-ledger-check.ts
 run vocabulary-normalize-check npx tsx scripts/vocabulary-normalize-check.ts
 run live-packs-check npx tsx scripts/live-packs-check.ts
 run scorecard-check npx tsx --tsconfig scripts/tsconfig.render-check.json scripts/scorecard-check.tsx
+run shadow-period-check npx tsx scripts/shadow-period-check.ts
 
 echo "---"
 if [ $fails -eq 0 ]; then

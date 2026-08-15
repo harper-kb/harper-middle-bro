@@ -111,6 +111,21 @@ import {
   transitionDefect,
   type RaiseDefectInput,
 } from "./retention/defect-store";
+import {
+  getPeriod,
+  getPublishedBoard,
+  listDisputes,
+  listPeriods,
+  markPeriodAttached,
+  publishPeriod,
+  raiseDispute,
+  reconcilePeriod,
+  settleDispute,
+  upsertPeriod,
+  type PublishedBoard,
+} from "./retention/period-store";
+import type { ScorecardDispute, ScorecardPeriod } from "./retention/period";
+import type { PersonScorecard, PodScorecard } from "./retention/scorecard";
 import type { DerivedLedger } from "./retention/signals";
 import type { OwnerAssignment, OwnershipViolation } from "./retention/ownership";
 import type { DefectState, OriginationDefect } from "./retention/defects";
@@ -3499,4 +3514,65 @@ export function listRenewalTransfersForAccount(
 
 export function reverseRenewalTransfer(id: string, note?: string): void {
   setRenewalTransferState(getDb(), id, "reversed", note ?? null);
+}
+
+// ————————————————— Scorecard Periods And Disputes —————————————————
+
+export function saveScorecardPeriod(period: ScorecardPeriod): void {
+  upsertPeriod(getDb(), period);
+}
+
+export function getScorecardPeriod(id: string): ScorecardPeriod | null {
+  return getPeriod(getDb(), id);
+}
+
+export function listScorecardPeriods(): ScorecardPeriod[] {
+  return listPeriods(getDb());
+}
+
+/** Freeze the board and publish it, so disputes argue with fixed figures. */
+export function publishScorecardPeriod(
+  period: ScorecardPeriod,
+  board: { pods: PodScorecard[]; people: PersonScorecard[] },
+  publishedAt?: string,
+): ScorecardPeriod {
+  return publishPeriod(getDb(), period, board, publishedAt);
+}
+
+export function getPublishedScorecard(periodId: string): PublishedBoard | null {
+  return getPublishedBoard(getDb(), periodId);
+}
+
+export function raiseScorecardDispute(
+  input: Parameters<typeof raiseDispute>[1],
+): ScorecardDispute {
+  return raiseDispute(getDb(), input);
+}
+
+export function settleScorecardDispute(
+  input: Parameters<typeof settleDispute>[1],
+): ScorecardDispute {
+  return settleDispute(getDb(), input);
+}
+
+export function listScorecardDisputes(
+  periodId?: string,
+  state?: ScorecardDispute["state"],
+): ScorecardDispute[] {
+  return listDisputes(getDb(), periodId, state);
+}
+
+/** The shadow-period ritual: reconcile the published board against disputes. */
+export function reconcileScorecardPeriod(periodId: string, now?: Date) {
+  return reconcilePeriod(getDb(), periodId, now);
+}
+
+export function attachScorecardPeriodPay(periodId: string, attachedBy: string): void {
+  const { readiness } = reconcilePeriod(getDb(), periodId);
+  if (!readiness.ready) {
+    throw new Error(
+      `Cannot attach pay to ${periodId}: ${readiness.blockers.join("; ")}`,
+    );
+  }
+  markPeriodAttached(getDb(), periodId, attachedBy);
 }

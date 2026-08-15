@@ -84,6 +84,25 @@ import {
   listOperatorKnowledgeEntries,
   migrateCarrierKnowledgeTable,
 } from "./carrier-knowledge-store";
+import {
+  listAtRiskWindows,
+  listRetentionEvents,
+  migrateRetentionTables,
+  setWindowOwner,
+  setWindowValuation,
+  syncDerivedLedger,
+  type LedgerSyncResult,
+} from "./retention/store";
+import {
+  assignOwner,
+  auditOwnership,
+  getCurrentOwner,
+  listOwnerHistory,
+  seedOwnershipFromServiceOwner,
+} from "./retention/ownership-store";
+import type { DerivedLedger } from "./retention/signals";
+import type { OwnerAssignment, OwnershipViolation } from "./retention/ownership";
+import type { AtRiskOutcome, AtRiskWindow, RetentionEvent } from "./retention/types";
 import type {
   CarrierKnowledgeEntry,
   KnowledgeKind,
@@ -109,6 +128,7 @@ function getDb(): Database.Database {
   ensureColumn(db, "operators", "clerk_user_id", "clerk_user_id TEXT");
   migrateIntelligenceTables(db);
   migrateCarrierKnowledgeTable(db);
+  migrateRetentionTables(db);
   seedIfEmpty(db);
   syncAccountsAndPolicies(db);
   syncUnderwriterChannels(db);
@@ -3321,4 +3341,91 @@ export type {
  */
 export function applyBook(book: SupabaseBook): void {
   syncAccountsAndPolicies(getDb(), book);
+}
+
+// ————————————————— Retention Ledger —————————————————
+
+/**
+ * Persist a ledger derived from `lifecycle.signals` and carrier notices.
+ * Idempotent on the derived window id, so a re-sync reconciles rather than
+ * duplicating.
+ */
+export function applyRetentionLedger(derived: DerivedLedger): LedgerSyncResult {
+  return syncDerivedLedger(getDb(), derived);
+}
+
+export function listRetentionWindows(
+  filter: {
+    accountId?: string;
+    outcome?: AtRiskOutcome;
+    openedFrom?: string;
+    openedTo?: string;
+  } = {},
+): AtRiskWindow[] {
+  return listAtRiskWindows(getDb(), filter);
+}
+
+export function listRetentionWindowEvents(windowId?: string): RetentionEvent[] {
+  return listRetentionEvents(getDb(), windowId);
+}
+
+/** Attach premium and carrier rate so a save on this window can be valued. */
+export function valueRetentionWindow(
+  windowId: string,
+  valuation: {
+    premiumCents: number | null;
+    commissionRateBps: number | null;
+    commissionAtRiskCents: number | null;
+    replacementCommissionCents?: number | null;
+  },
+): void {
+  setWindowValuation(getDb(), windowId, valuation);
+}
+
+export function setRetentionWindowOwner(
+  windowId: string,
+  ownerAgentId: string | null,
+): void {
+  setWindowOwner(getDb(), windowId, ownerAgentId);
+}
+
+// ————————————————— Account Owner Of Record —————————————————
+
+export function getAccountOwner(accountId: string): OwnerAssignment | null {
+  return getCurrentOwner(getDb(), accountId);
+}
+
+export function listAccountOwnerHistory(accountId?: string): OwnerAssignment[] {
+  return listOwnerHistory(getDb(), accountId);
+}
+
+/**
+ * Move ownership of an account. Every move is recorded with a reason — an
+ * unexplained reassignment is how ownership quietly evaporates under load.
+ */
+export function reassignAccountOwner(input: {
+  accountId: string;
+  ownerAgentId: string | null;
+  ownerDisplayName: string | null;
+  reason: OwnerAssignment["reason"];
+  assignedBy?: string | null;
+  note?: string | null;
+}): OwnerAssignment {
+  return assignOwner(getDb(), input);
+}
+
+export function seedAccountOwners(
+  rows: {
+    accountId: string;
+    serviceOwnerAgentId: string | null;
+    serviceOwnerName: string | null;
+    since?: string;
+  }[],
+): { seeded: number; orphans: number } {
+  return seedOwnershipFromServiceOwner(getDb(), rows);
+}
+
+/** No-orphan rule check: orphans, double owners, and overlapping history. */
+export function auditAccountOwnership(): OwnershipViolation[] {
+  return auditOwnership(getDb());
 }

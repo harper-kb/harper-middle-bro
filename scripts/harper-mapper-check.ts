@@ -121,6 +121,32 @@ check(
 
 /* ————— Coverage basis ————— */
 
+// Coterie writes its own forms with the edition spaced off the number.
+// Reading only the unspaced MMYY dropped every one of them for want of an
+// edition — including the blanket additional insured, which is the
+// endorsement a certificate most often turns on.
+{
+  const aiol = splitForm("CTF CW AIOL 06 22");
+  check(
+    aiol.form === "CTF CW AIOL" && aiol.edition === "06 22",
+    "A proprietary form with a spaced edition splits",
+    `${aiol.form} | ${aiol.edition}`,
+  );
+  const iso = splitForm("BP 14 88 07 13");
+  check(
+    iso.form === "BP 14 88" && iso.edition === "07 13",
+    "…and an ISO number still splits the same way",
+    `${iso.form} | ${iso.edition}`,
+  );
+  // Four digits that are not a month are not an edition, spaced or not.
+  const notMonth = splitForm("GL FORM 47 22");
+  check(
+    notMonth.form === "GL FORM 47 22" && notMonth.edition === "",
+    "A trailing group that is not a month stays part of the number",
+    `${notMonth.form} | ${notMonth.edition}`,
+  );
+}
+
 check(
   coveragePartBasis(gl.coverage_lines![0]) === "occurrence",
   "An occurrence line states occurrence as a fact, not as prose in its label",

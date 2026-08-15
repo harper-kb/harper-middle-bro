@@ -196,6 +196,18 @@ export function splitForm(raw: string | null | undefined): {
       };
     }
   }
+  // The same convention with the edition spaced off the number, which is how
+  // Coterie writes its own forms: "CTF CW AIOL 06 22". Missing this dropped
+  // every proprietary endorsement for want of an edition — including the
+  // blanket additional insured, the one endorsement a certificate most often
+  // turns on.
+  const spaced = /^(.*\S)\s+(\d{2})\s+(\d{2})$/.exec(text);
+  if (spaced) {
+    const month = Number(spaced[2]);
+    if (month >= 1 && month <= 12) {
+      return { form: spaced[1].toUpperCase(), edition: `${spaced[2]} ${spaced[3]}` };
+    }
+  }
   return { form: text, edition: "" };
 }
 

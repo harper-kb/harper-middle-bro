@@ -66,6 +66,7 @@ run manager-qa-check npx tsx scripts/manager-qa-check.ts
 run retention-ledger-check npx tsx scripts/retention-ledger-check.ts
 run saves-projection-check npx tsx scripts/saves-projection-check.ts
 run defect-ledger-check npx tsx scripts/defect-ledger-check.ts
+run vocabulary-normalize-check npx tsx scripts/vocabulary-normalize-check.ts
 
 echo "---"
 if [ $fails -eq 0 ]; then

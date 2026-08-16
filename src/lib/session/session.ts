@@ -12,7 +12,7 @@ export async function getSessionOperator(): Promise<Operator | null> {
   // flag: `next build` sets production, so this cannot engage on a deployed
   // instance even if the variable is set there by accident.
   if (process.env.NODE_ENV !== "production" && process.env.DEV_NO_AUTH === "1") {
-    const { listOperators } = await import("./db");
+    const { listOperators } = await import("../db");
     return listOperators()[0] ?? null;
   }
   let isAuthenticated = false;

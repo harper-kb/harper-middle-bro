@@ -170,14 +170,18 @@ export function MiddleBroBot() {
 
   // New page → back to route scope, stale answer cleared.
   useEffect(() => {
-    setScopeOverride(null);
-    setAsked(null);
-    setResult(null);
+    const timer = window.setTimeout(() => {
+      setScopeOverride(null);
+      setAsked(null);
+      setResult(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [pathname]);
 
   useEffect(() => {
     if (!open) return;
-    void fetchScope(effectiveQuery);
+    const timer = window.setTimeout(() => void fetchScope(effectiveQuery), 0);
+    return () => window.clearTimeout(timer);
   }, [open, effectiveQuery, fetchScope]);
 
   useEffect(() => {

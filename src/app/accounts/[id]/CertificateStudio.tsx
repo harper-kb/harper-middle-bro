@@ -415,14 +415,17 @@ export function CertificateStudio({
   // different sheet, so the review pass restarts, same as a policy-mix change.
   const placementsSig = JSON.stringify(placements);
   useEffect(() => {
-    setOverrides({});
-    setConfirmedAreas([]);
-    setActiveArea(null);
-    setSigned(false);
-    setRun(null);
-    setIssued(null);
-    setCheckResults(null);
-    setPreparedInfo(null);
+    const timer = window.setTimeout(() => {
+      setOverrides({});
+      setConfirmedAreas([]);
+      setActiveArea(null);
+      setSigned(false);
+      setRun(null);
+      setIssued(null);
+      setCheckResults(null);
+      setPreparedInfo(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [placementsSig]);
 
   // Identity of the exact artifact on screen. The clean (non-specimen)
@@ -839,14 +842,14 @@ export function CertificateStudio({
   // The blanket AI basis on the chosen schedule, if any — cited in the run
   // summary and the prepared emails. Same first-match rule as the packet's
   // description builder.
-  const blanketBasis = useMemo(() => {
+  const blanketBasis = (() => {
     for (const p of chosen) {
       const set = formSets[p.id];
       const ai = set ? findEndorsement(set, "ai") : undefined;
       if (ai) return `${ai.form} ${ai.edition}`.trim();
     }
     return null;
-  }, [chosen, formSets]);
+  })();
 
   const ctx: SheetCtx = {
     overrides,

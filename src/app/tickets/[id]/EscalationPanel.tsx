@@ -28,6 +28,8 @@ export function EscalationPanel({
   if (ticket.escalatedToId && !ticket.escalationResolvedAt) {
     const overdue =
       ticket.escalationDueBy != null &&
+      // This status intentionally reflects wall-clock time at render.
+      // eslint-disable-next-line react-hooks/purity
       new Date(ticket.escalationDueBy).getTime() < Date.now();
     return (
       <section

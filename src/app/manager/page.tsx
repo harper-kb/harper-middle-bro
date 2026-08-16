@@ -89,6 +89,8 @@ export default async function ManagerPage() {
   const escalations = listEscalatedTickets();
   const unassigned = listTickets({ unclaimedOnly: true, openOnly: true });
   const today = localDateKey();
+  // Server-render freshness is intentional for the live operations board.
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
 
   const accountNameById = new Map(accounts.map((a) => [a.id, a.name]));

@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import type { PolicyFormSet } from "./forms";
 import type { Account, Policy, Underwriter } from "./types";
 import {
   classifyOrderSource,
@@ -218,6 +219,8 @@ export interface SupabaseBook {
   source?: string;
   accounts: Account[];
   policies: Policy[];
+  /** Legacy/runtime Harper sync compatibility for policy schedules of record. */
+  schedules?: Record<string, PolicyFormSet>;
   /** Order grain for All Accounts — empty on older snapshots until refresh. */
   orders: BookOrder[];
   reportingWindows?: BookReportingWindows;
@@ -264,6 +267,13 @@ export function loadSupabaseBook(): SupabaseBook | null {
   if (cache !== undefined) return cache;
   cache = readBook();
   return cache;
+}
+
+export type BookSource = "overlay" | "seed";
+
+/** Compatibility answer for deployment health routes after the book refactor. */
+export function bookSource(): BookSource {
+  return loadSupabaseBook() ? "overlay" : "seed";
 }
 
 /**

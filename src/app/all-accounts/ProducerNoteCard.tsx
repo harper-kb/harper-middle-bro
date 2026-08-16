@@ -64,11 +64,11 @@ export function ProducerNoteCard({
   canEdit,
   editHref,
 }: ProducerNoteCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const panelId = useId();
   const body = note.trim();
   if (!body) return null;
 
-  const [expanded, setExpanded] = useState(false);
-  const panelId = useId();
   const { preview, needsToggle } = previewText(body);
   const relative = formatRelativeTime(updatedAt);
   const exact = formatExactTimestamp(updatedAt);

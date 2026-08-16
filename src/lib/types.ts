@@ -330,8 +330,8 @@ export const AUTO_APPROVE_THRESHOLD_CENTS = 50_000;
 // BigBrother / Agent Tools / legacy backends stay behind server adapters.
 // Source APIs and capability gates: docs/step-bro-adapters.md
 
-/** Sidebar groups: Desk | eight sections | Manager. */
-export type ServiceNavGroup = "desk" | "sections" | "manager";
+/** Sidebar groups: Accounts | Service | Manager. */
+export type ServiceNavGroup = "accounts" | "service" | "manager";
 
 /**
  * One home lane per work item. Sections may show filtered views of the same
@@ -361,12 +361,12 @@ export const SERVICE_LANE_IDS: readonly ServiceLaneId[] = [
 export const SERVICE_LANE_LABELS: Record<ServiceLaneId, string> = {
   pending_orders: "Pending Orders",
   active_service: "Active Service",
-  pending_cancels: "Pending Cancels",
+  pending_cancels: "Pending Cancellations",
   post_sales: "Post Sales",
-  coi: "COI",
+  coi: "COI Studio",
   subjectivities: "Subjectivities",
   instant_binds: "Instant Binds",
-  communications: "Communications",
+  communications: "Inbox",
 };
 
 export const SERVICE_LANE_HREFS: Record<ServiceLaneId, string> = {
@@ -530,6 +530,7 @@ export type CapabilityId =
   | "write.payment_link"
   | "write.docusign"
   | "write.bind"
+  | "write.service_note"
   | "write.coi.issue"
   | "write.coi.send"
   | "read.memory"

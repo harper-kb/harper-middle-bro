@@ -10,12 +10,12 @@ const LABELS: Record<ThreadStatus, string> = {
 };
 
 const STYLES: Record<ThreadStatus, string> = {
-  drafting: "bg-slate-100 text-slate-700",
-  waiting_uw: "bg-amber-50 text-amber-800 ring-1 ring-amber-200",
-  price_offered: "bg-sky-50 text-sky-800 ring-1 ring-sky-200",
-  auto_approved: "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200",
-  needs_human: "bg-rose-50 text-rose-800 ring-1 ring-rose-200",
-  closed: "bg-slate-50 text-slate-500 ring-1 ring-slate-200",
+  drafting: "status-neutral",
+  waiting_uw: "status-warning",
+  price_offered: "status-info",
+  auto_approved: "status-success",
+  needs_human: "status-danger",
+  closed: "status-neutral opacity-75",
 };
 
 export function StatusPill({ status }: { status: ThreadStatus }) {

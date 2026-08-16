@@ -71,7 +71,7 @@ function check(ok: boolean, label: string, evidence?: string) {
 }
 
 /**
- * Mirror of `fieldArea` in src/components/CertificateStudio.tsx — the
+ * Mirror of `fieldArea` in src/app/accounts/[id]/CertificateStudio.tsx — the
  * component keeps it private, so the harness re-states the mapping. If the
  * component's mapping changes, change this too (G4 will catch drift the
  * moment a reject stops mapping).

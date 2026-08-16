@@ -5,7 +5,7 @@
 import { discoverCapabilities } from "../src/lib/adapters/agent-tools/capabilities";
 import { reconcileCounts } from "../src/lib/adapters/bigbrother/lane-adapter";
 import { SERVICE_LANE_IDS } from "../src/lib/types";
-import { ACCOUNT_TABS } from "../src/components/AccountWorkspace";
+import { ACCOUNT_TABS } from "../src/app/accounts/[id]/AccountWorkspace";
 
 let failed = 0;
 function check(label: string, ok: boolean) {

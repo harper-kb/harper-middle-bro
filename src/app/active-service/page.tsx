@@ -31,7 +31,7 @@ export default async function ActiveServicePage() {
       <main className="px-4 py-6 lg:px-8">
         <div className="mb-4">
           <p className="eyebrow">Section</p>
-          <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">
+          <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">
             Active Service
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">

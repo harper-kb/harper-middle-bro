@@ -64,7 +64,7 @@ export default async function OversightPage({
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="eyebrow">Oversight Board</p>
-            <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">
+            <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">
               Agent Tracking
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">
@@ -251,8 +251,8 @@ export default async function OversightPage({
             {stats.threads.length === 0 && (
               <li className="px-4 py-10 text-center text-sm text-[var(--muted)]">
                 Nothing to oversee yet.{" "}
-                <Link href="/" className="underline">
-                  Send From Sandbox
+                <Link href="/tickets/new" className="underline">
+                  Open a new ticket
                 </Link>
                 .
               </li>

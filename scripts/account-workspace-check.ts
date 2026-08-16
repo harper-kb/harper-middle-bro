@@ -2,7 +2,7 @@
  * Account workspace tab contract check.
  * Run: npx tsx scripts/account-workspace-check.ts
  */
-import { ACCOUNT_TABS } from "../src/components/AccountWorkspace";
+import { ACCOUNT_TABS } from "../src/app/accounts/[id]/AccountWorkspace";
 
 let failed = 0;
 function check(label: string, ok: boolean) {

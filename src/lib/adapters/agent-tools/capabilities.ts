@@ -89,9 +89,16 @@ export const CAPABILITY_DEFS: readonly CapabilityDef[] = [
   {
     id: "write.bind",
     provider: "agent_tools",
-    command: null,
+    command: "sales deal bind",
     legacyFallback: false,
     label: "Bind Policy",
+  },
+  {
+    id: "write.service_note",
+    provider: "agent_tools",
+    command: "service note append",
+    legacyFallback: false,
+    label: "Add Service Note",
   },
   {
     id: "write.coi.issue",

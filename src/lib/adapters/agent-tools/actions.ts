@@ -23,6 +23,7 @@ const CONFIRMATION_BY_CAPABILITY: Partial<Record<CapabilityId, ConfirmationPolic
   "write.docusign": "one_click",
   "write.payment_link": "one_click",
   "write.bind": "one_click",
+  "write.service_note": "one_click",
   "write.coi.issue": "one_click",
   "write.coi.send": "one_click",
   "write.draft": "none",
@@ -144,13 +145,21 @@ export async function dispatchAction(
   }
 
   try {
-    const result = await executeAgentToolsCommand(command, {
-      ...request.payload,
-      idempotency_key: request.idempotencyKey,
-      operator_id: request.operatorId,
-      work_item_id: request.workItemId,
-      account_id: request.accountId,
-    });
+    const strictGovernedVerb =
+      request.capabilityId === "write.bind" ||
+      request.capabilityId === "write.service_note";
+    const result = await executeAgentToolsCommand(
+      command,
+      strictGovernedVerb
+        ? request.payload
+        : {
+            ...request.payload,
+            idempotency_key: request.idempotencyKey,
+            operator_id: request.operatorId,
+            work_item_id: request.workItemId,
+            account_id: request.accountId,
+          },
+    );
     if (!result.ok) {
       // Do not persist failures — operator may retry the same key.
       return baseReceipt(
@@ -158,6 +167,29 @@ export async function dispatchAction(
         "failed",
         result.error ?? "Agent Tools execution failed",
         { httpStatus: result.status },
+      );
+    }
+    const upstreamStatus =
+      typeof result.data.status === "string"
+        ? result.data.status.trim().toLowerCase()
+        : "";
+    const governedSuccess =
+      request.capabilityId === "write.bind"
+        ? new Set(["bound", "applied", "ok"]).has(upstreamStatus)
+        : request.capabilityId === "write.service_note"
+          ? new Set(["appended", "appended_without_ledger"]).has(upstreamStatus)
+          : true;
+    if (!governedSuccess) {
+      return baseReceipt(
+        request,
+        "failed",
+        typeof result.data.message === "string"
+          ? result.data.message
+          : "The governed write was held; nothing changed.",
+        {
+          command,
+          upstreamStatus: upstreamStatus || "unknown",
+        },
       );
     }
     const receipt = baseReceipt(
@@ -168,6 +200,11 @@ export async function dispatchAction(
         command,
         // Keep only scalar crumbs from the response
         resultKeys: Object.keys(result.data).length,
+        upstreamStatus: upstreamStatus || null,
+        orderAutoCompleted:
+          typeof result.data.order_auto_completed === "boolean"
+            ? result.data.order_auto_completed
+            : null,
       },
     );
     storeReceipt(receipt);

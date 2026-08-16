@@ -487,7 +487,7 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
 {
   const read = (p: string) => fs.readFileSync(path.join(__dirname, "..", p), "utf8");
   const src = {
-    studio: read("src/components/CertificateStudio.tsx"),
+    studio: read("src/app/accounts/[id]/CertificateStudio.tsx"),
     verifier: read("src/components/CoiVerifier.tsx"),
     core: read("src/lib/cert-issuance-core.ts"),
     ledger: read("src/lib/cert-ledger.ts"),

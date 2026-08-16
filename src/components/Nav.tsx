@@ -7,6 +7,7 @@ import { useCallback, useState, useSyncExternalStore } from "react";
 import {
   Show,
   SignInButton,
+  SignOutButton,
   SignUpButton,
   UserButton,
 } from "@clerk/nextjs";
@@ -16,30 +17,49 @@ import {
   SERVICE_MAILBOX,
   SHORT_NAME,
 } from "@/lib/brand";
-import { SERVICE_LANE_HREFS, SERVICE_LANE_IDS, SERVICE_LANE_LABELS } from "@/lib/types";
 import type { Operator } from "@/lib/types";
 import { useIdlePresence, type Presence } from "@/lib/use-presence";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { LatestDatabaseSync } from "@/components/LatestDatabaseSync";
+import { OperationsStatsBar } from "@/components/OperationsStatsBar";
 
-/**
- * Left sidebar navigation. Exactly three groups per Step Bro product contract:
- * Desk | eight sections | Manager.
- */
+/** Left sidebar navigation: account views | service | Manager. */
 
 type NavItem = { href: string; label: string };
 
-const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
+type NavGroup = {
+  id: string;
+  label: string;
+  items: NavItem[];
+  /** Force the group open while one of its routes is active. */
+  autoExpandOnActive?: boolean;
+};
+
+const NAV_GROUPS: NavGroup[] = [
   {
-    id: "desk",
-    label: "Desk",
-    items: [{ href: "/desk", label: "Desk" }],
+    id: "accounts",
+    label: "Accounts",
+    items: [
+      { href: "/all-accounts", label: "All Accounts" },
+      { href: "/pending-orders", label: "Pending Orders" },
+      { href: "/bound-orders", label: "Bound Orders" },
+      { href: "/lost-orders", label: "Lost Orders" },
+    ],
+    autoExpandOnActive: true,
   },
   {
-    id: "sections",
-    label: "Sections",
-    items: SERVICE_LANE_IDS.map((id) => ({
-      href: SERVICE_LANE_HREFS[id],
-      label: SERVICE_LANE_LABELS[id],
-    })),
+    id: "service",
+    label: "Service",
+    items: [
+      { href: "/coi", label: "COI Studio" },
+      { href: "/docusign-board", label: "DocuSign Board" },
+      { href: "/iq-bind-orders", label: "IQ Bind Bench" },
+      { href: "/subjectivities", label: "Subjectivities" },
+      { href: "/binder-checkout", label: "Binder Checkout" },
+      { href: "/communications", label: "Inbox" },
+      { href: "/pending-cancels", label: "Pending Cancellations" },
+    ],
+    autoExpandOnActive: true,
   },
   {
     id: "manager",
@@ -48,7 +68,6 @@ const NAV_GROUPS: { id: string; label: string; items: NavItem[] }[] = [
       { href: "/manager", label: "Manager" },
       { href: "/manager/kpis", label: "KPIs" },
       { href: "/manager/qa", label: "QA" },
-      { href: "/accounts", label: "Accounts" },
       { href: "/certificates", label: "Certificates" },
       { href: "/oversight", label: "Oversight" },
       { href: "/agent-watch", label: "Agent Watch" },
@@ -145,9 +164,9 @@ function PresenceDot({ presence }: { presence: Presence }) {
 }
 
 function itemClass(active: boolean): string {
-  return `flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold)] active:bg-[var(--sand)] ${
+  return `flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] active:bg-[var(--sand)] ${
     active
-      ? "bg-[color-mix(in_srgb,var(--gold)_18%,transparent)] font-semibold text-[var(--ink)]"
+      ? "bg-[var(--accent-soft)] font-semibold text-[var(--ink)] shadow-[inset_2px_0_0_var(--accent)]"
       : "font-medium text-[var(--muted)] hover:bg-[var(--sand)] hover:text-[var(--ink)]"
   }`;
 }
@@ -166,23 +185,18 @@ function NavSections({
   onNavigate?: () => void;
 }) {
   return (
-    <nav className="flex flex-col gap-5">
-      <Link
-        href="/"
-        onClick={onNavigate}
-        className={itemClass(path === "/")}
-      >
-        Sandbox
-      </Link>
-
+    <nav className="flex flex-col gap-4">
       {NAV_GROUPS.map((group) => {
-        const open = !collapsed[group.id];
+        const open =
+          !collapsed[group.id] ||
+          (group.autoExpandOnActive === true &&
+            group.items.some((item) => isActivePath(path, item.href)));
         return (
           <div key={group.id}>
             <button
               type="button"
               onClick={() => onToggle(group.id)}
-              className="flex w-full items-center justify-between rounded px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)] transition hover:text-[var(--ink)]"
+              className="flex w-full items-center justify-between rounded px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)] transition hover:text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               aria-expanded={open}
             >
               {group.label}
@@ -218,48 +232,75 @@ function NavSections({
  * Wordmark: the Harper logo and product name on one line, then whoever is at
  * this desk. `email` is omitted on the compact mobile bar.
  */
-function BrandBlock({ email }: { email?: string }) {
-  return (
-    // Two rows, two columns: identity flush left, status flush right. The
-    // status column sizes to the pill and centres the version under it, so the
-    // pair reads as one stack instead of two right-ragged strings.
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-2 gap-y-1.5">
-      <Link href="/" className="flex min-w-0 items-baseline gap-2">
-        {/* Optical alignment against the tightly-cropped PNG. Vertically: its
-            baseline is at 77.6% of the height and the "p" descender fills the
-            rest, but flexbox baselines an image by its bottom edge — so drop
-            it by that descender share. Horizontally: the "H" stem starts 5.4%
-            in, behind a thin swash, so pull that 5.4% (~3.5px at this height)
-            into the margin to line the stem up with the email below. */}
-        <Image
-          src="/harper-wordmark.png"
-          alt="Harper"
-          width={596}
-          height={152}
-          priority
-          className="-ml-[3.5px] h-[1.05rem] w-auto shrink-0 translate-y-[22.4%]"
-        />
-        <span className="truncate font-display text-lg font-semibold leading-none tracking-tight text-[var(--ink)]">
-          {SHORT_NAME}
+function BrandBlock({
+  email,
+  compact = false,
+}: {
+  email?: string;
+  compact?: boolean;
+}) {
+  if (compact) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <Link href="/all-accounts" className="flex min-w-0 items-center gap-2">
+          <Image
+            src="/harper-wordmark.png"
+            alt="Harper"
+            width={596}
+            height={152}
+            priority
+            className="h-4 w-auto shrink-0"
+          />
+          <span className="truncate text-sm font-semibold tracking-[-0.02em] text-[var(--ink)]">
+            {SHORT_NAME}
+          </span>
+        </Link>
+        <span className="rounded-full border border-[color-mix(in_srgb,var(--harper-orange)_35%,transparent)] bg-[var(--accent-soft)] px-1.5 py-px text-[7px] font-semibold uppercase tracking-[0.12em] text-[var(--harper-orange)]">
+          {RELEASE_STAGE}
         </span>
-      </Link>
-      <span className="justify-self-center rounded-full border border-[color-mix(in_srgb,var(--harper-orange)_40%,transparent)] bg-[color-mix(in_srgb,var(--harper-orange)_10%,transparent)] px-1.5 py-[0.5px] text-[8px] font-semibold uppercase leading-[1.6] tracking-[0.12em] text-[var(--harper-orange)]">
-        {RELEASE_STAGE}
-      </span>
+      </div>
+    );
+  }
 
-      {email ? (
-        <span
-          className="truncate text-[10px] uppercase tracking-[0.14em] text-[var(--muted)]"
-          title={email}
-        >
-          {email}
-        </span>
-      ) : (
-        <span />
-      )}
-      <span className="justify-self-center text-[10px] tabular-nums tracking-[0.06em] text-[var(--muted)]">
-        v{APP_VERSION}
-      </span>
+  return (
+    <div className="min-w-0 rounded-xl border border-[var(--rule)] bg-[var(--surface-raised)] p-3 shadow-sm">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <Link href="/all-accounts" className="flex min-w-0 items-center gap-2">
+          <Image
+            src="/harper-wordmark.png"
+            alt="Harper"
+            width={596}
+            height={152}
+            priority
+            className="h-[1.05rem] w-auto shrink-0"
+          />
+          <span className="truncate text-[15px] font-semibold tracking-[-0.025em] text-[var(--ink)]">
+            {SHORT_NAME}
+          </span>
+        </Link>
+        <div className="shrink-0">
+          <ThemeToggle compact />
+        </div>
+      </div>
+
+      <p
+        className="mt-2 truncate text-[9px] uppercase tracking-[0.13em] text-[var(--muted)]"
+        title={email}
+      >
+        {email ?? SERVICE_MAILBOX}
+      </p>
+
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-[var(--rule)] pt-3">
+        <LatestDatabaseSync />
+        <div className="flex shrink-0 flex-col items-center justify-center gap-1">
+          <span className="rounded-full border border-[color-mix(in_srgb,var(--harper-orange)_35%,transparent)] bg-[var(--accent-soft)] px-1.5 py-px text-[7px] font-semibold uppercase leading-none tracking-[0.12em] text-[var(--harper-orange)]">
+            {RELEASE_STAGE}
+          </span>
+          <span className="text-[9px] tabular-nums tracking-[0.06em] text-[var(--muted)]">
+            v{APP_VERSION}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -310,6 +351,26 @@ function AccountRail({
               {operator?.title ?? "Profile"}
             </p>
           </Link>
+          <SignOutButton redirectUrl="/sign-in">
+            <button
+              type="button"
+              aria-label="Sign out"
+              title="Sign out"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--sand)] hover:text-[var(--ink)]"
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                className="h-4 w-4"
+              >
+                <path d="M10 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19H10" />
+                <path d="m15 8 4 4-4 4M9 12h10" />
+              </svg>
+            </button>
+          </SignOutButton>
         </div>
       </Show>
     </div>
@@ -345,17 +406,17 @@ export function Nav({
     emitNavCollapse();
   }, []);
 
-  const brand = <BrandBlock />;
+  const brand = <BrandBlock compact />;
 
   return (
     <>
       {/* Desktop: fixed left sidebar. The .desk-sidebar class drives the
           body padding rule in globals.css — pages never change. */}
       <aside className="desk-sidebar fixed inset-y-0 left-0 z-40 hidden w-[16.5rem] flex-col border-r border-[var(--rule)] bg-[var(--paper)] lg:flex">
-        <div className="border-b border-[var(--rule)] px-4 py-4">
+        <div className="p-3 pb-2">
           <BrandBlock email={operator?.email ?? SERVICE_MAILBOX} />
         </div>
-        <div className="flex-1 overflow-y-auto px-2.5 py-4">
+        <div className="desk-nav-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-4">
           <NavSections
             path={path}
             presence={presence}
@@ -366,8 +427,12 @@ export function Nav({
         <AccountRail operator={operator} presence={presence} />
       </aside>
 
+      <div className="desk-sticky-header sticky top-0 z-30 hidden border-b border-[var(--rule)] lg:block">
+        <OperationsStatsBar />
+      </div>
+
       {/* Below lg: sticky top bar + slide-over drawer. */}
-      <header className="sticky top-0 z-40 border-b border-[var(--rule)] bg-[var(--paper)]/95 backdrop-blur lg:hidden">
+      <header className="desk-sticky-header sticky top-0 z-40 border-b border-[var(--rule)] bg-[var(--paper)]/95 backdrop-blur lg:hidden">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           {brand}
           <div className="flex items-center gap-2">
@@ -384,19 +449,24 @@ export function Nav({
             </button>
           </div>
         </div>
+        <div className="border-t border-[var(--rule)]">
+          <OperationsStatsBar />
+        </div>
       </header>
 
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button
             type="button"
-            className="absolute inset-0 bg-[var(--ink)]/35"
+            className="absolute inset-0 bg-[var(--overlay)]"
             aria-label="Close navigation"
             onClick={() => setMobileOpen(false)}
           />
           <div className="absolute inset-y-0 left-0 flex w-[17rem] flex-col border-r border-[var(--rule)] bg-[var(--paper)] shadow-2xl">
-            <div className="flex items-start justify-between border-b border-[var(--rule)] px-4 py-4">
-              <BrandBlock email={operator?.email ?? SERVICE_MAILBOX} />
+            <div className="flex items-start justify-between gap-2 p-3 pb-2">
+              <div className="min-w-0 flex-1">
+                <BrandBlock email={operator?.email ?? SERVICE_MAILBOX} />
+              </div>
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
@@ -406,7 +476,7 @@ export function Nav({
                 ✕
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto px-2.5 py-4">
+            <div className="desk-nav-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-4">
               <NavSections
                 path={path}
                 presence={presence}

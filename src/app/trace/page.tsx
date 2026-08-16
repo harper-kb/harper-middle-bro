@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { TraceExplorer } from "@/components/TraceExplorer";
+import { TraceExplorer } from "./TraceExplorer";
 import { listDecisions, listTickets } from "@/lib/db";
 import { getSessionOperator } from "@/lib/session";
 import { buildTraceOverview, buildTraceViews } from "@/lib/trace-view";
@@ -35,7 +35,7 @@ export default async function TracePage({
         <div className="relative mx-auto max-w-[1600px] px-4 pb-16 pt-8 sm:px-6 lg:px-8">
           <header className="mb-8 max-w-3xl">
             <p className="eyebrow text-[var(--gold)]">Manager Review</p>
-            <h1 className="mt-2 font-display text-[clamp(2.5rem,5vw,4rem)] leading-[0.95] tracking-[-0.03em] text-[var(--ink)]">
+            <h1 className="page-title mt-2 text-[clamp(2.5rem,5vw,4rem)] text-[var(--ink)]">
               Trace
             </h1>
             <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-[var(--muted)]">

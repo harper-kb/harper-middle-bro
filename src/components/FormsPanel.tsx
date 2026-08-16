@@ -9,7 +9,7 @@ import {
 import type { Policy } from "@/lib/types";
 
 const KIND_STYLE: Record<EndorsementKind, string> = {
-  ai: "bg-[var(--gold)]/15 text-[#6d6046] ring-[var(--gold)]/30",
+  ai: "bg-[var(--warning-soft)] text-[var(--warning)] ring-[var(--warning)]/30",
   wos: "bg-sky-50 text-sky-800 ring-sky-200",
   pnc: "bg-emerald-50 text-emerald-800 ring-emerald-200",
   exclusion: "bg-rose-50 text-rose-800 ring-rose-200",

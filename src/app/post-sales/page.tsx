@@ -26,7 +26,7 @@ export default async function PostSalesPage() {
       <main className="px-4 py-6 lg:px-8">
         <div className="mb-4">
           <p className="eyebrow">Section</p>
-          <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">Post Sales</h1>
+          <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">Post Sales</h1>
           <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
             Revenue-changing work only — upsells, added coverage, premium
             endorsements, remarkets, and related handoffs.

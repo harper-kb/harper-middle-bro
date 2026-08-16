@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AccountWorkspace } from "@/components/AccountWorkspace";
+import { AccountWorkspace } from "./AccountWorkspace";
 import { Nav } from "@/components/Nav";
 import { UwCard } from "@/components/UwCard";
 import { coverageLabels, getRequestType } from "@/lib/catalog";
@@ -11,12 +11,12 @@ import {
   listQuoteSamples,
   listTickets,
 } from "@/lib/db";
-import { CertificateStudio } from "@/components/CertificateStudio";
-import { CertificateLedgerPanel } from "@/components/CertificateLedgerPanel";
-import { CertVerifyPanel } from "@/components/CertVerifyPanel";
+import { CertificateStudioLazy } from "./CertificateStudioLazy";
+import { CertificateLedgerPanel } from "./CertificateLedgerPanel";
+import { CertVerifyPanel } from "./CertVerifyPanel";
 import { getAccountCertLedger } from "@/lib/cert-ledger-reads";
-import { CoverageFloat } from "@/components/CoverageFloat";
-import { RedAlertPanel } from "@/components/RedAlertPanel";
+import { CoverageFloat } from "./CoverageFloat";
+import { RedAlertPanel } from "./RedAlertPanel";
 import { buildCoverageSummary } from "@/lib/coverage-summary";
 import { listRedAlertsForAccount } from "@/lib/red-alerts";
 import {
@@ -25,8 +25,8 @@ import {
   placementMapOf,
 } from "@/lib/cert-corrections";
 import { DeskBrain } from "@/components/DeskBrain";
-import { IscIntakePanel } from "@/components/IscIntakePanel";
-import { PolicyPaperPanel } from "@/components/PolicyPaperPanel";
+import { IscIntakePanel } from "./IscIntakePanel";
+import { PolicyPaperPanel } from "./PolicyPaperPanel";
 import { buildDeskBrainBundle } from "@/lib/desk-brain";
 import { getPolicyFormSet, type PolicyFormSet } from "@/lib/forms";
 import { summarizeQuotes } from "@/lib/price-guidance";
@@ -48,10 +48,12 @@ export default async function AccountDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
+  const [{ id }, operator] = await Promise.all([
+    params,
+    getSessionOperator(),
+  ]);
   const account = getAccountDetail(id);
   if (!account) notFound();
-  const operator = await getSessionOperator();
   const tickets = listTickets().filter((t) => t.accountId === account.id);
   const aiRows = getAccountAdditionalInsureds(account.id);
 
@@ -145,7 +147,7 @@ export default async function AccountDetailPage({
                     Account Workspace
                   </p>
                   <div className="flex flex-wrap items-center gap-3">
-                    <h1 className="text-2xl font-semibold text-[var(--navy)]">
+                    <h1 className="page-title text-2xl text-[var(--ink)]">
                       {account.name}
                     </h1>
                     <span
@@ -223,8 +225,8 @@ export default async function AccountDetailPage({
                   ))}
                 </ul>
               )}
-              <Link href="/desk" className="btn-ghost mt-2 block text-center text-xs">
-                Back To Desk
+              <Link href="/all-accounts" className="btn-ghost mt-2 block text-center text-xs">
+                Back To All Accounts
               </Link>
             </div>
           }
@@ -236,18 +238,18 @@ export default async function AccountDetailPage({
                   {account.backupUw ? (
                     <UwCard uw={account.backupUw} role="Backup" />
                   ) : (
-                    <div className="rounded-xl border border-dashed border-[var(--navy)]/20 p-4 text-sm text-[var(--muted)]">
+                    <div className="rounded-xl border border-dashed border-[var(--rule)] p-4 text-sm text-[var(--muted)]">
                       No backup underwriter on file.
                     </div>
                   )}
                 </div>
                 <section>
-                  <h2 className="mb-3 text-lg font-semibold text-[var(--navy)]">
+                  <h2 className="mb-3 text-lg font-semibold text-[var(--ink)]">
                     Policies
                   </h2>
-                  <div className="overflow-hidden rounded-xl border border-[var(--navy)]/10 bg-white shadow-sm">
+                  <div className="overflow-hidden rounded-xl border border-[var(--rule)] bg-[var(--surface-raised)] shadow-sm">
                     <table className="w-full text-left text-sm">
-                      <thead className="border-b border-[var(--navy)]/10 bg-[var(--sand)]/50 text-xs uppercase tracking-wide text-[var(--muted)]">
+                      <thead className="border-b border-[var(--rule)] bg-[var(--sand)]/50 text-xs uppercase tracking-wide text-[var(--muted)]">
                         <tr>
                           <th className="px-4 py-3 font-semibold">Policy #</th>
                           <th className="px-4 py-3 font-semibold">Carrier</th>
@@ -258,7 +260,7 @@ export default async function AccountDetailPage({
                       </thead>
                       <tbody>
                         {account.policies.map((p) => (
-                          <tr key={p.id} className="border-b border-[var(--navy)]/5">
+                          <tr key={p.id} className="border-b border-[var(--rule)]">
                             <td className="px-4 py-3 font-medium">
                               {p.policyNumber.trim() || (
                                 <span className="text-[var(--muted)]">—</span>
@@ -337,10 +339,10 @@ export default async function AccountDetailPage({
                       <li key={t.id}>
                         <Link
                           href={`/tickets/${t.id}`}
-                          className="flex items-center justify-between gap-3 rounded-xl border border-[var(--navy)]/10 bg-white px-4 py-3 shadow-sm hover:border-[var(--coral)]/40"
+                          className="flex items-center justify-between gap-3 rounded-xl border border-[var(--rule)] bg-[var(--surface-raised)] px-4 py-3 shadow-sm hover:border-[var(--accent)]/40"
                         >
                           <div className="min-w-0">
-                            <p className="font-medium text-[var(--navy)]">
+                            <p className="font-medium text-[var(--ink)]">
                               {getRequestType(t.requestType).label}
                             </p>
                             <p className="truncate text-xs text-[var(--muted)]">
@@ -405,7 +407,7 @@ export default async function AccountDetailPage({
             ),
             certificates: (
               <div id="certificates" className="space-y-4 scroll-mt-6">
-                <CertificateStudio
+                <CertificateStudioLazy
                   account={account}
                   policies={account.policies}
                   formSets={formSets}
@@ -459,8 +461,8 @@ export default async function AccountDetailPage({
                 </p>
                 <ul className="space-y-2 text-sm">
                   <li>
-                    <Link href="/desk" className="btn-primary inline-flex">
-                      Work Next On Desk
+                    <Link href="/queue" className="btn-primary inline-flex">
+                      View Ticket Queue
                     </Link>
                   </li>
                   <li>

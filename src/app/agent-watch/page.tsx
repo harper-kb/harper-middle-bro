@@ -56,7 +56,7 @@ export default async function AgentWatchPage() {
         <Nav active="/agent-watch" operator={operator} />
         <main className="mx-auto max-w-3xl space-y-8 px-4 py-8">
           <div>
-            <h1 className="font-display text-3xl text-[var(--ink)]">
+            <h1 className="page-title text-3xl text-[var(--ink)]">
               Agent Watch
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
@@ -204,7 +204,7 @@ export default async function AgentWatchPage() {
       <Nav active="/agent-watch" operator={operator} />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <div>
-          <h1 className="font-display text-3xl text-[var(--ink)]">
+          <h1 className="page-title text-3xl text-[var(--ink)]">
             Agent Watch
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">

@@ -16,7 +16,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CertificateStudio } from "../src/components/CertificateStudio";
+import { CertificateStudio } from "../src/app/accounts/[id]/CertificateStudio";
 import { getAccountDetail } from "../src/lib/db";
 import { getPolicyFormSet, type PolicyFormSet } from "../src/lib/forms";
 

@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Base64-vendored PDF templates: TypeScript-ESLint's parser stack-overflows
+    // on the megabyte-scale string literals (same ignore as the HTA source repo).
+    "src/lib/coi-engine/acord25-template.ts",
+    "src/lib/coi-engine/acord30-template.ts",
   ]),
 ]);
 

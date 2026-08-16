@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeskBrain } from "@/components/DeskBrain";
-import { EscalationPanel } from "@/components/EscalationPanel";
+import { EscalationPanel } from "./EscalationPanel";
 import { Nav } from "@/components/Nav";
-import { TicketActivity } from "@/components/TicketActivity";
+import { TicketActivity } from "./TicketActivity";
 import { TicketAdditionalInsureds } from "@/components/TicketAdditionalInsureds";
-import { TicketCertificate } from "@/components/TicketCertificate";
-import { TicketComms } from "@/components/TicketComms";
-import { TicketCoverages } from "@/components/TicketCoverages";
-import { TicketFiles } from "@/components/TicketFiles";
-import { TicketPipeline } from "@/components/TicketPipeline";
+import { TicketCertificate } from "./TicketCertificate";
+import { TicketComms } from "./TicketComms";
+import { TicketCoverages } from "./TicketCoverages";
+import { TicketFiles } from "./TicketFiles";
+import { TicketPipeline } from "./TicketPipeline";
 import { claimTicketAction, setTicketStatusAction } from "@/lib/actions";
 import { getRequestType } from "@/lib/catalog";
 import {
@@ -71,12 +71,14 @@ export default async function TicketPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ tab?: string }>;
 }) {
-  const { id } = await params;
-  const { tab } = await searchParams;
+  const [{ id }, { tab }, operator] = await Promise.all([
+    params,
+    searchParams,
+    getSessionOperator(),
+  ]);
   const ticket = getTicketDetail(id);
   if (!ticket) notFound();
 
-  const operator = await getSessionOperator();
   const carrierDesks = listUnderwriters();
   const operators = listOperators();
   const owner = ticket.operatorId
@@ -138,7 +140,7 @@ export default async function TicketPage({
               <p className="font-mono text-sm tracking-tight text-[var(--coral)]">
                 {ticket.srNumber || "SR Pending"}
               </p>
-              <h1 className="mt-1 font-display text-[clamp(2rem,4vw,2.75rem)] leading-none tracking-[-0.02em] text-[var(--ink)]">
+              <h1 className="page-title mt-1 text-[clamp(2rem,4vw,2.75rem)] text-[var(--ink)]">
                 {ticket.account.name}
               </h1>
               <p className="mt-2 text-sm text-[var(--muted)]">{ticket.subject}</p>
@@ -279,7 +281,7 @@ export default async function TicketPage({
                   </span>
                 )}
                 {on && (
-                  <span className="absolute inset-x-3 bottom-0 h-px bg-[var(--ink)]" />
+                  <span className="absolute inset-x-3 bottom-0 h-px bg-[var(--accent)]" />
                 )}
               </Link>
             );

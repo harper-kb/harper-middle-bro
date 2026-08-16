@@ -3,7 +3,7 @@
  *
  * The named-contact records themselves are private business data and live
  * in `data/verified-contacts.local.json`, which is gitignored and loaded
- * server-side only (see verified-contacts.server.ts). The committed
+ * server-side only. The committed
  * `verified-contacts.data.json` ships empty in the public repository —
  * an empty contact list is preferred over publishing real people.
  */

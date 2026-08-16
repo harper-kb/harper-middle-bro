@@ -8,7 +8,6 @@ import {
   closeThread,
   createAndSendThread,
   createTicket,
-  getAccountDetail,
   getOperator,
   getStreak,
   getTicketDetail,
@@ -27,11 +26,7 @@ import {
   updateOperator,
   updateUnderwriter,
 } from "./db";
-import {
-  formatRequestStackLabel,
-  getRequestType,
-  primaryRequestType,
-} from "./catalog";
+import { getRequestType } from "./catalog";
 import { evaluateKnowledgeForRequest } from "./carrier-knowledge";
 import { buildTicketDraft } from "./draft";
 import { evaluateBlanketFastPath } from "./fast-path";
@@ -67,7 +62,6 @@ async function requireOperatorId(): Promise<string> {
 function revalidateTicket(ticketId: string, accountId?: string) {
   revalidatePath("/");
   revalidatePath("/comms");
-  revalidatePath("/ai-desk");
   revalidatePath("/me");
   revalidatePath(`/tickets/${ticketId}`);
   if (accountId) revalidatePath(`/accounts/${accountId}`);
@@ -391,7 +385,6 @@ export async function setAutoSendAction(formData: FormData) {
   const operatorId = await requireOperatorId();
   setAutoSend(operatorId, requestType, on);
   revalidatePath("/me");
-  revalidatePath("/ai-desk");
 }
 
 export async function updateProfileAction(formData: FormData) {
@@ -423,107 +416,6 @@ export async function updateProfileAction(formData: FormData) {
   revalidatePath("/me");
   revalidatePath("/");
   revalidatePath("/threads");
-}
-
-/**
- * Sandbox compose: open a ticket + send the first UW email in one step.
- * Supports a stack of request types (AI + WOS + 30-day notice, etc.).
- * Operator signature is required (sign in on Profile).
- */
-export async function sendSandboxAction(formData: FormData) {
-  const accountId = String(formData.get("accountId") ?? "");
-  const policyId = String(formData.get("policyId") ?? "");
-  const details = String(formData.get("details") ?? "");
-  const templateId = String(
-    formData.get("templateId") ?? "standard",
-  ) as Operator["defaultTemplate"];
-
-  let stack: RequestTypeId[] = [];
-  const rawStack = String(formData.get("requestTypes") ?? "");
-  if (rawStack) {
-    try {
-      const parsed = JSON.parse(rawStack) as unknown;
-      if (Array.isArray(parsed)) {
-        stack = parsed.filter((x): x is RequestTypeId => typeof x === "string");
-      }
-    } catch {
-      stack = [];
-    }
-  }
-  const legacy = String(formData.get("requestType") ?? "") as RequestTypeId;
-  if (stack.length === 0 && legacy) stack = [legacy];
-
-  if (!accountId || !policyId || stack.length === 0) {
-    throw new Error("Account, policy, and at least one request type are required.");
-  }
-
-  const requestType = primaryRequestType(stack);
-  const stackLabel = formatRequestStackLabel(stack);
-  const itemLines =
-    stack.length > 1
-      ? stack.map((id) => {
-          const r = getRequestType(id);
-          return `${r.label} (${r.premiumBearing === "usually" || r.premiumBearing === "sometimes" ? "premium possible" : "usually no premium"})`;
-        })
-      : undefined;
-
-  const wording =
-    stack.length > 1
-      ? [
-          `Stacked requests: ${stack.map((id) => getRequestType(id).label).join(" · ")}`,
-          "",
-          details.trim(),
-        ]
-          .filter((l, i, arr) => !(l === "" && arr[i - 1] === ""))
-          .join("\n")
-      : details;
-
-  const operatorId = await requireOperatorId();
-  const operator = getOperator(operatorId);
-  if (!operator) throw new Error("Operator not found — sign in on Profile.");
-
-  // Recipient hard gate — the primary UW on file must have a mail-taking
-  // domain before this compose creates a thread.
-  const uwEmail = getAccountDetail(accountId)?.primaryUw.email ?? "";
-  await assertDeliverableEmail(uwEmail, "Underwriter Email");
-
-  const ticket = createTicket({
-    accountId,
-    policyIds: [policyId],
-    requestType,
-    source: "internal",
-    requestedBy: operator.displayName,
-    requestedByEmail: operator.email,
-    subject: stack.length > 1 ? stackLabel : "",
-    holderName: null,
-    holderAddress: null,
-    wording,
-    operatorId,
-  });
-
-  const thread = createAndSendThread({
-    accountId,
-    policyId,
-    requestType,
-    details: wording,
-    requestLabel: stackLabel,
-    requestItems: itemLines,
-    operatorId,
-    templateId,
-    ticketId: ticket.id,
-    ackWarnings: true,
-  });
-
-  revalidatePath("/");
-  revalidatePath("/queue");
-  revalidatePath("/threads");
-  revalidatePath("/oversight");
-  revalidatePath("/comms");
-  revalidatePath(`/accounts/${accountId}`);
-  revalidatePath(`/tickets/${ticket.id}`);
-  revalidatePath(`/threads/${thread.id}`);
-
-  return { threadId: thread.id, ticketId: ticket.id };
 }
 
 export async function simulateQuoteAction(formData: FormData) {
@@ -655,6 +547,5 @@ export async function resetDbAction() {
   revalidatePath("/threads");
   revalidatePath("/oversight");
   revalidatePath("/comms");
-  revalidatePath("/ai-desk");
   revalidatePath("/me");
 }

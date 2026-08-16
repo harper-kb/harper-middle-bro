@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { Nav } from "@/components/Nav";
-import { ProfileForm } from "@/components/ProfileForm";
+import { ProfileForm } from "./ProfileForm";
 import { setAutoSendAction } from "@/lib/actions";
 import { AUTO_SEND_UNLOCK_AT } from "@/lib/aidesk";
 import { getRequestType } from "@/lib/catalog";
@@ -24,7 +24,7 @@ export default async function ProfilePage() {
       <Nav active="/me" operator={operator} />
       <main className="mx-auto max-w-3xl space-y-8 px-4 py-8">
         <div>
-          <h1 className="font-display text-3xl text-[var(--ink)]">Your Desk</h1>
+          <h1 className="page-title text-3xl text-[var(--ink)]">Your Desk</h1>
           <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
             Sign in with Clerk. Your name and signature stamp every email draft.
           </p>

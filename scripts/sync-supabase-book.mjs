@@ -1,4 +1,9 @@
 /**
+ * MANUAL FALLBACK — the primary path is now the in-app five-minute refresher
+ * in `src/lib/db/book-refresh.ts` (Supabase Management API, driven by
+ * SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF in .env.local). Keep the SQL
+ * and mapping there in sync if you touch this script.
+ *
  * Sync a curated slice of the real Harper book (Supabase Postgres) into
  * `data/supabase-book.local.json` — the gitignored overlay that
  * `src/lib/supabase-book.server.ts` loads on boot instead of the fictional
@@ -14,12 +19,11 @@
  * an agent with the Supabase MCP can run the same two queries below via
  * `execute_sql` and write the JSON by hand.
  *
- * Slice (mirrors what harper-coi-workbench treats as the book of record):
- *  - ACTIVE: 80 most recently bound `Servicing` / `Payment Received`
- *    companies (deals_v2.deal_stage = 'bound', not deleted/cancelled).
- *  - PRE-BIND: every company sitting in `Payment Requested`, or with a
- *    pending-cart deal (deal_stage IN ('paid','confirmed')).
- * Test rows (companies.is_testing_user) are excluded.
+ * Eligibility — every non-test company with at least one real, non-deleted
+ * `orders_temp` row that carries a non-deleted deal in a recognized stage
+ * (bound / sold / confirmed / paid / lost). Deal-less order shells and
+ * companies without qualifying orders are excluded. This is the same rule
+ * used by book-refresh.ts.
  */
 
 import fs from "node:fs";
@@ -27,52 +31,28 @@ import path from "node:path";
 
 const OUT_PATH = path.join(process.cwd(), "data", "supabase-book.local.json");
 
-const ACCOUNTS_SQL = `
-WITH svc AS (
-  SELECT c.id
-  FROM companies c
-  JOIN deals_v2 d ON d.company_id = c.id
-    AND d.deal_stage = 'bound'
-    AND COALESCE(d.is_deleted, false) = false
-    AND d.cancelled_date IS NULL
-  WHERE COALESCE(c.is_testing_user, false) = false
-    AND c.general_stage::text IN ('Servicing', 'Payment Received')
-  GROUP BY c.id
-  ORDER BY MAX(d.bound_at) DESC NULLS LAST
-  LIMIT 80
-), pre AS (
+const BOOK_CTE = `
+WITH book AS (
   SELECT DISTINCT c.id
   FROM companies c
-  JOIN deals_v2 d ON d.company_id = c.id AND COALESCE(d.is_deleted, false) = false
+  JOIN orders_temp ot
+    ON ot.company_id = c.id
+    AND COALESCE(ot.is_deleted, false) = false
+  JOIN deals_v2 d
+    ON d.order_number = ot.id
+    AND COALESCE(d.is_deleted, false) = false
+    AND d.deal_stage IN ('bound', 'sold', 'confirmed', 'paid', 'lost')
   WHERE COALESCE(c.is_testing_user, false) = false
-    AND (c.general_stage::text = 'Payment Requested' OR d.deal_stage IN ('paid', 'confirmed'))
-)
+)`;
+
+const ACCOUNTS_SQL = `${BOOK_CTE}
 SELECT c.id, c.company_name, c.company_industry, c.company_state,
        c.general_stage::text AS stage
 FROM companies c
-WHERE c.id IN (SELECT id FROM svc UNION SELECT id FROM pre)
+WHERE c.id IN (SELECT id FROM book)
 ORDER BY c.company_name`;
 
-const POLICIES_SQL = `
-WITH svc AS (
-  SELECT c.id
-  FROM companies c
-  JOIN deals_v2 d ON d.company_id = c.id
-    AND d.deal_stage = 'bound'
-    AND COALESCE(d.is_deleted, false) = false
-    AND d.cancelled_date IS NULL
-  WHERE COALESCE(c.is_testing_user, false) = false
-    AND c.general_stage::text IN ('Servicing', 'Payment Received')
-  GROUP BY c.id
-  ORDER BY MAX(d.bound_at) DESC NULLS LAST
-  LIMIT 80
-), pre AS (
-  SELECT DISTINCT c.id
-  FROM companies c
-  JOIN deals_v2 d ON d.company_id = c.id AND COALESCE(d.is_deleted, false) = false
-  WHERE COALESCE(c.is_testing_user, false) = false
-    AND (c.general_stage::text = 'Payment Requested' OR d.deal_stage IN ('paid', 'confirmed'))
-)
+const POLICIES_SQL = `${BOOK_CTE}
 SELECT d.id, d.company_id, d.policy_number,
        COALESCE(ic.name, NULLIF(d.carrier, ''), NULLIF(d.ai_carrier, '')) AS carrier,
        d.premium::text AS premium,
@@ -81,13 +61,65 @@ SELECT d.id, d.company_id, d.policy_number,
        d.coverage_type, d.deal_stage
 FROM deals_v2 d
 LEFT JOIN insurance_carriers ic ON ic.code = d.carrier
-WHERE d.company_id IN (SELECT id FROM svc UNION SELECT id FROM pre)
+WHERE d.company_id IN (SELECT id FROM book)
   AND COALESCE(d.is_deleted, false) = false
   AND d.deal_stage IN ('bound', 'paid', 'confirmed', 'sold')
   AND d.cancelled_date IS NULL
   AND d.effective_date IS NOT NULL
   AND d.expiration_date IS NOT NULL
 ORDER BY d.company_id, d.id`;
+
+const ORDERS_SQL = `${BOOK_CTE},
+orders AS (
+  SELECT ot.id, ot.company_id, ot.ordered_date::text AS ordered_date
+  FROM orders_temp ot
+  WHERE ot.company_id IN (SELECT id FROM book)
+    AND COALESCE(ot.is_deleted, false) = false
+),
+deal_state AS (
+  SELECT
+    d.order_number AS id,
+    bool_or(d.deal_stage = 'bound') AS has_bound,
+    bool_or(d.deal_stage IN ('sold', 'confirmed', 'paid')) AS has_open,
+    bool_or(d.deal_stage = 'lost') AS has_lost,
+    COALESCE(
+      json_agg(DISTINCT NULLIF(TRIM(d.policy_number), ''))
+        FILTER (
+          WHERE d.deal_stage = 'bound'
+            AND NULLIF(TRIM(d.policy_number), '') IS NOT NULL
+        ),
+      '[]'::json
+    ) AS policy_numbers,
+    count(*) AS deal_count,
+    count(*) FILTER (WHERE d.is_instant_quote IS TRUE) AS iq_deal_count
+  FROM deals_v2 d
+  WHERE d.order_number IN (SELECT id FROM orders)
+    AND COALESCE(d.is_deleted, false) = false
+  GROUP BY d.order_number
+)
+SELECT
+  o.id,
+  o.company_id,
+  o.ordered_date,
+  CASE
+    WHEN ds.has_bound THEN 'bound'
+    WHEN ds.has_open THEN 'pending'
+    ELSE 'lost'
+  END AS bind_status,
+  CASE
+    WHEN ds.has_bound THEN COALESCE(ds.policy_numbers, '[]'::json)
+    ELSE '[]'::json
+  END AS policy_numbers,
+  CASE
+    WHEN ds.deal_count = 0 THEN NULL
+    WHEN ds.iq_deal_count = ds.deal_count THEN 'iq'
+    WHEN ds.iq_deal_count = 0 THEN 'broker'
+    ELSE 'mixed'
+  END AS source
+FROM orders o
+JOIN deal_state ds ON ds.id = o.id
+WHERE ds.has_bound OR ds.has_open OR ds.has_lost
+ORDER BY o.company_id, o.id`;
 
 /** Active service = the stages the ops book treats as in-service. */
 const ACTIVE_STAGES = new Set(["Servicing", "Payment Received"]);
@@ -194,7 +226,40 @@ function matchUnderwriter(carrier) {
   return UNASSIGNED_UW_ID;
 }
 
-export function buildBook(companyRows, dealRows) {
+const POLICY_NUMBER_PLACEHOLDERS = new Set([
+  "unknown",
+  "pending",
+  "n/a",
+  "na",
+  "none",
+  "null",
+]);
+
+function parsePolicyNumbers(raw) {
+  let values = [];
+  if (Array.isArray(raw)) values = raw;
+  else if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      values = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      values = [];
+    }
+  }
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    const n = String(value ?? "").trim();
+    if (!n) continue;
+    if (POLICY_NUMBER_PLACEHOLDERS.has(n.toLowerCase())) continue;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
+}
+
+export function buildBook(companyRows, dealRows, orderRows = []) {
   const accounts = companyRows.map((r) => {
     const { name, dba } = splitDba(r.company_name);
     const stage = String(r.stage ?? "");
@@ -207,7 +272,11 @@ export function buildBook(companyRows, dealRows) {
       primaryUwId: UNASSIGNED_UW_ID, // resolved from policies below
       backupUwId: null,
       notes: `Harper ops import — stage: ${stage || "unknown"}`,
-      status: ACTIVE_STAGES.has(stage) ? "active" : "pre_bind",
+      status: ACTIVE_STAGES.has(stage)
+        ? "active"
+        : stage === "Dead"
+          ? "cancelled"
+          : "pre_bind",
       paymentReceivedAt: null,
     };
   });
@@ -248,7 +317,45 @@ export function buildBook(companyRows, dealRows) {
     if (p) a.primaryUwId = matchUnderwriter(p.carrier);
   }
 
-  return { fetchedAt: new Date().toISOString(), source: "supabase deals_v2/companies", accounts, policies };
+  const seenOrderIds = new Set();
+  const orders = [];
+  const BIND_STATUSES = new Set(["bound", "pending", "lost"]);
+  for (const row of orderRows) {
+    const accountId = `co-${row.company_id}`;
+    if (!accountIds.has(accountId)) continue;
+    if (seenOrderIds.has(row.id)) continue;
+    seenOrderIds.add(row.id);
+    // Unexpected status values are skipped — never guess a lifecycle state.
+    if (!BIND_STATUSES.has(row.bind_status)) continue;
+    const bindStatus = row.bind_status;
+    const policyNumbers = parsePolicyNumbers(row.policy_numbers);
+    let inconsistency = null;
+    if (bindStatus === "bound" && policyNumbers.length === 0) {
+      inconsistency =
+        "Bound deal on file but no issued policy number on deals_v2 — investigate.";
+    }
+    orders.push({
+      id: `order-${row.id}`,
+      accountId,
+      harperOrderId: row.id,
+      orderedAt: row.ordered_date ? String(row.ordered_date) : null,
+      bindStatus,
+      policyNumbers,
+      inconsistency,
+      source:
+        row.source === "iq" || row.source === "broker" || row.source === "mixed"
+          ? row.source
+          : null,
+    });
+  }
+
+  return {
+    fetchedAt: new Date().toISOString(),
+    source: "supabase companies/deals_v2/orders_temp",
+    accounts,
+    policies,
+    orders,
+  };
 }
 
 async function main() {
@@ -271,14 +378,23 @@ async function main() {
   try {
     const companies = (await client.query(ACCOUNTS_SQL)).rows;
     const deals = (await client.query(POLICIES_SQL)).rows;
-    const book = buildBook(companies, deals);
+    const orderRows = (await client.query(ORDERS_SQL)).rows;
+    const book = buildBook(companies, deals, orderRows);
     fs.mkdirSync(path.dirname(OUT_PATH), { recursive: true });
     fs.writeFileSync(OUT_PATH, JSON.stringify(book, null, 2) + "\n");
     const active = book.accounts.filter((a) => a.status === "active").length;
+    const cancelled = book.accounts.filter((a) => a.status === "cancelled").length;
+    const preBind = book.accounts.length - active - cancelled;
+    const count = (status) =>
+      book.orders.filter((o) => o.bindStatus === status).length;
     console.log(
       `Wrote ${OUT_PATH}: ${book.accounts.length} accounts (${active} active, ${
-        book.accounts.length - active
-      } pre_bind), ${book.policies.length} policies.`,
+        preBind
+      } pre_bind, ${cancelled} cancelled), ${book.policies.length} policies, ${
+        book.orders.length
+      } orders (${count("bound")} bound, ${count("pending")} pending, ${count(
+        "lost",
+      )} lost).`,
     );
   } finally {
     await client.end();

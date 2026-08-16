@@ -23,7 +23,7 @@ export default async function GlossaryPage() {
       <main className="mx-auto max-w-3xl px-4 py-10">
         <header className="mb-8">
           <p className="eyebrow">Reference</p>
-          <h1 className="font-display text-3xl font-semibold tracking-tight text-[var(--ink)]">
+          <h1 className="page-title text-3xl text-[var(--ink)]">
             Glossary
           </h1>
           <p className="mt-2 text-sm text-[var(--muted)]">

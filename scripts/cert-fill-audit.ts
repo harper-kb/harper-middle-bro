@@ -519,7 +519,7 @@ interface StaticCheck {
 }
 
 const STUDIO_SRC = fs.readFileSync(
-  path.join(ROOT, "src", "components", "CertificateStudio.tsx"),
+  path.join(ROOT, "src", "app", "accounts", "[id]", "CertificateStudio.tsx"),
   "utf8",
 );
 

@@ -31,8 +31,10 @@ export default async function ThreadsPage({
     q?: string;
   }>;
 }) {
-  const sp = await searchParams;
-  const operator = await getSessionOperator();
+  const [sp, operator] = await Promise.all([
+    searchParams,
+    getSessionOperator(),
+  ]);
 
   const status = (sp.status as ThreadStatus | "all" | undefined) ?? "all";
   const carrier = sp.carrier ?? "all";
@@ -76,15 +78,15 @@ export default async function ThreadsPage({
           <div>
             <p className="eyebrow">Thread Desk</p>
             <Link href="/samples/threads" className="chip mt-1.5 transition hover:border-[var(--coral)] hover:text-[var(--coral)]">Preview New Layout</Link>
-            <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">
+            <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">
               Underwriter (UW) Conversations
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">
               Every mock email thread the agent is watching.
             </p>
           </div>
-          <Link href="/" className="btn-primary px-5 py-2">
-            New From Sandbox
+          <Link href="/tickets/new" className="btn-primary px-5 py-2">
+            New Ticket
           </Link>
         </div>
 
@@ -252,8 +254,8 @@ export default async function ThreadsPage({
             {threads.length === 0 && (
               <li className="px-4 py-10 text-center text-sm text-[var(--muted)]">
                 No threads match.{" "}
-                <Link href="/" className="underline">
-                  Compose one in Sandbox
+                <Link href="/tickets/new" className="underline">
+                  Open a new ticket
                 </Link>
                 .
               </li>

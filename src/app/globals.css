@@ -5,17 +5,96 @@
   /* Harper brand accent — verified from the letterforms of
      https://www.harperinsure.com/harper_name_logo.svg (fill="#FF6D63"). */
   --harper-orange: #ff6d63;
-  --ink: #1a2c36;
+  --background: #f4f3f0;
+  --surface: #fbfaf8;
+  --surface-raised: #ffffff;
+  --surface-subtle: #ebe8e2;
+  --surface-hover: #e4e1db;
+  --surface-highlight: #ffffff;
+  --foreground: #1a2c36;
+  --foreground-inverse: #ffffff;
+  --muted: #6d7981;
+  --border: rgba(26, 44, 54, 0.1);
+  --border-strong: rgba(26, 44, 54, 0.2);
+  --accent: var(--harper-orange);
+  --accent-soft: rgba(255, 109, 99, 0.12);
+  --accent-contrast: #2b1715;
+  /* Readable accent text: the raw coral clears only ~2.9:1 on paper, so pull it
+     toward the theme's own ink. Flips with --foreground in dark mode. */
+  --accent-ink: color-mix(in srgb, var(--accent) 60%, var(--foreground));
+  --control-bg: #1a2c36;
+  --control-fg: #ffffff;
+  --code-bg: #11191e;
+  --overlay: rgba(13, 15, 16, 0.48);
+  --focus-ring: rgba(255, 109, 99, 0.42);
+  --shadow-color: rgba(26, 44, 54, 0.1);
+  --inset-highlight: rgba(255, 255, 255, 0.7);
+  --danger: #b9463d;
+  --danger-soft: rgba(185, 70, 61, 0.12);
+  --success: #2f7d5d;
+  --success-soft: rgba(47, 125, 93, 0.12);
+  --warning: #9a6b13;
+  --warning-soft: rgba(154, 107, 19, 0.12);
+  --info: #356b86;
+  --info-soft: rgba(53, 107, 134, 0.12);
+
+  /* Legacy aliases remain so the existing application inherits the semantic
+     theme without a second styling system. */
+  --ink: var(--foreground);
   --navy: #1a2c36;
-  --muted: #7a8790;
-  --pierre: #f4f3f0;
-  --paper: #fbfaf8;
+  --pierre: var(--background);
+  --paper: var(--surface);
   --gold: #9c8f78;
   --coral: #c45c4a;
-  --sand: #ebe8e2;
-  --background: var(--pierre);
-  --foreground: var(--ink);
-  --rule: rgba(26, 44, 54, 0.08);
+  --sand: var(--surface-subtle);
+  --rule: var(--border);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --background: #0d0f10;
+  --surface: #151819;
+  --surface-raised: #1c2021;
+  --surface-subtle: #242829;
+  --surface-hover: #2b3031;
+  --surface-highlight: #303536;
+  --foreground: #f4f2ee;
+  --foreground-inverse: #151819;
+  --muted: #a2aaad;
+  --border: rgba(244, 242, 238, 0.11);
+  --border-strong: rgba(244, 242, 238, 0.22);
+  --accent-soft: rgba(255, 109, 99, 0.14);
+  --accent-contrast: #fff7f5;
+  --control-bg: #292e2f;
+  --control-fg: #f4f2ee;
+  --code-bg: #090b0c;
+  --overlay: rgba(0, 0, 0, 0.68);
+  --focus-ring: rgba(255, 109, 99, 0.55);
+  --shadow-color: rgba(0, 0, 0, 0.42);
+  --inset-highlight: rgba(255, 255, 255, 0.045);
+  --danger: #ff8c84;
+  --danger-soft: rgba(255, 140, 132, 0.13);
+  --success: #7fc5a2;
+  --success-soft: rgba(127, 197, 162, 0.13);
+  --warning: #e6bd6b;
+  --warning-soft: rgba(230, 189, 107, 0.13);
+  --info: #8fc4df;
+  --info-soft: rgba(143, 196, 223, 0.13);
+  --gold: #c9a46c;
+  --coral: #ff8178;
+  color-scheme: dark;
+}
+
+.theme-dark-only {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-light-only {
+  display: none;
+}
+
+:root[data-theme="dark"] .theme-dark-only {
+  display: inline-flex;
 }
 
 @theme inline {
@@ -27,18 +106,50 @@
 
 body {
   background:
-    radial-gradient(ellipse 70% 45% at 0% 0%, rgba(156, 143, 120, 0.12), transparent 55%),
-    radial-gradient(ellipse 50% 40% at 100% 10%, rgba(26, 44, 54, 0.05), transparent 50%),
-    var(--pierre);
-  color: var(--ink);
+    radial-gradient(ellipse 70% 45% at 0% 0%, color-mix(in srgb, var(--gold) 12%, transparent), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 100% 10%, color-mix(in srgb, var(--foreground) 5%, transparent), transparent 50%),
+    var(--background);
+  color: var(--foreground);
   font-family: var(--font-body), "Segoe UI", system-ui, sans-serif;
   letter-spacing: 0.01em;
+  scrollbar-color: var(--border-strong) var(--background);
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(ellipse 65% 38% at 0% 0%, rgba(255, 109, 99, 0.055), transparent 58%),
+    radial-gradient(ellipse 45% 35% at 100% 5%, rgba(255, 255, 255, 0.025), transparent 55%),
+    var(--background);
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--foreground);
+}
+
+input,
+select,
+textarea {
+  accent-color: var(--accent);
+  caret-color: var(--accent);
+}
+
+*:focus-visible {
+  outline-color: var(--accent);
 }
 
 .font-display {
   font-family: var(--font-display), "Times New Roman", serif;
   font-weight: 500;
   letter-spacing: -0.02em;
+}
+
+.page-title {
+  /* Exact body family inherited by the visible "Step Bro" product name. */
+  font-family: var(--font-body), "Segoe UI", system-ui, sans-serif;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
 }
 
 .eyebrow {
@@ -66,51 +177,55 @@ body {
 .surface-card {
   border-radius: 1rem;
   border: 1px solid var(--rule);
-  background: color-mix(in srgb, var(--paper) 92%, white);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 12px 40px rgba(26, 44, 54, 0.04);
+  background: color-mix(in srgb, var(--surface) 92%, var(--surface-raised));
+  box-shadow: 0 1px 0 var(--inset-highlight) inset,
+    0 12px 40px color-mix(in srgb, var(--shadow-color) 40%, transparent);
 }
 
 .field {
   width: 100%;
-  border-radius: 0.85rem;
+  border-radius: 0.7rem;
   border: 1px solid var(--rule);
-  background: var(--paper);
+  background: var(--surface-raised);
   padding: 0.75rem 1rem;
   font-size: 0.875rem;
   color: var(--ink);
   outline: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .field:focus {
-  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
-  box-shadow: 0 0 0 3px rgba(156, 143, 120, 0.18);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  background: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--accent) 75%, var(--border));
+  border-radius: 0.7rem;
+  background: var(--accent);
   padding: 0.5rem 1.1rem;
   font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: white;
+  color: var(--accent-contrast);
   transition: background 0.2s ease, transform 0.15s ease;
 }
 
 .btn-primary:hover {
-  background: color-mix(in srgb, var(--ink) 88%, var(--coral));
+  background: color-mix(in srgb, var(--accent) 88%, var(--foreground));
 }
 
 .btn-ghost {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: 0.7rem;
   border: 1px solid var(--rule);
-  background: transparent;
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
   padding: 0.45rem 0.95rem;
   font-size: 0.75rem;
   font-weight: 600;
@@ -122,6 +237,879 @@ body {
   background: var(--sand);
 }
 
+/* ——— Filter toolbar ———
+   One lightweight surface for the Accounts filters: group labels sit above
+   their segmented control, the border stays thin, and there is no card shadow.
+   `.seg` deliberately omits `display` so callers can hand it a Tailwind
+   display utility (`hidden sm:inline-flex`) without a specificity fight. */
+.filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  width: fit-content;
+  max-width: 100%;
+  gap: 0.625rem 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  padding: 0.5rem 0.75rem;
+  transition: opacity 0.15s ease;
+}
+
+.filter-toolbar[aria-busy="true"] {
+  opacity: 0.7;
+}
+
+.filter-group-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.4rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.filter-group-note {
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.seg {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+  max-width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface-subtle) 55%, transparent);
+  padding: 0.125rem;
+}
+
+.seg-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.15rem;
+  font-weight: 500;
+  /* --muted alone lands near 4.3:1 on the track; pulling it toward the ink
+     clears AA for the unselected options too. */
+  color: color-mix(in srgb, var(--muted) 70%, var(--foreground));
+  transition: background-color 0.15s ease, color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.seg-option[aria-checked="false"]:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+
+.seg-option:active {
+  transform: translateY(0.5px);
+}
+
+.seg-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.seg-option[aria-checked="true"] {
+  font-weight: 600;
+  color: var(--foreground);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* Opaque tints, mixed into the raised surface rather than layered as alpha over
+   the track — otherwise the blue and the coral both silt out into gray. */
+.seg-option--iq[aria-checked="true"] {
+  background: color-mix(in srgb, var(--info) 15%, var(--surface-raised));
+  color: var(--info);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info) 45%, transparent);
+}
+
+.seg-option--broker[aria-checked="true"] {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+
+.seg-option--accent[aria-checked="true"] {
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface-raised));
+  color: var(--accent-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* Reserved slot so selecting an option never reflows the row. */
+.seg-check {
+  display: inline-flex;
+  flex: none;
+  width: 0.625rem;
+}
+
+.seg-option[aria-checked="false"] .seg-check {
+  visibility: hidden;
+}
+
+.filter-select {
+  border-radius: 0.5rem;
+  border: 1px solid var(--rule);
+  background: var(--surface-raised);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.filter-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.15rem;
+  color: var(--muted);
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.filter-clear:hover {
+  border-color: var(--rule);
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+
+.filter-clear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* IQ Stage multi-select — compact popover, not a segmented control. */
+.iq-stage-select {
+  position: relative;
+  min-width: 9.5rem;
+}
+
+.iq-stage-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 9.5rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.iq-stage-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.iq-stage-trigger-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.iq-stage-chevron {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: none;
+  color: var(--muted);
+}
+
+.iq-stage-popover {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 40;
+  width: min(18rem, calc(100vw - 2rem));
+  max-height: min(20rem, 70vh);
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.5rem;
+  border: 1px solid var(--rule);
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow-color) 28%, transparent);
+}
+
+.iq-stage-popover-actions {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.375rem 0.375rem 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.iq-stage-popover-list {
+  margin: 0;
+  padding: 0.375rem;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.iq-stage-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-radius: 0.375rem;
+  padding: 0.35rem 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2rem;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.iq-stage-option:hover {
+  background: var(--surface-hover);
+}
+
+.iq-stage-option input {
+  margin-top: 0.15rem;
+  flex: none;
+  accent-color: var(--info);
+}
+
+/* ——— Collapsed account-row summary ———
+   A compact read-before-opening layer. The open row uses a restrained orange
+   surface and inset rail rather than a heavy card or shadow. */
+.account-list-row {
+  position: relative;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.account-list-row--open {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.account-list-row-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 22rem) auto;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding: 0.75rem 1rem;
+  transition: background-color 0.16s ease;
+}
+
+.account-list-row-note {
+  min-width: 0;
+}
+
+.account-list-row-header .account-expand-button {
+  justify-self: end;
+}
+
+@media (max-width: 900px) {
+  .account-list-row-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .account-list-row-note {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+
+  .account-list-row-header .account-expand-button {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+  }
+}
+
+/* ——— Collapsed note previews (Service + Producer) ———
+   Two restrained tinted cards: Service Note in blue, Producer Note on the
+   Harper accent. Each pairs its tint with a distinct icon shape and an explicit
+   label, so neither reads as the IQ source badge (--info) or as the other book.
+   Not BigBrother's dark panel. */
+.note-preview-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 22rem;
+  margin-left: auto;
+}
+
+.note-preview {
+  --note-tint: #3b82f6;
+  --note-clamp: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--note-tint) 28%, var(--rule));
+  background: color-mix(in srgb, var(--note-tint) 8%, var(--surface-raised));
+  text-align: left;
+  color: var(--ink);
+}
+
+.note-preview--producer {
+  --note-tint: var(--accent);
+}
+
+.note-preview--compact {
+  --note-clamp: 1;
+}
+
+.note-preview--empty {
+  border-color: var(--rule);
+  background: color-mix(in srgb, var(--sand) 35%, var(--surface-raised));
+}
+
+.note-preview--empty .note-preview-icon,
+.note-preview--empty .note-preview-label {
+  color: var(--muted);
+}
+
+.note-preview--action {
+  cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+
+.note-preview--action:hover {
+  border-color: color-mix(in srgb, var(--note-tint) 45%, var(--rule));
+  background: color-mix(in srgb, var(--note-tint) 12%, var(--surface-raised));
+}
+
+.note-preview--action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.note-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.35rem;
+  min-width: 0;
+}
+
+.note-preview-icon {
+  flex: none;
+  color: var(--note-tint);
+}
+
+.note-preview-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--note-tint) 78%, var(--ink));
+}
+
+.note-preview-dot,
+.note-preview-time {
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.note-preview-earlier {
+  margin-left: auto;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.note-preview-body {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--note-clamp);
+  line-clamp: var(--note-clamp);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.note-preview-body--empty {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.note-preview-meta {
+  margin: 0;
+  font-size: 0.65rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-preview-author {
+  font-weight: 500;
+}
+
+@media (max-width: 900px) {
+  .note-preview-stack {
+    max-width: none;
+    margin-left: 0;
+  }
+
+  /* Full-width rows have the space to show both notes in full. */
+  .note-preview--compact {
+    --note-clamp: 2;
+  }
+}
+
+.account-list-row-header:not(.account-list-row-header--open):hover {
+  background: color-mix(in srgb, var(--sand) 25%, transparent);
+}
+
+.account-list-row-header--open {
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+
+.account-row-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.account-orders-panel {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--rule));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+
+.account-viewing-mark {
+  display: inline-flex;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-ink);
+}
+
+.account-viewing-mark svg {
+  width: 100%;
+  height: 100%;
+}
+
+.account-viewing-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.25rem;
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-raised));
+  padding: 0.0625rem 0.375rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+.account-expand-button {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rule);
+  border-radius: 0.5rem;
+  background: var(--surface-raised);
+  color: var(--muted);
+  transition: border-color 0.15s ease, background-color 0.15s ease,
+    color 0.15s ease, transform 0.15s ease;
+}
+
+.account-expand-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--foreground);
+}
+
+.account-expand-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.account-expand-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.account-expand-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.account-expand-button--open {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--rule));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-raised));
+  color: var(--accent-ink);
+}
+
+.account-summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+
+.account-summary-item {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 16rem;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 0.35rem;
+  padding: 0.0625rem 0;
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--muted) 72%, var(--foreground));
+  white-space: nowrap;
+}
+
+.account-summary-item > span:not(.account-summary-tip) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-summary-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.account-summary-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: none;
+  color: color-mix(in srgb, var(--muted) 80%, var(--foreground));
+}
+
+.account-summary-item--iq,
+.account-summary-item--iq .account-summary-icon {
+  color: var(--info);
+}
+
+.account-summary-item--attention,
+.account-summary-item--attention .account-summary-icon {
+  color: var(--danger);
+}
+
+.account-summary-unit {
+  margin-left: 0.25rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.account-summary-tip {
+  position: absolute;
+  bottom: calc(100% + 0.375rem);
+  left: 0;
+  z-index: 40;
+  visibility: hidden;
+  width: max-content;
+  max-width: min(18rem, 80vw);
+  white-space: normal;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--surface-raised);
+  padding: 0.3rem 0.5rem;
+  color: var(--foreground);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.1rem;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--shadow-color) 30%, transparent);
+}
+
+.account-summary-item:hover > .account-summary-tip,
+.account-summary-item:focus-visible > .account-summary-tip {
+  visibility: visible;
+}
+
+@media (max-width: 639px) {
+  .account-summary {
+    gap: 0.25rem 0.625rem;
+  }
+
+  .account-summary-item {
+    max-width: min(100%, 12rem);
+  }
+}
+
+@media (min-width: 640px) {
+  .account-row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* Order status/action contrast is token-driven so the small controls remain
+   legible on the bright white card surface as well as in dark mode. */
+.order-status-pending {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--rule));
+  background: color-mix(in srgb, var(--warning) 17%, var(--surface-raised));
+  color: color-mix(in srgb, var(--warning) 68%, var(--foreground));
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.order-bind-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--success) 55%, var(--rule));
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--success) 16%, var(--surface-raised));
+  padding: 0.25rem 0.55rem;
+  color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+  font-size: 0.6875rem;
+  font-weight: 750;
+  line-height: 1rem;
+  transition: border-color 0.15s ease, background-color 0.15s ease,
+    color 0.15s ease, transform 0.15s ease;
+}
+
+.order-bind-button:hover {
+  border-color: color-mix(in srgb, var(--success) 78%, var(--rule));
+  background: color-mix(in srgb, var(--success) 23%, var(--surface-raised));
+  color: color-mix(in srgb, var(--success) 82%, var(--foreground));
+}
+
+.order-bind-button:active {
+  transform: scale(0.97);
+}
+
+.order-bind-button:focus-visible {
+  outline: 2px solid var(--success);
+  outline-offset: 2px;
+}
+
+/* ——— Order preview metadata ———
+   Source / revenue / deal age on the order previews. Inline chips rather than
+   cards: one height, one radius, one icon size, and tabular numerals so the
+   money and day counts line up down a list of orders. */
+.meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.375rem;
+  min-width: 0;
+}
+
+.meta-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface-subtle) 45%, transparent);
+  padding: 0.0625rem 0.375rem;
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--muted) 65%, var(--foreground));
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.meta-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.meta-chip-icon {
+  width: 0.6875rem;
+  height: 0.6875rem;
+  flex: none;
+}
+
+.meta-chip-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.meta-chip-unit {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.meta-chip--iq {
+  border-color: color-mix(in srgb, var(--info) 32%, transparent);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  color: var(--info);
+}
+
+.meta-chip--broker {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: color-mix(in srgb, var(--muted) 45%, var(--foreground));
+}
+
+.meta-chip--attention {
+  border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.meta-chip--attention .meta-chip-value {
+  color: var(--danger);
+}
+
+/* Anchored to the chip's right edge so it grows leftward and can never push
+   past the results panel, which clips overflow. */
+.meta-tip {
+  position: absolute;
+  bottom: calc(100% + 0.375rem);
+  right: 0;
+  z-index: 30;
+  visibility: hidden;
+  max-width: 17rem;
+  white-space: normal;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.1rem;
+  color: var(--foreground);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--shadow-color) 30%, transparent);
+}
+
+.meta-chip:hover > .meta-tip,
+.meta-chip:focus-visible > .meta-tip {
+  visibility: visible;
+}
+
+/* Broker Gate — display-only metadata, never filter chrome. */
+.meta-chip--gate {
+  border-color: color-mix(in srgb, var(--foreground) 18%, transparent);
+  max-width: 16rem;
+}
+
+.meta-chip--gate .meta-chip-value {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.meta-chip--gate-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.meta-chip--gate-missing {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.broker-gate-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--rule);
+}
+
+.broker-gate-rail-track {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  padding-bottom: 0.125rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.broker-gate-node {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0;
+}
+
+.broker-gate-dot {
+  display: inline-flex;
+  min-width: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface-subtle) 50%, transparent);
+  padding: 0.125rem 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.broker-gate-dot--current {
+  border-color: color-mix(in srgb, var(--foreground) 35%, transparent);
+  background: color-mix(in srgb, var(--foreground) 8%, var(--surface-raised));
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+.broker-gate-connector {
+  width: 0.75rem;
+  height: 1px;
+  flex: none;
+  background: var(--rule);
+}
+
+.broker-gate-caption {
+  position: relative;
+  min-width: 0;
+}
+
+.broker-gate-caption:hover > .meta-tip,
+.broker-gate-caption:focus-visible > .meta-tip {
+  visibility: visible;
+}
+
+.broker-gate-caption-code {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.broker-gate-caption-label {
+  margin-top: 0.0625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+
 /* ——— Desk sidebar ———
    Nav owns page offset: when the fixed sidebar is in the DOM, pad the body
    on lg+ so every page's <main> clears it without any page-file edits. */
@@ -131,6 +1119,48 @@ body {
   }
 }
 
+.desk-sidebar {
+  box-shadow: 1px 0 0 var(--inset-highlight);
+}
+
+.desk-nav-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.desk-nav-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.desk-nav-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.desk-nav-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+/* The stats metrics scroll only when the fixed date/action controls need the
+   room. Keep the native thumb themed so it never appears as a dark block. */
+.ops-metrics-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.ops-metrics-scroll::-webkit-scrollbar {
+  height: 3px;
+}
+
+.ops-metrics-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ops-metrics-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
 /* An active red alert pushes the whole desk down so the strip never covers
    content; the fixed sidebar drops below it too. */
 body:has(.red-alert-banner) {
@@ -138,6 +1168,10 @@ body:has(.red-alert-banner) {
 }
 
 body:has(.red-alert-banner) .desk-sidebar {
+  top: 2.25rem;
+}
+
+body:has(.red-alert-banner) .desk-sticky-header {
   top: 2.25rem;
 }
 
@@ -211,12 +1245,12 @@ body:has(.red-alert-banner) .desk-sidebar {
 /* ——— AI Desk (Additional Insured mastery) ——— */
 
 .glass {
-  border: 1px solid rgba(26, 44, 54, 0.08);
-  background: color-mix(in srgb, var(--paper) 78%, white);
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface) 78%, var(--surface-raised));
   backdrop-filter: blur(14px);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.85) inset,
-    0 18px 50px rgba(26, 44, 54, 0.06);
+    0 1px 0 var(--inset-highlight) inset,
+    0 18px 50px color-mix(in srgb, var(--shadow-color) 60%, transparent);
 }
 
 .queue-card {
@@ -228,8 +1262,9 @@ body:has(.red-alert-banner) .desk-sidebar {
 }
 
 .queue-card-active {
-  border-color: color-mix(in srgb, var(--gold) 60%, transparent);
-  box-shadow: 0 0 0 3px rgba(156, 143, 120, 0.16), 0 14px 34px rgba(26, 44, 54, 0.08);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+  box-shadow: 0 0 0 3px var(--accent-soft),
+    0 14px 34px color-mix(in srgb, var(--shadow-color) 70%, transparent);
 }
 
 .rise-in {
@@ -349,9 +1384,9 @@ body:has(.red-alert-banner) .desk-sidebar {
 
 .trace-shell {
   background:
-    radial-gradient(ellipse 55% 40% at 8% 0%, rgba(156, 143, 120, 0.18), transparent 55%),
-    radial-gradient(ellipse 40% 35% at 95% 8%, rgba(26, 44, 54, 0.07), transparent 50%),
-    linear-gradient(180deg, #f7f5f1 0%, var(--pierre) 40%, #efece6 100%);
+    radial-gradient(ellipse 55% 40% at 8% 0%, color-mix(in srgb, var(--gold) 18%, transparent), transparent 55%),
+    radial-gradient(ellipse 40% 35% at 95% 8%, color-mix(in srgb, var(--foreground) 7%, transparent), transparent 50%),
+    linear-gradient(180deg, var(--surface) 0%, var(--background) 40%, var(--surface-subtle) 100%);
 }
 
 .trace-shell-glow {
@@ -386,8 +1421,8 @@ body:has(.red-alert-banner) .desk-sidebar {
 
 .trace-stage {
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.65) inset,
-    0 28px 80px rgba(26, 44, 54, 0.08);
+    0 1px 0 var(--inset-highlight) inset,
+    0 28px 80px color-mix(in srgb, var(--shadow-color) 80%, transparent);
   background: var(--paper);
   animation: desk-tour-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -401,7 +1436,7 @@ body:has(.red-alert-banner) .desk-sidebar {
 }
 
 .trace-ledger-row-on {
-  background: color-mix(in srgb, var(--sand) 70%, white);
+  background: color-mix(in srgb, var(--sand) 70%, var(--surface-raised));
 }
 
 .trace-ledger-mark {
@@ -519,7 +1554,7 @@ body:has(.red-alert-banner) .desk-sidebar {
 
 .trace-spine-btn.on::before {
   background: var(--coral);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--coral) 25%, white);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--coral) 25%, var(--surface-raised));
 }
 
 .trace-spine-label {
@@ -595,7 +1630,7 @@ body:has(.red-alert-banner) .desk-sidebar {
 
 .carrier-desk {
   background:
-    linear-gradient(180deg, #f7f5f1 0%, var(--pierre) 45%, #efece6 100%);
+    linear-gradient(180deg, var(--surface) 0%, var(--background) 45%, var(--surface-subtle) 100%);
 }
 
 @keyframes desk-tour-in {
@@ -1028,7 +2063,7 @@ body:has(.red-alert-banner) .desk-sidebar {
 
 .trace-ov-dot:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--coral) 55%, var(--rule));
-  background: color-mix(in srgb, var(--sand) 45%, white);
+  background: color-mix(in srgb, var(--sand) 45%, var(--surface-raised));
   transform: translateY(-1px);
 }
 
@@ -1112,7 +2147,7 @@ body:has(.red-alert-banner) .desk-sidebar {
 .btn-ghost:focus-visible,
 .chip:focus-visible,
 .field:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--gold) 70%, transparent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -1122,7 +2157,7 @@ body:has(.red-alert-banner) .desk-sidebar {
 }
 
 .btn-ghost:active {
-  background: color-mix(in srgb, var(--sand) 85%, white);
+  background: color-mix(in srgb, var(--sand) 85%, var(--surface-raised));
 }
 
 a.chip,
@@ -1151,7 +2186,7 @@ button.chip:hover {
 }
 
 .row-link:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--gold) 70%, transparent);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -1183,7 +2218,7 @@ details.disclosure[open] > *:not(summary) {
 .desk-section {
   border: 1px solid var(--rule);
   border-radius: 1rem;
-  background: color-mix(in srgb, var(--paper) 92%, white);
+  background: color-mix(in srgb, var(--paper) 92%, var(--surface-raised));
 }
 
 .desk-section > summary {
@@ -1199,7 +2234,7 @@ details.disclosure[open] > *:not(summary) {
 }
 
 .desk-section > summary:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--gold) 70%, transparent);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -1210,4 +2245,249 @@ details.disclosure[open] > *:not(summary) {
 
 .ledger-group:first-of-type > summary {
   border-top: none;
+}
+
+/* ——— Semantic application chrome ——— */
+
+input:not([type="checkbox"]):not([type="radio"]):not(.acord-in),
+textarea:not(.acord-ta),
+select {
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not(.acord-in)::placeholder,
+textarea:not(.acord-ta)::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not(.acord-in):focus-visible,
+textarea:not(.acord-ta):focus-visible,
+select:focus-visible,
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+table:not(.acord-grid) {
+  color: var(--foreground);
+}
+
+table:not(.acord-grid) thead {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+table:not(.acord-grid) tbody tr {
+  border-color: var(--border);
+}
+
+table:not(.acord-grid) tbody tr:hover {
+  background: color-mix(in srgb, var(--surface-hover) 72%, transparent);
+}
+
+[role="dialog"],
+[role="menu"],
+[role="listbox"] {
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+[role="tooltip"] {
+  background: var(--foreground);
+  color: var(--foreground-inverse);
+  border: 1px solid var(--border-strong);
+}
+
+:where([class~="bg-[var(--ink)]"]) {
+  background-color: var(--control-bg) !important;
+}
+
+:where([class~="border-[var(--ink)]"]) {
+  border-color: var(--control-bg) !important;
+}
+
+.status-neutral,
+.status-warning,
+.status-info,
+.status-success,
+.status-danger {
+  border: 1px solid currentColor;
+}
+
+.status-neutral {
+  color: var(--muted);
+  background: var(--surface-subtle);
+}
+
+.status-warning {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.status-info {
+  color: var(--info);
+  background: var(--info-soft);
+}
+
+.status-success {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.status-danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* A small compatibility bridge for legacy Tailwind palette utilities. The
+   semantic component tokens above remain the source of truth; these rules keep
+   older screens readable until their status palettes are fully tokenized. */
+:root[data-theme="dark"]
+  :where(
+    [class~="bg-white"],
+    [class~="bg-white/60"],
+    [class~="bg-white/70"]
+  ) {
+  background-color: var(--surface-raised) !important;
+}
+
+:root[data-theme="dark"]
+  :where(
+    [class~="bg-stone-50"],
+    [class~="bg-stone-100"],
+    [class~="bg-neutral-100"],
+    [class~="bg-slate-50"],
+    [class~="bg-slate-100"],
+    [class~="bg-slate-200"],
+    [class~="bg-gray-50"],
+    [class~="bg-gray-100"]
+  ) {
+  background-color: var(--surface-subtle) !important;
+}
+
+:root[data-theme="dark"]
+  :where(
+    [class~="text-stone-500"],
+    [class~="text-stone-600"],
+    [class~="text-neutral-600"],
+    [class~="text-slate-500"],
+    [class~="text-slate-600"],
+    [class~="text-gray-500"],
+    [class~="text-gray-600"]
+  ) {
+  color: var(--muted) !important;
+}
+
+:root[data-theme="dark"]
+  :where(
+    [class~="text-stone-700"],
+    [class~="text-neutral-700"],
+    [class~="text-slate-700"],
+    [class~="text-gray-700"]
+  ) {
+  color: var(--foreground) !important;
+}
+
+:root[data-theme="dark"]
+  :where(
+    [class~="border-stone-200"],
+    [class~="border-stone-300"],
+    [class~="border-neutral-200"],
+    [class~="border-slate-200"],
+    [class~="border-slate-300"],
+    [class~="border-gray-200"],
+    [class~="border-gray-300"]
+  ) {
+  border-color: var(--border) !important;
+}
+
+:root[data-theme="dark"] :where([class~="text-red-700"], [class~="text-red-800"], [class~="text-red-900"], [class~="text-rose-700"], [class~="text-rose-800"], [class~="text-rose-900"]) {
+  color: var(--danger) !important;
+}
+
+:root[data-theme="dark"] :where([class~="bg-red-50"], [class~="bg-red-50/40"], [class~="bg-red-50/50"], [class~="bg-red-50/60"], [class~="bg-red-50/70"], [class~="bg-red-50/80"], [class~="bg-red-100"], [class~="bg-rose-50"], [class~="bg-rose-50/40"], [class~="bg-rose-50/50"], [class~="bg-rose-50/60"], [class~="bg-rose-50/70"], [class~="bg-rose-50/80"], [class~="bg-rose-100"]) {
+  background-color: var(--danger-soft) !important;
+}
+
+:root[data-theme="dark"] :where([class~="text-emerald-700"], [class~="text-emerald-800"], [class~="text-emerald-900"], [class~="text-green-700"], [class~="text-green-800"], [class~="text-green-900"]) {
+  color: var(--success) !important;
+}
+
+:root[data-theme="dark"] :where([class~="bg-emerald-50"], [class~="bg-emerald-50/40"], [class~="bg-emerald-50/50"], [class~="bg-emerald-50/60"], [class~="bg-emerald-100"], [class~="bg-green-50"], [class~="bg-green-100"]) {
+  background-color: var(--success-soft) !important;
+}
+
+:root[data-theme="dark"] :where([class~="text-amber-700"], [class~="text-amber-800"], [class~="text-amber-900"], [class~="text-amber-950"]) {
+  color: var(--warning) !important;
+}
+
+:root[data-theme="dark"] :where([class~="bg-amber-50"], [class~="bg-amber-50/40"], [class~="bg-amber-50/50"], [class~="bg-amber-50/60"], [class~="bg-amber-50/70"], [class~="bg-amber-100"]) {
+  background-color: var(--warning-soft) !important;
+}
+
+:root[data-theme="dark"] :where([class~="text-sky-700"], [class~="text-sky-800"], [class~="text-sky-900"], [class~="text-blue-700"], [class~="text-blue-800"], [class~="text-blue-900"]) {
+  color: var(--info) !important;
+}
+
+:root[data-theme="dark"] :where([class~="bg-sky-50"], [class~="bg-sky-50/40"], [class~="bg-sky-50/50"], [class~="bg-sky-50/60"], [class~="bg-sky-100"], [class~="bg-blue-50"], [class~="bg-blue-100"]) {
+  background-color: var(--info-soft) !important;
+}
+
+/* ACORD output is a paper artifact and intentionally stays white in either
+   application theme. */
+:root[data-theme="dark"] .cert-sheet,
+:root[data-theme="dark"] .acord {
+  background: #fff !important;
+  color: #14181b !important;
+  color-scheme: light;
+}
+
+/* Thread CTAs need explicit light-theme contrast; generic utility remapping
+   elsewhere in this stylesheet must not wash out their text. */
+.note-thread-view-button--producer {
+  border-color: #f0a46b;
+  background: #fff4e8;
+  color: #71310f;
+}
+
+.note-thread-view-button--producer:hover:not(:disabled) {
+  border-color: #dc7a35;
+  background: #ffe8d1;
+  color: #542207;
+}
+
+.note-thread-view-button--service {
+  border-color: #75b9d8;
+  background: #edf8fd;
+  color: #104f6d;
+}
+
+.note-thread-view-button--service:hover:not(:disabled) {
+  border-color: #438eaf;
+  background: #dff2fa;
+  color: #0b3d56;
+}
+
+:root[data-theme="dark"] .note-thread-view-button--producer {
+  border-color: rgba(255, 140, 87, 0.35);
+  background: rgba(255, 109, 99, 0.08);
+  color: #ffc09b;
+}
+
+:root[data-theme="dark"] .note-thread-view-button--service {
+  border-color: rgba(111, 190, 226, 0.35);
+  background: rgba(53, 107, 134, 0.12);
+  color: #a9dcf3;
 }

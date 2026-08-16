@@ -5,7 +5,7 @@
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { TicketPipeline } from "../src/components/TicketPipeline";
+import { TicketPipeline } from "../src/app/tickets/[id]/TicketPipeline";
 import type { Ticket } from "../src/lib/types";
 
 const base: Ticket = {

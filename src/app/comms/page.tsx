@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { CommsEmails } from "@/components/CommsEmails";
-import { CommsSignals } from "@/components/CommsSignals";
-import type { MassTextRecipient } from "@/components/CommsMassText";
-import { PhoneDesk } from "@/components/PhoneDesk";
-import { ServiceInbox } from "@/components/ServiceInbox";
-import { TriageDigest } from "@/components/TriageDigest";
+import { CommsEmails } from "./CommsEmails";
+import { CommsSignals } from "./CommsSignals";
+import type { MassTextRecipient } from "./CommsMassText";
+import { PhoneDesk } from "./PhoneDesk";
+import { ServiceInbox } from "./ServiceInbox";
+import { TriageDigest } from "./TriageDigest";
 import { SERVICE_MAILBOX } from "@/lib/brand";
 import { REQUEST_TYPES } from "@/lib/catalog";
 import { getCommsSignals, listComms } from "@/lib/comms";
@@ -70,8 +70,10 @@ export default async function CommsPage({
     mine?: string;
   }>;
 }) {
-  const sp = await searchParams;
-  const operator = await getSessionOperator();
+  const [sp, operator] = await Promise.all([
+    searchParams,
+    getSessionOperator(),
+  ]);
   const view = VIEWS.some((v) => v.id === sp.view) ? sp.view! : "inbox";
   const mine = sp.mine === "1" && Boolean(operator);
 
@@ -88,7 +90,7 @@ export default async function CommsPage({
             >
               Preview New Layout
             </Link>
-            <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">
+            <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">
               Communications
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">

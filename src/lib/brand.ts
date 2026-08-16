@@ -7,7 +7,7 @@ export const SERVICE_NAME = "Harper Service";
  */
 export const PRODUCT_NAME = "Step Bro";
 /** The non-"Harper" half of the wordmark — sits beside the Harper logo in the nav. */
-export const SHORT_NAME = "StepBrother";
+export const SHORT_NAME = "Step Bro";
 /** Release stamp shown on the nav wordmark. Bump here, not in the component. */
 export const APP_VERSION = "0.0.5";
 export const RELEASE_STAGE = "Beta";

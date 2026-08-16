@@ -41,7 +41,7 @@ export default async function InstantBindsPage() {
       <main className="px-4 py-6 lg:px-8">
         <div className="mb-4">
           <p className="eyebrow">Section</p>
-          <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">Instant Binds</h1>
+          <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">Instant Binds</h1>
           <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
             Two buckets — No Signature Needed and Signature Needed — with
             facets for payment, subjectivities, re-rate, referral, and carrier

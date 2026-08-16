@@ -89,7 +89,7 @@ export default async function ManagerQaPage() {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="eyebrow">Manager</p>
-          <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">
+          <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">
             QA & Agent Drilldowns
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">

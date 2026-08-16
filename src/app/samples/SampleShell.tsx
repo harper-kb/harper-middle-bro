@@ -37,7 +37,7 @@ export function SampleShell({
             </Link>
           </div>
           <p className="eyebrow mt-5 text-[var(--gold)]">{eyebrow}</p>
-          <h1 className="mt-2 font-display text-[clamp(2.5rem,5vw,4rem)] leading-[0.95] tracking-[-0.03em] text-[var(--ink)]">
+          <h1 className="page-title mt-2 text-[clamp(2.5rem,5vw,4rem)] text-[var(--ink)]">
             {title}
           </h1>
           <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-[var(--muted)]">

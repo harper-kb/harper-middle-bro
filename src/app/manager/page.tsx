@@ -430,7 +430,7 @@ function Shell({
       <main className="mx-auto max-w-[1200px] px-4 py-8">
         <div className="mb-8">
           <p className="eyebrow">Oversight</p>
-          <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">
+          <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">
             Manager Desk
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">

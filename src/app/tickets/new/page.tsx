@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { NewTicketForm } from "@/components/NewTicketForm";
+import { NewTicketForm } from "./NewTicketForm";
 import { listAccounts } from "@/lib/db";
 import { getSessionOperator } from "@/lib/session";
 
@@ -19,7 +19,7 @@ export default async function NewTicketPage() {
         </Link>
         <div className="mb-6 mt-2">
           <p className="eyebrow">Manual Intake</p>
-          <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">
+          <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">
             New Ticket
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">

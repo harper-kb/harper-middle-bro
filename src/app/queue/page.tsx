@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { DeskSection } from "@/components/DeskSection";
 import { Nav } from "@/components/Nav";
-import { ExportCsvButton, OwnerFilter } from "@/components/QueueControls";
-import { TicketQueue } from "@/components/TicketQueue";
+import { ExportCsvButton, OwnerFilter } from "./QueueControls";
+import { TicketQueue } from "./TicketQueue";
 import { getRequestType } from "@/lib/catalog";
 import { listOperators, listTickets } from "@/lib/db";
 import { formatMoney } from "@/lib/format";
@@ -30,8 +30,10 @@ export default async function QueuePage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const params = await searchParams;
-  const operator = await getSessionOperator();
+  const [params, operator] = await Promise.all([
+    searchParams,
+    getSessionOperator(),
+  ]);
   const query = parseQueueQuery(params);
 
   const operators = listOperators();
@@ -139,7 +141,7 @@ export default async function QueuePage({
           <div>
             <p className="eyebrow">Service Requests</p>
             <Link href="/samples/queue" className="chip mt-1.5 transition hover:border-[var(--coral)] hover:text-[var(--coral)]">Preview New Layout</Link>
-            <h1 className="mt-1 font-display text-3xl text-[var(--ink)]">
+            <h1 className="page-title mt-1 text-3xl text-[var(--ink)]">
               Ticket Queue
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-[var(--muted)]">

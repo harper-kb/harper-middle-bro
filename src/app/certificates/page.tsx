@@ -38,7 +38,7 @@ export default async function CertificatesPage() {
       <Nav active="/certificates" operator={operator} />
       <main className="mx-auto max-w-6xl px-4 py-8">
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-[var(--navy)]">
+          <h1 className="page-title text-3xl text-[var(--ink)]">
             Certificates
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">
@@ -54,11 +54,11 @@ export default async function CertificatesPage() {
             <Link
               key={a.id}
               href={`/accounts/${a.id}#certificates`}
-              className="group rounded-xl border border-[var(--navy)]/10 bg-white p-4 shadow-sm transition hover:border-[var(--coral)]/40"
+              className="group rounded-xl border border-[var(--rule)] bg-[var(--surface-raised)] p-4 shadow-sm transition hover:border-[var(--accent)]/40"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-[var(--navy)] group-hover:text-[var(--coral)]">
+                  <p className="truncate font-medium text-[var(--ink)] group-hover:text-[var(--accent)]">
                     {a.name}
                   </p>
                   <p className="mt-0.5 text-xs text-[var(--muted)]">

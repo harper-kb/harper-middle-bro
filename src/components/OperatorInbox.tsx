@@ -162,14 +162,14 @@ export function OperatorInbox() {
           ✉
         </span>
         {count > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold text-[var(--coral)]">
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--surface-raised)] px-1 text-[11px] font-bold text-[var(--coral)]">
             {count}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-5 z-50 w-[min(100vw-2rem,360px)] overflow-hidden rounded-2xl border border-[var(--navy)]/10 bg-white shadow-2xl">
+        <div className="fixed bottom-24 right-5 z-50 w-[min(100vw-2rem,360px)] overflow-hidden rounded-2xl border border-[var(--rule)] bg-[var(--surface-raised)] shadow-2xl">
           <div className="flex items-center justify-between bg-[var(--navy)] px-4 py-3 text-white">
             <div>
               <p className="text-sm font-semibold">Needs Your Review</p>
@@ -191,7 +191,7 @@ export function OperatorInbox() {
               Inbox clear. The agent handles quotes ≤ $500.
             </div>
           ) : (
-            <ul className="max-h-[420px] divide-y divide-[var(--navy)]/8 overflow-y-auto">
+            <ul className="max-h-[420px] divide-y divide-[var(--rule)] overflow-y-auto">
               {items.map((item) => (
                 <li key={item.id}>
                   <button
@@ -204,7 +204,7 @@ export function OperatorInbox() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
-                        <p className="truncate text-sm font-semibold text-[var(--navy)]">
+                        <p className="truncate text-sm font-semibold text-[var(--ink)]">
                           {item.accountName}
                         </p>
                         <span className="shrink-0 text-[10px] font-semibold text-rose-600">

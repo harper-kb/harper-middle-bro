@@ -245,7 +245,7 @@ function RailTab({
     >
       {children}
       {on && (
-        <span className="absolute inset-x-3 bottom-0 h-px bg-[var(--ink)]" />
+        <span className="absolute inset-x-3 bottom-0 h-px bg-[var(--accent)]" />
       )}
     </button>
   );

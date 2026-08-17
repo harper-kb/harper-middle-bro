@@ -44,7 +44,10 @@ export function PaginationControls({
 
   const previousDisabled = currentPage <= 1;
   const nextDisabled = currentPage >= totalPages;
-  const buttonClass = "btn-ghost px-3 py-1.5 text-xs";
+  const buttonClass =
+    placement === "top"
+      ? "btn-ghost account-pagination-button"
+      : "btn-ghost px-3 py-1.5 text-xs";
   const disabledClass = `${buttonClass} cursor-default opacity-40`;
 
   function markBottomNavigation() {
@@ -56,11 +59,14 @@ export function PaginationControls({
   return (
     <nav
       aria-label={`${placement === "top" ? "Top" : "Bottom"} account results pagination`}
-      className="flex flex-wrap items-center gap-2 text-sm text-[var(--muted)]"
+      className={`account-pagination account-pagination--${placement} flex items-center gap-2 text-sm text-[var(--muted)]${
+        placement === "bottom" ? " flex-wrap" : ""
+      }`}
     >
       {previousDisabled ? (
         <span className={disabledClass} aria-disabled="true">
-          ← Previous
+          <span aria-hidden="true">←</span>
+          <span className="account-pagination-word">Previous</span>
         </span>
       ) : (
         <Link
@@ -69,17 +75,26 @@ export function PaginationControls({
           aria-label={`Go to page ${currentPage - 1}`}
           onClick={markBottomNavigation}
         >
-          ← Previous
+          <span aria-hidden="true">←</span>
+          <span className="account-pagination-word">Previous</span>
         </Link>
       )}
 
-      <span className="whitespace-nowrap tabular-nums" aria-current="page">
-        Page {currentPage} / {totalPages}
+      <span
+        className="account-pagination-page whitespace-nowrap tabular-nums"
+        aria-current="page"
+        aria-label={`Page ${currentPage} of ${totalPages}`}
+      >
+        <span aria-hidden="true">
+          <span className="account-pagination-page-word">Page </span>
+          {currentPage} / {totalPages}
+        </span>
       </span>
 
       {nextDisabled ? (
         <span className={disabledClass} aria-disabled="true">
-          Next →
+          <span className="account-pagination-word">Next</span>
+          <span aria-hidden="true">→</span>
         </span>
       ) : (
         <Link
@@ -88,7 +103,8 @@ export function PaginationControls({
           aria-label={`Go to page ${currentPage + 1}`}
           onClick={markBottomNavigation}
         >
-          Next →
+          <span className="account-pagination-word">Next</span>
+          <span aria-hidden="true">→</span>
         </Link>
       )}
     </nav>

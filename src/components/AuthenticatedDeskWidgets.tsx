@@ -2,6 +2,7 @@
 
 import { Show } from "@clerk/nextjs";
 import { usePathname } from "next/navigation";
+import { IdleBrandOverlay } from "@/components/IdleBrandOverlay";
 import { MiddleBroBot } from "@/components/MiddleBroBot";
 import { OperatorInbox } from "@/components/OperatorInbox";
 
@@ -14,6 +15,7 @@ export function AuthenticatedDeskWidgets() {
 
   return (
     <Show when="signed-in">
+      <IdleBrandOverlay />
       <OperatorInbox />
       <MiddleBroBot />
     </Show>

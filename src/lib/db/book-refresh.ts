@@ -6,6 +6,9 @@ import {
   loadSupabaseBook,
   setSupabaseBookCache,
   UNASSIGNED_UNDERWRITER,
+  type BookCompanyContact,
+  type BookCompanyDetail,
+  type BookContactKey,
   type BookOrder,
   type BookOrderBindStatus,
   type BookMoneyLine,
@@ -16,25 +19,60 @@ import {
 } from "../supabase-book.server";
 import type { Account, Policy } from "../types";
 import { classifyOrderSource } from "../account-source";
-import type { BookOrderServiceNote } from "../service-note";
+import { normalizeLocationState } from "../location-state";
+import type {
+  BookOrderServiceNote,
+  BookServiceNoteEntry,
+} from "../service-note";
 import {
+  readBookRefreshStatus,
   recordBookRefreshFailure,
   recordBookRefreshSuccess,
 } from "./book-refresh-status";
-import { runSupabaseManagementQuery } from "../supabase-management.server";
+import {
+  describeDelta,
+  diffBookDigests,
+  fetchBookDigests,
+  isEmptyDelta,
+  readBookDigests,
+  writeBookDigests,
+  type BookDelta,
+} from "./book-digest";
+import {
+  isRateLimited,
+  runSupabaseManagementQuery,
+} from "../supabase-management.server";
 import {
   OPERATIONS_METRICS_SQL,
   parseOperationsMetricsRow,
   writeOperationsMetricsSnapshot,
   type OperationsMetricsRow,
 } from "./operations-metrics";
-import { syncAccountsAndPolicies } from "./seed";
+import {
+  replaceAccountServiceNotes,
+  syncAccountsAndPolicies,
+} from "./seed";
 
 /**
- * Live book refresh: every five minutes, pull the curated slice of the real
+ * Live book refresh: every two minutes, pull whatever changed in the real
  * Harper book (Supabase Postgres) and upsert it into local SQLite through the
  * same overlay path the boot seed uses (`data/supabase-book.local.json` +
  * `syncAccountsAndPolicies`).
+ *
+ * Incremental by digest, not by watermark. Harper has no `updated_at` on
+ * `orders_temp` or `deals_v2`, so there is no timestamp to filter on — see
+ * `book-digest.ts`. Each tick sweeps one short hash per eligible order and
+ * company, and only rows whose hash moved are fetched in full. An unchanged
+ * book therefore costs one sweep and skips the snapshot write and the 10k-row
+ * SQLite upsert entirely, which is what makes two minutes affordable where the
+ * old whole-book pull needed five. Every half hour a tick pulls the whole book
+ * anyway, to re-derive the handful of display names that live in directory
+ * tables outside the digest.
+ *
+ * A newly created order usually has no deal attached yet, so it is not book
+ * eligible and will not appear in All Accounts until one is. The stats bar's
+ * New Orders counter does not wait for that: it is refreshed on every tick
+ * straight from `orders_temp.created_at` (see `refreshOperationsMetrics`).
  *
  * Reads go through the Supabase Management API SQL endpoint
  * (`POST /v1/projects/$REF/database/query`) — the same read path the
@@ -44,7 +82,10 @@ import { syncAccountsAndPolicies } from "./seed";
  * snapshot (or the fictional seed on a clean clone), exactly as before.
  *
  * Failure policy: never wipe. Any fetch/mapping/validation error keeps the
- * last good book in place and is retried on the next tick.
+ * last good book in place and is retried on the next tick. A rate-limited tick
+ * backs off rather than retrying into the same wall, and the stored digests are
+ * only advanced after the book they describe is safely on disk, so an
+ * interrupted cycle repeats itself instead of skipping rows.
  *
  * Eligibility — every non-test company with at least one real, non-deleted
  * `orders_temp` row that carries a non-deleted deal in a recognized stage
@@ -68,7 +109,20 @@ import { syncAccountsAndPolicies } from "./seed";
  * never from account status or fabricated placeholders.
  */
 
-const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+/**
+ * Tick cadence. Every tick sweeps Harper for changed rows and fetches only
+ * those, so this is affordable where the old whole-book pull was not.
+ */
+const REFRESH_INTERVAL_MS = 2 * 60 * 1000;
+
+/**
+ * How often a tick pulls the whole book instead of a delta. The digest sweep
+ * is exact for everything the book persists, so this is a safety net rather
+ * than the mechanism: it re-derives the display names that live in directory
+ * tables outside the digest (carrier, wholesaler, producer, note author) and
+ * bounds any drift from a bug in the delta path.
+ */
+const FULL_RECONCILE_INTERVAL_MS = 30 * 60 * 1000;
 
 const BOOK_PATH = path.join(process.cwd(), "data", "supabase-book.local.json");
 
@@ -77,7 +131,7 @@ const BOOK_PATH = path.join(process.cwd(), "data", "supabase-book.local.json");
  * has at least one non-deleted deal in a recognized lifecycle stage. Orders
  * without such a deal are inert shells and stay out of Step Bro entirely.
  */
-const BOOK_CTE = `
+const FULL_BOOK_CTE = `
 WITH book AS (
   SELECT DISTINCT c.id
   FROM companies c
@@ -91,14 +145,134 @@ WITH book AS (
   WHERE COALESCE(c.is_testing_user, false) = false
 )`;
 
-const ACCOUNTS_SQL = `${BOOK_CTE}
+/**
+ * Ids for a scoped read, or null for the whole book. Only validated safe
+ * integers are ever interpolated — these come from Harper's own numeric keys
+ * by way of the digest sweep, never from anything an operator typed.
+ */
+export type IdScope = readonly number[] | null;
+
+function idList(ids: readonly number[]): string {
+  const safe = ids.filter((id) => Number.isSafeInteger(id) && id > 0);
+  if (safe.length === 0) throw new Error("scoped read with no valid ids");
+  return safe.join(", ");
+}
+
+/**
+ * The `book` CTE every downstream query joins against. A scoped refresh swaps
+ * the eligibility scan for the explicit company list the sweep produced, which
+ * is what turns a whole-book read into a handful of rows.
+ */
+function bookCte(companyIds: IdScope): string {
+  if (!companyIds) return FULL_BOOK_CTE;
+  return `
+WITH book AS (
+  SELECT id FROM unnest(ARRAY[${idList(companyIds)}]::bigint[]) AS id
+)`;
+}
+
+/**
+ * Book companies, each carrying its normalized search keys for global company
+ * search. Emails are lowercased and phones reduced to digits in Postgres, so
+ * punctuation, spacing and the +1 country code cannot block a match. Both the
+ * company primary contact and every `companies_contacts` row are indexed
+ * because they disagree on part of the book.
+ *
+ * Only the normalized key is pulled for search — the search path never holds
+ * a formatted email or phone. The company-page overview mirror rides along in
+ * the same read: location, stored timezone, the producer resolved from
+ * `producer_assigned`, and the display contacts the Contacts card shows.
+ *
+ * Deliberately folded into the accounts read rather than run as its own query:
+ * both are company grain, and the Management API rate-limits the whole desk,
+ * so the refresh should not spend a request it does not need.
+ */
+const accountsSql = (companyIds: IdScope) => `${bookCte(companyIds)},
+search_keys AS (
+  SELECT c.id AS company_id, 'email'::text AS kind,
+         lower(TRIM(c.company_primary_email)) AS value
+  FROM companies c WHERE c.id IN (SELECT id FROM book)
+  UNION
+  SELECT c.id, 'phone', regexp_replace(COALESCE(c.company_primary_phone, ''), '[^0-9]', '', 'g')
+  FROM companies c WHERE c.id IN (SELECT id FROM book)
+  UNION
+  SELECT cc.company_id, 'email', lower(TRIM(cc.contact_primary_email))
+  FROM companies_contacts cc WHERE cc.company_id IN (SELECT id FROM book)
+  UNION
+  SELECT cc.company_id, 'phone', regexp_replace(COALESCE(cc.contact_primary_phone, ''), '[^0-9]', '', 'g')
+  FROM companies_contacts cc WHERE cc.company_id IN (SELECT id FROM book)
+),
+grouped_keys AS (
+  SELECT company_id,
+    COALESCE(json_agg(value) FILTER (WHERE kind = 'email'), '[]'::json) AS emails,
+    COALESCE(json_agg(value) FILTER (WHERE kind = 'phone'), '[]'::json) AS phones
+  FROM search_keys
+  WHERE (kind = 'email' AND value LIKE '%_@_%')
+     OR (kind = 'phone' AND length(value) >= 7)
+  GROUP BY company_id
+)
 SELECT c.id, c.company_name, c.company_industry, c.company_state,
-       c.general_stage::text AS stage
+       c.general_stage::text AS stage,
+       COALESCE(g.emails, '[]'::json) AS search_emails,
+       COALESCE(g.phones, '[]'::json) AS search_phones,
+       c.company_street_address_1,
+       c.company_street_address_2,
+       c.company_city,
+       state_code.abbreviation AS company_state_code,
+       c.company_postal_code,
+       c.company_timezone,
+       producer.id AS producer_id,
+       producer.first_name AS producer_first_name,
+       producer.last_name AS producer_last_name,
+       COALESCE(ct.contacts, '[]'::json) AS display_contacts
 FROM companies c
+LEFT JOIN grouped_keys g ON g.company_id = c.id
+LEFT JOIN LATERAL (
+  SELECT s.abbreviation
+  FROM public.states s
+  WHERE LOWER(TRIM(s.name)) = LOWER(TRIM(c.company_state))
+     OR LOWER(TRIM(s.abbreviation)) = LOWER(TRIM(c.company_state))
+  ORDER BY s.id ASC
+  LIMIT 1
+) state_code ON true
+LEFT JOIN LATERAL (
+  SELECT p.id, p.first_name, p.last_name
+  FROM public.producers p
+  WHERE p.user_slug = NULLIF(TRIM(c.producer_assigned), '')
+    AND COALESCE(p.active, false) = true
+  ORDER BY p.id DESC
+  LIMIT 1
+) producer ON true
+LEFT JOIN LATERAL (
+  SELECT json_agg(json_build_object(
+           'id', x.id,
+           'first_name', x.contact_first_name,
+           'last_name', x.contact_last_name,
+           'email', x.contact_primary_email,
+           'phone', x.contact_primary_phone
+         ) ORDER BY x.ord) AS contacts
+  FROM (
+    SELECT cc.id, cc.contact_first_name, cc.contact_last_name,
+           cc.contact_primary_email, cc.contact_primary_phone,
+           ROW_NUMBER() OVER (
+             ORDER BY cc.created_at ASC NULLS LAST, cc.id ASC
+           ) AS ord
+    FROM public.companies_contacts cc
+    WHERE cc.company_id = c.id
+      AND (
+        NULLIF(TRIM(cc.contact_first_name), '') IS NOT NULL
+        OR NULLIF(TRIM(cc.contact_last_name), '') IS NOT NULL
+        OR NULLIF(TRIM(cc.contact_primary_email), '') IS NOT NULL
+        OR NULLIF(TRIM(cc.contact_primary_phone), '') IS NOT NULL
+      )
+    ORDER BY cc.created_at ASC NULLS LAST, cc.id ASC
+    LIMIT 200
+  ) x
+) ct ON true
 WHERE c.id IN (SELECT id FROM book)
 ORDER BY c.company_name`;
 
-const POLICIES_SQL = `${BOOK_CTE}
+const policiesSql = (companyIds: IdScope) => `${bookCte(companyIds)}
 SELECT d.id, d.company_id, d.policy_number,
        COALESCE(ic.name, NULLIF(d.carrier, ''), NULLIF(d.ai_carrier, '')) AS carrier,
        d.premium::text AS premium,
@@ -122,7 +296,9 @@ ORDER BY d.company_id, d.id`;
  * here and from book eligibility. Aggregated once via CTE joins — not
  * per-row EXISTS/subselects.
  */
-const ORDERS_SQL = `${BOOK_CTE},
+const ordersSql = (orderIds: IdScope) => `${
+  orderIds ? "WITH" : `${FULL_BOOK_CTE},`
+}
 orders AS (
   SELECT
     ot.id,
@@ -148,12 +324,26 @@ orders AS (
       ),
       ''
     ) AS producer_notes_updated_by_name,
+    -- Order-grain producer by stable FK. companies.producer_assigned is a
+    -- company-level slug that disagrees with how the order was actually
+    -- written (it differs from this join on a large share of the book), so
+    -- the preview reads the same grain as carrier, status and IQ/Broker.
+    ot.producer AS producer_id,
+    NULLIF(
+      TRIM(COALESCE(prod.first_name, '') || ' ' || COALESCE(prod.last_name, '')),
+      ''
+    ) AS producer_name,
     -- IQ Stage / BB "Step" column (operator-set; filter axis, not Gate).
     NULLIF(TRIM(ot.tag), '') AS iq_stage_tag
   FROM orders_temp ot
   LEFT JOIN internal_agents pn_agent
     ON pn_agent.id = ot.producer_notes_updated_by
-  WHERE ot.company_id IN (SELECT id FROM book)
+  LEFT JOIN producers prod ON prod.id = ot.producer
+  WHERE ${
+    orderIds
+      ? `ot.id IN (${idList(orderIds)})`
+      : "ot.company_id IN (SELECT id FROM book)"
+  }
     AND COALESCE(ot.is_deleted, false) = false
 ),
 deal_state AS (
@@ -230,6 +420,8 @@ SELECT
   o.producer_notes,
   o.producer_notes_updated_at,
   o.producer_notes_updated_by_name,
+  o.producer_id,
+  o.producer_name,
   o.iq_stage_tag,
   lg.current_gate AS broker_gate,
   lg.broker_gate_at,
@@ -250,29 +442,45 @@ WHERE ds.has_bound OR ds.has_open OR ds.has_lost
 ORDER BY o.company_id, o.id`;
 
 /**
- * Latest visible Workbench Service Note per book-company order — one batched
- * read of `public.service_note_entries` (soft-delete via deleted_at). Ordering
+ * Every visible Workbench Service Note on book companies — one batched read
+ * of `public.service_note_entries` (soft-delete via deleted_at). Ordering
  * matches BigBrother: created_at DESC NULLS LAST, id DESC. Not Producer Notes.
+ *
+ * All entries, not just the latest per order: the same result set feeds both
+ * the per-order latest-note snapshot on `rich.serviceNote` (rows where
+ * `rn = 1`) and the mirrored account-scoped thread the expanded note cards
+ * read from SQLite — measured live the whole corpus is ~4.6k rows / ~0.4 MB,
+ * a fraction of the digest sweep, so returning it whole costs less than a
+ * second request would.
+ *
+ * Scoped by company rather than by order even on a delta refresh: the thread
+ * and `note_count` are company grain, so narrowing to the changed orders
+ * would drop sibling entries and understate the badge. The digest sweep folds
+ * the company-wide note count and newest note id in, so a note added
+ * anywhere on the company flags it for this read.
  */
-const SERVICE_NOTES_SQL = `${BOOK_CTE}
+const serviceNotesSql = (companyIds: IdScope) => `${bookCte(companyIds)}
 SELECT
   n.order_id,
+  n.company_id,
   n.id::text AS note_id,
   n.body,
   n.created_at::text AS created_at,
   COALESCE(
     NULLIF(TRIM(COALESCE(a.first_name, '') || ' ' || COALESCE(a.last_name, '')), ''),
-    'Harper operator'
+    'Unknown author'
   ) AS author,
-  n.note_count
+  n.note_count,
+  n.rn
 FROM (
   SELECT
     e.id,
     e.order_id,
+    e.company_id,
     e.body,
     e.created_at,
     e.author_internal_agent_id,
-    COUNT(*) OVER (PARTITION BY e.order_id) AS note_count,
+    COUNT(*) OVER (PARTITION BY e.company_id) AS note_count,
     ROW_NUMBER() OVER (
       PARTITION BY e.order_id
       ORDER BY e.created_at DESC NULLS LAST, e.id DESC
@@ -282,7 +490,7 @@ FROM (
     AND e.company_id IN (SELECT id FROM book)
 ) n
 LEFT JOIN public.internal_agents a ON a.id = n.author_internal_agent_id
-WHERE n.rn = 1`;
+ORDER BY n.company_id, n.created_at DESC, n.id DESC`;
 
 const REPORTING_WINDOWS_SQL = `
 WITH anchor AS (
@@ -314,6 +522,75 @@ interface CompanyRow {
   company_industry: string | null;
   company_state: string | null;
   stage: string | null;
+  /** Normalized, search-only contact keys — never display values. */
+  search_emails: unknown;
+  search_phones: unknown;
+  company_street_address_1: string | null;
+  company_street_address_2: string | null;
+  company_city: string | null;
+  company_state_code: string | null;
+  company_postal_code: string | null;
+  company_timezone: string | null;
+  producer_id: number | string | null;
+  producer_first_name: string | null;
+  producer_last_name: string | null;
+  /** JSON array of display contacts for the company page's Contacts card. */
+  display_contacts: unknown;
+}
+
+function textOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function companyDetailFromRow(row: CompanyRow): BookCompanyDetail {
+  const contacts = arrayValue(row.display_contacts).flatMap(
+    (value): BookCompanyContact[] => {
+      if (!value || typeof value !== "object") return [];
+      const contact = value as Record<string, unknown>;
+      const id = Number(contact.id);
+      if (!Number.isSafeInteger(id) || id <= 0) return [];
+      const name =
+        [textOrNull(contact.first_name), textOrNull(contact.last_name)]
+          .filter(Boolean)
+          .join(" ") || "Unnamed contact";
+      return [
+        {
+          id,
+          name,
+          email: textOrNull(contact.email),
+          phone: textOrNull(contact.phone),
+        },
+      ];
+    },
+  );
+  const producerId = Number(row.producer_id);
+  const producerName = [
+    textOrNull(row.producer_first_name),
+    textOrNull(row.producer_last_name),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return {
+    accountId: `co-${row.id}`,
+    address1: textOrNull(row.company_street_address_1),
+    address2: textOrNull(row.company_street_address_2),
+    city: textOrNull(row.company_city),
+    state: textOrNull(row.company_state),
+    stateCode: textOrNull(row.company_state_code),
+    postalCode: textOrNull(row.company_postal_code),
+    timeZone: textOrNull(row.company_timezone),
+    producerId:
+      Number.isSafeInteger(producerId) && producerId > 0 && producerName
+        ? producerId
+        : null,
+    producerName:
+      Number.isSafeInteger(producerId) && producerId > 0 && producerName
+        ? producerName
+        : null,
+    contacts,
+  };
 }
 
 interface DealRow {
@@ -347,6 +624,8 @@ interface OrderRow {
   producer_notes: string | null;
   producer_notes_updated_at: string | null;
   producer_notes_updated_by_name: string | null;
+  producer_id: number | null;
+  producer_name: string | null;
   iq_stage_tag: string | null;
   broker_gate: string | null;
   broker_gate_at: string | null;
@@ -357,11 +636,47 @@ interface OrderRow {
 
 interface ServiceNoteRow {
   order_id: number;
+  company_id: number;
   note_id: string;
   body: string | null;
   created_at: string | null;
   author: string | null;
   note_count: number | string | null;
+  /** 1 = newest visible entry on its order (feeds `rich.serviceNote`). */
+  rn: number | string;
+}
+
+/** One validated thread entry from a sweep row, or null when unusable. */
+function serviceNoteEntryFromRow(
+  row: ServiceNoteRow,
+): BookServiceNoteEntry | null {
+  const orderId = Number(row.order_id);
+  const companyId = Number(row.company_id);
+  const noteId = String(row.note_id ?? "").trim();
+  const createdAt =
+    row.created_at === null || row.created_at === undefined
+      ? ""
+      : String(row.created_at).trim();
+  if (
+    !Number.isSafeInteger(orderId) ||
+    !Number.isSafeInteger(companyId) ||
+    companyId <= 0 ||
+    !noteId ||
+    !createdAt
+  ) {
+    return null;
+  }
+  return {
+    id: noteId,
+    accountId: `co-${companyId}`,
+    orderId,
+    body: typeof row.body === "string" ? row.body : "",
+    author:
+      typeof row.author === "string" && row.author.trim()
+        ? row.author.trim()
+        : "Unknown author",
+    createdAt,
+  };
 }
 
 interface ReportingWindowsRow {
@@ -601,28 +916,6 @@ const UW_BY_CARRIER: ReadonlyArray<readonly [string, string]> = [
   ["thimble", "uw-thimble-1"],
 ];
 
-const STATE_CODES: Record<string, string> = {
-  alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA",
-  colorado: "CO", connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA",
-  hawaii: "HI", idaho: "ID", illinois: "IL", indiana: "IN", iowa: "IA",
-  kansas: "KS", kentucky: "KY", louisiana: "LA", maine: "ME", maryland: "MD",
-  massachusetts: "MA", michigan: "MI", minnesota: "MN", mississippi: "MS",
-  missouri: "MO", montana: "MT", nebraska: "NE", nevada: "NV",
-  "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM",
-  "new york": "NY", "north carolina": "NC", "north dakota": "ND", ohio: "OH",
-  oklahoma: "OK", oregon: "OR", pennsylvania: "PA", "rhode island": "RI",
-  "south carolina": "SC", "south dakota": "SD", tennessee: "TN", texas: "TX",
-  utah: "UT", vermont: "VT", virginia: "VA", washington: "WA",
-  "west virginia": "WV", wisconsin: "WI", wyoming: "WY",
-  "district of columbia": "DC",
-};
-
-function normalizeState(raw: unknown): string {
-  const s = String(raw ?? "").trim();
-  if (/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
-  return STATE_CODES[s.toLowerCase()] ?? s;
-}
-
 function splitDba(rawName: unknown): { name: string; dba: string | null } {
   const name = String(rawName ?? "").trim();
   const m = name.match(/^(.*?)[,.]?\s+DBA\s+(.+)$/i);
@@ -674,7 +967,7 @@ export function buildBook(
       industry: String(r.company_industry ?? "").trim() || "Unclassified",
       addressLine1: null,
       city: null,
-      state: normalizeState(r.company_state),
+      state: normalizeLocationState(r.company_state),
       zip: null,
       primaryUwId: UNASSIGNED_UNDERWRITER.id, // resolved from policies below
       backupUwId: null,
@@ -726,24 +1019,26 @@ export function buildBook(
 
   const seenOrderIds = new Set<number>();
   const serviceNotesByOrder = new Map<number, BookOrderServiceNote>();
+  const serviceNoteEntries: BookServiceNoteEntry[] = [];
+  const seenNoteIds = new Set<string>();
   for (const row of serviceNoteRows) {
-    const orderId = Number(row.order_id);
-    if (!Number.isFinite(orderId) || serviceNotesByOrder.has(orderId)) continue;
-    const noteId = String(row.note_id ?? "").trim();
-    const createdAt =
-      row.created_at === null || row.created_at === undefined
-        ? ""
-        : String(row.created_at).trim();
-    if (!noteId || !createdAt) continue;
+    const entry = serviceNoteEntryFromRow(row);
+    if (!entry) continue;
+    // Full thread mirror: every visible entry on a book company.
+    if (accountIds.has(entry.accountId) && !seenNoteIds.has(entry.id)) {
+      seenNoteIds.add(entry.id);
+      serviceNoteEntries.push(entry);
+    }
+    // Latest-per-order snapshot on rich.serviceNote — rn = 1 rows only.
+    if (Number(row.rn) !== 1 || serviceNotesByOrder.has(entry.orderId)) {
+      continue;
+    }
     const noteCountRaw = Number(row.note_count);
-    serviceNotesByOrder.set(orderId, {
-      id: noteId,
-      body: typeof row.body === "string" ? row.body : "",
-      author:
-        typeof row.author === "string" && row.author.trim()
-          ? row.author.trim()
-          : "Harper operator",
-      createdAt,
+    serviceNotesByOrder.set(entry.orderId, {
+      id: entry.id,
+      body: entry.body,
+      author: entry.author,
+      createdAt: entry.createdAt,
       noteCount:
         Number.isFinite(noteCountRaw) && noteCountRaw > 0
           ? Math.floor(noteCountRaw)
@@ -842,6 +1137,13 @@ export function buildBook(
       iqStageTag,
       brokerGate,
       brokerGateAt,
+      producerId: Number.isSafeInteger(row.producer_id)
+        ? Number(row.producer_id)
+        : null,
+      producerName:
+        typeof row.producer_name === "string" && row.producer_name.trim()
+          ? row.producer_name.trim()
+          : null,
     });
   }
 
@@ -851,15 +1153,43 @@ export function buildBook(
     );
   }
 
+  const contactKeys: BookContactKey[] = [];
+  const seenKeys = new Set<string>();
+  const companyDetails: BookCompanyDetail[] = [];
+  for (const row of companyRows) {
+    const accountId = `co-${row.id}`;
+    if (!accountIds.has(accountId)) continue;
+    companyDetails.push(companyDetailFromRow(row));
+    for (const [kind, raw] of [
+      ["email", row.search_emails],
+      ["phone", row.search_phones],
+    ] as const) {
+      for (const entry of arrayValue(raw)) {
+        const value = String(entry ?? "").trim();
+        if (!value) continue;
+        const dedupe = `${accountId}|${kind}|${value}`;
+        if (seenKeys.has(dedupe)) continue;
+        seenKeys.add(dedupe);
+        contactKeys.push({ accountId, kind, value });
+      }
+    }
+  }
+
   return {
     fetchedAt: new Date().toISOString(),
     source: "supabase companies/deals_v2/orders_temp",
     accounts,
     policies,
     orders,
+    contactKeys,
+    serviceNoteEntries,
+    companyDetails,
     reportingWindows: parseReportingWindows(reportingWindowsRow),
     stageFieldsPresent: true,
     serviceNotesPresent: true,
+    searchFieldsPresent: true,
+    noteThreadsPresent: true,
+    companyDetailsPresent: true,
   };
 }
 
@@ -873,33 +1203,10 @@ export function isRefreshConfigured(): boolean {
 }
 
 /**
- * One refresh cycle: fetch → map → validate → snapshot to disk → upsert into
- * SQLite. Throws on failure; callers log and keep the last good book.
+ * Publish a completed book: atomic snapshot to disk, then into the loader
+ * cache and SQLite through the same overlay path the boot seed uses.
  */
-export async function refreshBook(db: Database.Database): Promise<SupabaseBook> {
-  const [
-    companyRows,
-    dealRows,
-    orderRows,
-    serviceNoteRows,
-    reportingWindowRows,
-    operationsMetricsRows,
-  ] = await Promise.all([
-    runManagementQuery<CompanyRow>(ACCOUNTS_SQL),
-    runManagementQuery<DealRow>(POLICIES_SQL),
-    runManagementQuery<OrderRow>(ORDERS_SQL),
-    runManagementQuery<ServiceNoteRow>(SERVICE_NOTES_SQL),
-    runManagementQuery<ReportingWindowsRow>(REPORTING_WINDOWS_SQL),
-    runManagementQuery<OperationsMetricsRow>(OPERATIONS_METRICS_SQL),
-  ]);
-  const book = buildBook(
-    companyRows,
-    dealRows,
-    orderRows,
-    reportingWindowRows[0],
-    serviceNoteRows,
-  );
-  const operationsMetrics = parseOperationsMetricsRow(operationsMetricsRows[0]);
+function publishBook(db: Database.Database, book: SupabaseBook): void {
   if (book.accounts.length === 0) throw new Error("refresh produced an empty book");
 
   // Atomic snapshot: the boot path and a mid-write crash both only ever see
@@ -909,43 +1216,355 @@ export async function refreshBook(db: Database.Database): Promise<SupabaseBook> 
   // Compact — at ~10k accounts a pretty-printed snapshot is >10MB.
   fs.writeFileSync(tmp, JSON.stringify(book) + "\n");
   fs.renameSync(tmp, BOOK_PATH);
-  writeOperationsMetricsSnapshot(operationsMetrics);
 
   setSupabaseBookCache(book);
   syncAccountsAndPolicies(db);
+}
+
+/**
+ * Operations metrics — the stats bar's New Orders / Bound / COIs Sent counters.
+ * Refreshed on every tick, delta or not: a brand-new order usually arrives
+ * before any deal is attached to it, so it is not yet book-eligible and no
+ * amount of order-grain delta work would surface it. This is the read that
+ * makes New Orders move the moment the order lands.
+ */
+async function refreshOperationsMetrics(): Promise<void> {
+  const rows = await runManagementQuery<OperationsMetricsRow>(
+    OPERATIONS_METRICS_SQL,
+  );
+  writeOperationsMetricsSnapshot(parseOperationsMetricsRow(rows[0]));
+}
+
+/**
+ * One full refresh cycle: fetch the whole book → map → validate → publish.
+ * Throws on failure; callers log and keep the last good book.
+ *
+ * Queries are issued serially rather than in parallel. Six concurrent
+ * whole-book statements were the shape that tripped the Management API's rate
+ * limit (`supabase_management_http_429` in the refresh log), and nothing here
+ * needs them to overlap.
+ *
+ * The digest sweep runs *before* the book reads, not after, and that order is
+ * load-bearing. A change landing mid-cycle then lands in the book but not in
+ * the stored digests, so the next tick sees a mismatch and refetches those
+ * rows — a redundant fetch. Sweeping afterwards would store a digest for a
+ * change this cycle never fetched, and the next tick would consider it already
+ * applied and skip it until the following full reconcile.
+ */
+export async function refreshBook(db: Database.Database): Promise<SupabaseBook> {
+  const sweep = await fetchBookDigests();
+  const companyRows = await runManagementQuery<CompanyRow>(accountsSql(null));
+  const dealRows = await runManagementQuery<DealRow>(policiesSql(null));
+  const orderRows = await runManagementQuery<OrderRow>(ordersSql(null));
+  const serviceNoteRows = await runManagementQuery<ServiceNoteRow>(
+    serviceNotesSql(null),
+  );
+  const reportingWindowRows = await runManagementQuery<ReportingWindowsRow>(
+    REPORTING_WINDOWS_SQL,
+  );
+  const book = buildBook(
+    companyRows,
+    dealRows,
+    orderRows,
+    reportingWindowRows[0],
+    serviceNoteRows,
+  );
+  publishBook(db, book);
+  if (sweep.length > 0) writeBookDigests(db, sweep);
+  await refreshOperationsMetrics();
   return book;
 }
 
-async function runRefreshSafely(db: Database.Database, trigger: string) {
+/**
+ * Splice a scoped refresh into the book already in hand.
+ *
+ * `patch` is whatever `buildBook` produced from the delta rows, and the scopes
+ * say which ids the patch is authoritative for. Everything in scope is dropped
+ * from the base and replaced by the patch, so a row that was refetched and came
+ * back ineligible (deleted between sweep and fetch) correctly disappears rather
+ * than lingering as its old self.
+ *
+ * Accounts, policies and contact keys move together at company grain: a policy
+ * set is only meaningful whole, and `primaryUwId` is derived from it.
+ */
+export function mergeBook(
+  base: SupabaseBook,
+  patch: SupabaseBook,
+  scope: {
+    orderIds: readonly number[];
+    departedOrderIds: readonly number[];
+    companyIds: readonly number[];
+    departedCompanyIds: readonly number[];
+  },
+): SupabaseBook {
+  const orderKeys = new Set(
+    [...scope.orderIds, ...scope.departedOrderIds].map((id) => `order-${id}`),
+  );
+  const accountKeys = new Set(
+    [...scope.companyIds, ...scope.departedCompanyIds].map((id) => `co-${id}`),
+  );
+
+  const accounts = base.accounts
+    .filter((account) => !accountKeys.has(account.id))
+    .concat(patch.accounts);
+  const policies = base.policies
+    .filter((policy) => !accountKeys.has(policy.accountId))
+    .concat(patch.policies);
+  const orders = base.orders
+    .filter((order) => !orderKeys.has(order.id))
+    .concat(patch.orders);
+  const contactKeys = base.contactKeys
+    .filter((key) => !accountKeys.has(key.accountId))
+    .concat(patch.contactKeys);
+  // Note threads and company details move at company grain like policies:
+  // the scoped reads return each covered company complete, so the patch is
+  // authoritative for every account it covers.
+  const serviceNoteEntries = (base.serviceNoteEntries ?? [])
+    .filter((entry) => !accountKeys.has(entry.accountId))
+    .concat(patch.serviceNoteEntries ?? []);
+  const companyDetails = (base.companyDetails ?? [])
+    .filter((detail) => !accountKeys.has(detail.accountId))
+    .concat(patch.companyDetails ?? []);
+
+  return {
+    fetchedAt: patch.fetchedAt,
+    source: patch.source ?? base.source,
+    accounts,
+    policies,
+    orders,
+    contactKeys,
+    serviceNoteEntries,
+    companyDetails,
+    schedules: base.schedules,
+    // Only refetched when the cached windows have rolled over.
+    reportingWindows: patch.reportingWindows ?? base.reportingWindows,
+    stageFieldsPresent: true,
+    serviceNotesPresent: true,
+    searchFieldsPresent: true,
+    noteThreadsPresent: true,
+    companyDetailsPresent: true,
+  };
+}
+
+/**
+ * Reporting windows are relative to the Harper business day, so they expire on
+ * their own even when nothing in the book changed. The soonest boundary is the
+ * end of the Last 30 Days range (tomorrow, PT), and that rollover also covers
+ * the weekly ones — so one comparison decides whether the tick has to spend a
+ * request re-deriving them in Postgres.
+ */
+function reportingWindowsStale(book: SupabaseBook): boolean {
+  const endsAt = book.reportingWindows?.ranges["last-30-days"]?.endsAt;
+  if (!endsAt) return true;
+  const boundary = Date.parse(endsAt);
+  return !Number.isFinite(boundary) || Date.now() >= boundary;
+}
+
+export interface DeltaRefreshResult {
+  book: SupabaseBook;
+  delta: BookDelta;
+  /** Requests spent against the shared Management API quota. */
+  requests: number;
+}
+
+/**
+ * One incremental refresh cycle.
+ *
+ * Sweep Harper for a digest per eligible order and company, diff it against the
+ * digests this instance last stored, and fetch full rows only for what moved.
+ * An unchanged book costs a single sweep plus the metrics read; nothing is
+ * written, and the 22MB snapshot and 10k-row SQLite upsert are skipped
+ * entirely, which is what makes a two-minute cadence affordable.
+ *
+ * Throws when there is no book to merge into — the caller falls back to a full
+ * refresh, which is also the bootstrap path on a clean instance.
+ */
+export async function refreshBookDelta(
+  db: Database.Database,
+): Promise<DeltaRefreshResult> {
+  const base = loadSupabaseBook();
+  if (!base) throw new Error("no book to merge into — full refresh required");
+
+  const sweep = await fetchBookDigests();
+  if (sweep.length === 0) throw new Error("sweep returned no rows");
+  const delta = diffBookDigests(readBookDigests(db), sweep);
+  let requests = 1;
+
+  if (isEmptyDelta(delta) && !reportingWindowsStale(base)) {
+    await refreshOperationsMetrics();
+    // The stored digests already match the sweep; nothing to write.
+    return { book: base, delta, requests: requests + 1 };
+  }
+
+  // Order payloads come first: they carry the company id every other scoped
+  // read needs, including for an order that arrived on a company this instance
+  // has never seen.
+  const orderRows =
+    delta.changedOrderIds.length > 0
+      ? await runManagementQuery<OrderRow>(ordersSql(delta.changedOrderIds))
+      : [];
+  if (delta.changedOrderIds.length > 0) requests += 1;
+
+  const companyIds = [
+    ...new Set([
+      ...delta.changedCompanyIds,
+      ...orderRows.map((row) => Number(row.company_id)),
+    ]),
+  ].filter((id) => Number.isSafeInteger(id) && id > 0);
+
+  let companyRows: CompanyRow[] = [];
+  let dealRows: DealRow[] = [];
+  let serviceNoteRows: ServiceNoteRow[] = [];
+  if (companyIds.length > 0) {
+    companyRows = await runManagementQuery<CompanyRow>(accountsSql(companyIds));
+    dealRows = await runManagementQuery<DealRow>(policiesSql(companyIds));
+    serviceNoteRows = await runManagementQuery<ServiceNoteRow>(
+      serviceNotesSql(companyIds),
+    );
+    requests += 3;
+  }
+
+  let reportingWindowRow: ReportingWindowsRow | undefined;
+  if (reportingWindowsStale(base)) {
+    const rows = await runManagementQuery<ReportingWindowsRow>(
+      REPORTING_WINDOWS_SQL,
+    );
+    reportingWindowRow = rows[0];
+    requests += 1;
+  }
+
+  const patch = buildBook(
+    companyRows,
+    dealRows,
+    orderRows,
+    reportingWindowRow,
+    serviceNoteRows,
+  );
+  const book = mergeBook(base, patch, {
+    orderIds: delta.changedOrderIds,
+    departedOrderIds: delta.departedOrderIds,
+    companyIds,
+    departedCompanyIds: delta.departedCompanyIds,
+  });
+
+  publishBook(db, book);
+  // Only after the merged book is on disk and in SQLite: a digest stored ahead
+  // of its payload would make the next tick skip data it never fetched.
+  writeBookDigests(db, sweep);
+  await refreshOperationsMetrics();
+  return { book, delta, requests: requests + 1 };
+}
+
+/** Interactive write-through timeout — a POST response is waiting on this. */
+const NOTE_WRITE_THROUGH_TIMEOUT_MS = 8_000;
+
+/**
+ * Targeted note-mirror refresh for one company, used as the write-through
+ * after a service-note POST: the author must see their note on the very next
+ * read, not on the next tick. Updates only the SQLite mirror — the snapshot
+ * stays owned by the refresh cycle, whose next sweep sees the note's digest
+ * change and folds the same rows in properly. A publish racing this write can
+ * briefly revert the mirror, and that same digest mismatch heals it one tick
+ * later.
+ */
+export async function refreshCompanyServiceNotes(
+  db: Database.Database,
+  companyId: number,
+): Promise<void> {
+  if (!Number.isSafeInteger(companyId) || companyId <= 0) {
+    throw new Error("invalid company id for note refresh");
+  }
+  const rows = await runSupabaseManagementQuery<ServiceNoteRow>(
+    serviceNotesSql([companyId]),
+    NOTE_WRITE_THROUGH_TIMEOUT_MS,
+  );
+  const entries = rows
+    .map(serviceNoteEntryFromRow)
+    .filter((entry): entry is BookServiceNoteEntry => entry !== null);
+  replaceAccountServiceNotes(db, `co-${companyId}`, entries);
+}
+
+function bookSummary(book: SupabaseBook): string {
+  const active = book.accounts.filter((a) => a.status === "active").length;
+  const cancelled = book.accounts.filter((a) => a.status === "cancelled").length;
+  const preBind = book.accounts.length - active - cancelled;
+  const byStatus = new Map<string, number>();
+  for (const o of book.orders) {
+    byStatus.set(o.bindStatus, (byStatus.get(o.bindStatus) ?? 0) + 1);
+  }
+  return (
+    `${book.accounts.length} accounts (${active} active, ${preBind} pre_bind, ` +
+    `${cancelled} cancelled), ${book.policies.length} policies, ` +
+    `${book.orders.length} orders (${byStatus.get("bound") ?? 0} bound, ` +
+    `${byStatus.get("pending") ?? 0} pending, ${byStatus.get("lost") ?? 0} lost)`
+  );
+}
+
+/**
+ * Refresh bookkeeping that has to outlive dev-mode module re-evaluation, so a
+ * hot reload cannot start a second timer or lose the reconcile clock.
+ */
+interface RefreshState {
+  running: boolean;
+  /** Ticks are skipped until this moment after the quota refuses us. */
+  backoffUntil: number;
+  consecutiveRateLimits: number;
+}
+
+const STATE = Symbol.for("stepbro.bookRefreshState");
+
+function refreshState(): RefreshState {
+  const g = globalThis as Record<symbol, RefreshState | undefined>;
+  g[STATE] ??= {
+    running: false,
+    backoffUntil: 0,
+    consecutiveRateLimits: 0,
+  };
+  return g[STATE];
+}
+
+/** Doubling backoff, capped — long enough to let a shared quota recover. */
+const MAX_BACKOFF_MS = 16 * 60 * 1000;
+
+async function runRefreshSafely(
+  db: Database.Database,
+  trigger: string,
+  mode: "full" | "delta",
+) {
+  const state = refreshState();
+  // A tick that overruns its interval must not stack a second cycle on top of
+  // itself — that is how one slow refresh turns into a burst.
+  if (state.running) {
+    console.warn(`[book-refresh] ${trigger}: previous cycle still running — skipped`);
+    return;
+  }
+  if (Date.now() < state.backoffUntil) return;
+  state.running = true;
+
   try {
-    const book = await refreshBook(db);
+    let summary: string;
+    if (mode === "full") {
+      const book = await refreshBook(db);
+      summary = `full — ${bookSummary(book)}`;
+    } else {
+      const { book, delta, requests } = await refreshBookDelta(db);
+      summary = isEmptyDelta(delta)
+        ? `no change (${requests} request(s))`
+        : `${describeDelta(delta)} — ${bookSummary(book)} (${requests} request(s))`;
+    }
+    state.consecutiveRateLimits = 0;
+    state.backoffUntil = 0;
+
     const completedAt = new Date().toISOString();
     try {
-      recordBookRefreshSuccess(completedAt);
+      recordBookRefreshSuccess(completedAt, { full: mode === "full" });
     } catch (statusError) {
       console.error(
         "[book-refresh] refresh succeeded but sync metadata could not be recorded:",
         statusError instanceof Error ? statusError.message : statusError,
       );
     }
-    const active = book.accounts.filter((a) => a.status === "active").length;
-    const cancelled = book.accounts.filter(
-      (a) => a.status === "cancelled",
-    ).length;
-    const preBind = book.accounts.length - active - cancelled;
-    const byStatus = new Map<string, number>();
-    for (const o of book.orders) {
-      byStatus.set(o.bindStatus, (byStatus.get(o.bindStatus) ?? 0) + 1);
-    }
-    console.log(
-      `[book-refresh] ${trigger}: ${book.accounts.length} accounts (${active} active, ${
-        preBind
-      } pre_bind, ${cancelled} cancelled), ${book.policies.length} policies, ${
-        book.orders.length
-      } orders (${byStatus.get("bound") ?? 0} bound, ${
-        byStatus.get("pending") ?? 0
-      } pending, ${byStatus.get("lost") ?? 0} lost)`,
-    );
+    console.log(`[book-refresh] ${trigger}: ${summary}`);
   } catch (err) {
     try {
       recordBookRefreshFailure(new Date().toISOString());
@@ -955,10 +1574,26 @@ async function runRefreshSafely(db: Database.Database, trigger: string) {
         statusError instanceof Error ? statusError.message : statusError,
       );
     }
-    console.error(
-      `[book-refresh] ${trigger} failed — keeping last good book:`,
-      err instanceof Error ? err.message : err,
-    );
+    if (isRateLimited(err)) {
+      state.consecutiveRateLimits += 1;
+      const wait = Math.min(
+        REFRESH_INTERVAL_MS * 2 ** state.consecutiveRateLimits,
+        MAX_BACKOFF_MS,
+      );
+      state.backoffUntil = Date.now() + wait;
+      console.warn(
+        `[book-refresh] ${trigger}: rate limited — backing off ${Math.round(
+          wait / 1000,
+        )}s (keeping last good book)`,
+      );
+    } else {
+      console.error(
+        `[book-refresh] ${trigger} failed — keeping last good book:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  } finally {
+    state.running = false;
   }
 }
 
@@ -970,12 +1605,46 @@ function snapshotAgeMs(): number {
   }
 }
 
+/**
+ * A delta tick can only splice into a book it already has, described by digests
+ * it already stored. Anything else — a clean instance, a snapshot from before
+ * the IQ Stage / Service Note / search fields shipped, or a digest table that
+ * has not been populated yet — needs the whole book first.
+ *
+ * The reconcile clock is read from disk rather than from process memory so a
+ * restart resumes the schedule. Deriving it in memory meant every boot spent a
+ * whole-book pull, which in dev is every hot restart and was enough on its own
+ * to exhaust the shared quota.
+ */
+function fullRefreshRequired(db: Database.Database): boolean {
+  const snapshot = loadSupabaseBook();
+  if (
+    !snapshot ||
+    snapshot.stageFieldsPresent === false ||
+    snapshot.serviceNotesPresent === false ||
+    snapshot.searchFieldsPresent === false ||
+    snapshot.noteThreadsPresent === false ||
+    snapshot.companyDetailsPresent === false
+  ) {
+    return true;
+  }
+  if (readBookDigests(db).size === 0) return true;
+  const lastFullAt = readBookRefreshStatus().lastFullRefreshAt;
+  const lastFull = lastFullAt ? Date.parse(lastFullAt) : Number.NaN;
+  if (!Number.isFinite(lastFull)) return true;
+  return Date.now() - lastFull >= FULL_RECONCILE_INTERVAL_MS;
+}
+
 // Survives dev-mode module re-evaluation — one timer per process, ever.
 const SCHEDULED = Symbol.for("stepbro.bookRefreshScheduled");
 
 /**
- * Start the five-minute refresh loop (idempotent per process). Called from
+ * Start the two-minute refresh loop (idempotent per process). Called from
  * `getDb()` so anything that touches the database keeps the book current.
+ *
+ * Each tick is a delta: one digest sweep, then scoped reads for whatever moved.
+ * Every half hour a tick pulls the whole book instead, as a reconcile against
+ * anything the digest cannot see (see `FULL_RECONCILE_INTERVAL_MS`).
  */
 export function scheduleBookRefresh(db: Database.Database) {
   const g = globalThis as Record<symbol, boolean | undefined>;
@@ -989,19 +1658,17 @@ export function scheduleBookRefresh(db: Database.Database) {
     return;
   }
 
-  // Boot catch-up: refresh now (async, so the first page load isn't held
-  // hostage by the network) when the snapshot is stale, or when it predates
-  // IQ Stage / Broker Gate / Service Note fields — a fresh-looking snapshot
-  // from the old query would blank those surfaces until the next tick.
-  const snapshot = loadSupabaseBook();
-  if (
-    snapshotAgeMs() > REFRESH_INTERVAL_MS ||
-    snapshot?.stageFieldsPresent === false ||
-    snapshot?.serviceNotesPresent === false
-  ) {
-    void runRefreshSafely(db, "boot");
+  const tick = (trigger: string) => {
+    const mode = fullRefreshRequired(db) ? "full" : "delta";
+    void runRefreshSafely(db, trigger, mode);
+  };
+
+  // Boot catch-up runs async, so the first page load is not held hostage by the
+  // network. A snapshot younger than one tick is already current enough.
+  if (fullRefreshRequired(db) || snapshotAgeMs() > REFRESH_INTERVAL_MS) {
+    tick("boot");
   }
 
-  const timer = setInterval(() => void runRefreshSafely(db, "interval"), REFRESH_INTERVAL_MS);
+  const timer = setInterval(() => tick("interval"), REFRESH_INTERVAL_MS);
   timer.unref();
 }

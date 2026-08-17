@@ -84,6 +84,131 @@ describe("accountFilterHref", () => {
     ).toBe("/all-accounts");
   });
 
+  it("writes brokerGate only for Broker source and clears it otherwise", () => {
+    expect(
+      accountFilterHref({
+        basePath: "/pending-orders",
+        currentParams: { range: "all-time", q: "acme" },
+        source: "broker",
+        range: "all-time",
+        brokerGates: ["G3", "G4"],
+      }),
+    ).toBe("/pending-orders?q=acme&source=broker&range=all-time&brokerGate=G3%2CG4");
+    // Broker → IQ drops the stale brokerGate param entirely.
+    expect(
+      accountFilterHref({
+        basePath: "/pending-orders",
+        currentParams: {
+          source: "broker",
+          range: "all-time",
+          brokerGate: "G3,G4",
+        },
+        source: "iq",
+        range: "all-time",
+        brokerGates: ["G3", "G4"],
+      }),
+    ).toBe("/pending-orders?source=iq&range=all-time");
+    // Broker → All drops both source-scoped filters.
+    expect(
+      accountFilterHref({
+        basePath: "/all-accounts",
+        currentParams: { source: "broker", brokerGate: "G4" },
+        source: "all",
+        range: undefined,
+      }),
+    ).toBe("/all-accounts");
+  });
+
+  it("never carries iqStage and brokerGate together", () => {
+    expect(
+      accountFilterHref({
+        basePath: "/pending-orders",
+        currentParams: { iqStage: "bind_requested", range: "all-time" },
+        source: "broker",
+        range: "all-time",
+        iqStages: ["bind_requested"],
+        brokerGates: ["G4"],
+      }),
+    ).toBe("/pending-orders?source=broker&range=all-time&brokerGate=G4");
+  });
+
+  it("writes carriers sorted and escaped, on every source", () => {
+    expect(
+      accountFilterHref({
+        basePath: "/pending-orders",
+        currentParams: { range: "all-time" },
+        source: "all",
+        range: "all-time",
+        carriers: ["next insurance us inc", "hiscox ins co"],
+      }),
+    ).toBe(
+      "/pending-orders?range=all-time&carrier=hiscox+ins+co%2Cnext+insurance+us+inc",
+    );
+    // Carriers are source-free: a source change carries them through.
+    expect(
+      accountFilterHref({
+        basePath: "/pending-orders",
+        currentParams: { carrier: "hiscox ins co", range: "all-time" },
+        source: "broker",
+        range: "all-time",
+        carriers: ["hiscox ins co"],
+      }),
+    ).toBe("/pending-orders?source=broker&range=all-time&carrier=hiscox+ins+co");
+  });
+
+  it("drops the carrier param when the selection is not carried", () => {
+    // Clear filters passes an empty selection — the stale param must go.
+    expect(
+      accountFilterHref({
+        basePath: "/all-accounts",
+        currentParams: { carrier: "hiscox ins co", source: "iq" },
+        source: "all",
+        range: undefined,
+        carriers: [],
+      }),
+    ).toBe("/all-accounts");
+  });
+
+  it("writes location states and sort, and drops them when reset", () => {
+    expect(
+      accountFilterHref({
+        basePath: "/pending-orders",
+        currentParams: { range: "all-time" },
+        source: "all",
+        range: "all-time",
+        locationStates: ["NY", "CA"],
+        sort: { date: "oldest", revenue: "revenue-asc" },
+      }),
+    ).toBe(
+      "/pending-orders?range=all-time&state=CA%2CNY&sort=revenue-asc",
+    );
+    // Clear filters passes empty state and the default sort — both params go.
+    expect(
+      accountFilterHref({
+        basePath: "/all-accounts",
+        currentParams: { state: "CA", sort: "newest", source: "iq" },
+        source: "all",
+        range: undefined,
+        locationStates: [],
+        sort: { date: "oldest", revenue: "none" },
+      }),
+    ).toBe("/all-accounts");
+    // A source change carries the current selection through untouched, and
+    // a combined sort serializes primary-first.
+    expect(
+      accountFilterHref({
+        basePath: "/pending-orders",
+        currentParams: { state: "CA", sort: "newest", range: "all-time" },
+        source: "broker",
+        range: "all-time",
+        locationStates: ["CA"],
+        sort: { date: "newest", revenue: "revenue-desc" },
+      }),
+    ).toBe(
+      "/pending-orders?source=broker&range=all-time&state=CA&sort=revenue-desc%2Cnewest",
+    );
+  });
+
   it("writes iqStage only for IQ source and clears it otherwise", () => {
     expect(
       accountFilterHref({
@@ -198,6 +323,82 @@ describe("AccountFilterToolbar markup", () => {
     expect(withStage.indexOf("IQ Stage")).toBeLessThan(
       withStage.indexOf("Date Range"),
     );
+  });
+
+  it("shows Broker Gate only when requested for the Broker source", () => {
+    const without = render({ ...pendingDefaults, source: "broker" });
+    expect(without).not.toContain("Broker Gate");
+    const withGate = render({
+      ...pendingDefaults,
+      source: "broker",
+      showBrokerGate: true,
+      brokerGates: [],
+    });
+    expect(withGate).toContain("Broker Gate");
+    expect(withGate).toContain("All gates");
+    expect(withGate).not.toContain("IQ Stage");
+    expect(withGate.indexOf("Account Source")).toBeLessThan(
+      withGate.indexOf("Broker Gate"),
+    );
+    expect(withGate.indexOf("Broker Gate")).toBeLessThan(
+      withGate.indexOf("Date Range"),
+    );
+  });
+
+  it("announces the selected gate count on the collapsed trigger", () => {
+    expect(
+      render({
+        ...pendingDefaults,
+        source: "broker",
+        showBrokerGate: true,
+        brokerGates: ["G4"],
+      }),
+    ).toContain("1 gate selected");
+    expect(
+      render({
+        ...pendingDefaults,
+        source: "broker",
+        showBrokerGate: true,
+        brokerGates: ["G2", "G3", "G4"],
+      }),
+    ).toContain("3 gates selected");
+  });
+
+  it("shows Clear filters when only a carrier selection is active", () => {
+    expect(render(pendingDefaults)).not.toContain("Clear filters");
+    expect(
+      render({ ...pendingDefaults, carriers: ["hiscox ins co"] }),
+    ).toContain("Clear filters");
+  });
+
+  it("shows Clear filters when only a state selection or sort is active", () => {
+    expect(
+      render({ ...pendingDefaults, locationStates: ["CA"] }),
+    ).toContain("Clear filters");
+    expect(
+      render({ ...pendingDefaults, sort: { date: "newest", revenue: "none" } }),
+    ).toContain("Clear filters");
+    expect(
+      render({
+        ...pendingDefaults,
+        sort: { date: "oldest", revenue: "revenue-desc" },
+      }),
+    ).toContain("Clear filters");
+    expect(
+      render({ ...pendingDefaults, sort: { date: "oldest", revenue: "none" } }),
+    ).not.toContain("Clear filters");
+  });
+
+  it("shows Clear filters when only a gate selection is active", () => {
+    // Source is non-default here anyway, but the gate selection alone must
+    // also register as an active filter.
+    const html = render({
+      ...pendingDefaults,
+      source: "broker",
+      showBrokerGate: true,
+      brokerGates: ["G4"],
+    });
+    expect(html).toContain("Clear filters");
   });
 
   it("swaps the date segments for a dropdown at narrow widths", () => {

@@ -23,7 +23,7 @@ import {
   ISC_SAMPLE_DEC,
   iscParseAttachable,
   parseIscDec,
-} from "../src/lib/isc-intake";
+} from "../src/lib/intake/isc-intake";
 import { naicForPolicy } from "../src/lib/naic";
 import {
   attachIscSchedule,

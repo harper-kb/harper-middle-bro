@@ -4,6 +4,7 @@ import { Cormorant_Garamond, Source_Sans_3, IBM_Plex_Mono } from "next/font/goog
 import Script from "next/script";
 import { AuthenticatedDeskWidgets } from "@/components/AuthenticatedDeskWidgets";
 import { RedAlertBanner } from "@/components/RedAlertBanner";
+import { ThemePersistence } from "@/components/ThemeToggle";
 import { PRODUCT_NAME } from "@/lib/brand";
 import "./globals.css";
 
@@ -43,6 +44,10 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full antialiased">
+        {/* The nav's Step Bro wordmark is painted as a CSS mask, which a browser
+            only fetches once the brand row paints. Preloading it with the
+            document keeps the masthead from opening half-empty. */}
+        <link rel="preload" as="image" href="/step-bro-wordmark.png" />
         <Script
           id="theme-init"
           strategy="beforeInteractive"
@@ -50,6 +55,7 @@ export default function RootLayout({
             __html: `(function(){var t;try{t=localStorage.getItem("step-bro-theme")}catch(e){}if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"}document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t})();`,
           }}
         />
+        <ThemePersistence />
         <ClerkProvider
           appearance={{
             variables: {

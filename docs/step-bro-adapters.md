@@ -36,12 +36,17 @@ When either base URL or token is missing, adapters return labeled sample mode. A
 
 Every mutation requires: server-side auth, stable idempotency key, confirmation policy, redacted `ActionReceipt`, read-after-write verification when applicable, and safe retry (`idempotent_replay`).
 
+`write.bind` has no Step Bro caller. The Bind Policy button opens a read-only
+handoff to the order's company in BigBrother (`src/components/orders/BindHandoffDialog.tsx`);
+the bind is performed there and Step Bro picks it up on the next book refresh.
+The capability stays registered for the gate labels the desk surfaces read.
+
 ### Agent Tools credentials
 
 | Env | Purpose |
 |-----|---------|
-| `HARPER_AGENT_TOOLS_BASE_URL` | Gateway origin for `POST /execute` |
-| `HARPER_AGENT_TOOLS_TOKEN` | Bearer token |
+| `HARPER_AGENT_TOOLS_BASE_URL` | Gateway origin — the harper-tools REST API; the client posts each command to `{base}/api/v1/commands/<domain>/<resource>/<verb>` |
+| `HARPER_AGENT_TOOLS_TOKEN` | API key (accepted as `Authorization: Bearer` or `x-api-key`) |
 | `STEP_BRO_SERVICE_SPINE_ENABLED` | Explicit Service Spine activation (`true` only; defaults off) |
 | `STEP_BRO_SERVICE_AGENT_ENABLED` | Explicit Service Agent activation (`true` only; defaults off) |
 

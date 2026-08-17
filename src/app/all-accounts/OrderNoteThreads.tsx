@@ -18,15 +18,24 @@ import type {
   NoteThreadsResponse,
   NoteThreadType,
 } from "@/lib/note-thread-types";
+import {
+  NOTE_THREAD_PRESENTATION,
+  NoteThreadIcon,
+} from "@/components/NoteThreadIdentity";
+import {
+  displayNoteAuthor,
+  visibleNoteParticipants,
+} from "@/lib/note-attribution";
 
-type SummaryState =
-  | { status: "idle" | "loading" }
+export type SummaryState =
+  | { status: "idle" }
+  | { status: "loading"; version: string }
   | {
       status: "ready";
       text: string;
       generatedAt: string;
       version: string;
-      method: "ai" | "extractive";
+      method: "ai";
     }
   | { status: "unavailable"; version: string };
 
@@ -35,33 +44,202 @@ const EMPTY_SUMMARIES: Record<NoteThreadType, SummaryState> = {
   service: { status: "idle" },
 };
 
-function ThreadIcon({ type }: { type: NoteThreadType }) {
-  if (type === "producer") {
-    return (
-      <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
-        <path
-          d="M4 2.75h8.1L16 6.65v10.6H4V2.75Zm8 0v4h4M7 10h6M7 13h5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    );
+const THREAD_TYPES: readonly NoteThreadType[] = ["producer", "service"];
+
+/**
+ * Silent retry schedule for the initial thread load. The threads ride a
+ * shared, rate-limited Management API connection, so a first fetch can fail
+ * transiently; retrying quietly keeps the card in its loading state instead
+ * of flashing an error the operator has to click through. Manual Retry
+ * remains for the persistent case.
+ */
+export const NOTE_THREAD_AUTO_RETRY_DELAYS_MS: readonly number[] = [
+  1_500, 4_000,
+];
+
+const INITIAL_THREAD_LOADING: Record<NoteThreadType, boolean> = {
+  producer: true,
+  service: true,
+};
+
+const EMPTY_THREAD_ERRORS: Record<NoteThreadType, string | null> = {
+  producer: null,
+  service: null,
+};
+
+type DrawerIntent = "view" | "add";
+
+/**
+ * The order's Producer Note as the book snapshot knows it — the
+ * same data the collapsed previews render. The Producer thread is by design
+ * the single current note on the order, so the snapshot can stand in for the
+ * whole thread instantly while the live fetch confirms; without it the card
+ * shows a skeleton for the full round-trip even when there is nothing to load.
+ *
+ * Service Notes get no such seed: their thread is account-scoped, and one
+ * order's snapshot cannot honestly claim the account has no notes elsewhere.
+ */
+export type ProducerNotePreview = {
+  body: string | null;
+  updatedAt: string | null;
+  authorName: string | null;
+};
+
+export function provisionalProducerThread(
+  orderId: number,
+  preview: ProducerNotePreview | null | undefined,
+): NoteThread | null {
+  if (!preview) return null;
+  const body = preview.body ?? "";
+  const updatedAt = preview.updatedAt ?? null;
+  const entries: NoteThread["entries"] = body.trim()
+    ? [
+        {
+          id: `producer-${orderId}`,
+          body,
+          author: preview.authorName ?? "Unknown author",
+          createdAt: updatedAt,
+          updatedAt,
+          edited: false,
+          orderId,
+          orderLabel: `Order #${orderId}`,
+        },
+      ]
+    : [];
+  return {
+    type: "producer",
+    scope: "order",
+    entries,
+    version: `snapshot:${orderId}:${updatedAt ?? "none"}`,
+    latestAt: updatedAt,
+  };
+}
+
+/**
+ * Provisional empty Service thread, seedable only when the caller verified —
+ * at account level, across every book order regardless of view filters —
+ * that the snapshot carries no visible Service Note. The live fetch still
+ * runs and reconciles, so a note written since the last refresh tick
+ * appears moments later instead of the card holding a skeleton for a
+ * round-trip that will almost always come back empty.
+ */
+export function provisionalServiceThread(
+  companyId: number,
+  accountKnownEmpty: boolean | undefined,
+): NoteThread | null {
+  if (!accountKnownEmpty) return null;
+  return {
+    type: "service",
+    scope: "account",
+    entries: [],
+    version: `snapshot:company-${companyId}:empty`,
+    latestAt: null,
+  };
+}
+
+export type VisibleThreadState =
+  | { kind: "empty"; visibleCount: 0 }
+  | { kind: "single"; visibleCount: 1; note: NoteThread["entries"][number] }
+  | {
+      kind: "multiple";
+      visibleCount: number;
+      notes: NoteThread["entries"];
+    };
+
+export function selectVisibleThreadState(
+  thread: NoteThread,
+): VisibleThreadState {
+  const visibleCount = thread.entries.length;
+  if (visibleCount === 0) return { kind: "empty", visibleCount: 0 };
+  if (visibleCount === 1) {
+    return { kind: "single", visibleCount: 1, note: thread.entries[0]! };
   }
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4">
-      <path
-        d="M3 4.25h14v9.5H8l-4 3v-3H3v-9.5ZM6.5 8h7M6.5 10.75h5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return {
+    kind: "multiple",
+    visibleCount,
+    notes: thread.entries,
+  };
+}
+
+export type NoteThreadCardState =
+  | { kind: "loading" }
+  | { kind: "error"; recoverable: boolean; message: string }
+  | {
+      kind: "empty";
+      visibleCount: 0;
+      canAdd: boolean;
+      thread: NoteThread;
+    }
+  | {
+      kind: "single";
+      visibleCount: 1;
+      note: NoteThread["entries"][number];
+      thread: NoteThread;
+    }
+  | {
+      kind: "multiple";
+      visibleCount: number;
+      notes: NoteThread["entries"];
+      thread: NoteThread;
+      summaryState: SummaryState;
+    };
+
+export function resolveNoteThreadCardState({
+  thread,
+  summary,
+  loading,
+  error,
+  canAdd,
+}: {
+  thread: NoteThread | null;
+  summary: SummaryState;
+  loading: boolean;
+  error: string | null;
+  canAdd: boolean;
+}): NoteThreadCardState {
+  // Data on hand beats an error card: a thread (fetched or seeded from the
+  // snapshot) keeps rendering through a failed refresh. The error state — and
+  // its Retry affordance — appears only when there is nothing to show.
+  if (!thread) {
+    if (error) return { kind: "error", recoverable: true, message: error };
+    return loading
+      ? { kind: "loading" }
+      : {
+          kind: "error",
+          recoverable: true,
+          message: "Notes are temporarily unavailable.",
+        };
+  }
+  const visible = selectVisibleThreadState(thread);
+  if (visible.kind === "empty") {
+    return { ...visible, canAdd, thread };
+  }
+  if (visible.kind === "single") {
+    return { ...visible, thread };
+  }
+  return {
+    ...visible,
+    thread,
+    summaryState: summary,
+  };
+}
+
+export function mergeRequestedThreads(
+  current: NoteThreadsResponse | null,
+  incoming: NoteThreadsResponse,
+  requestedTypes: readonly NoteThreadType[],
+): NoteThreadsResponse {
+  if (!current || requestedTypes.length === THREAD_TYPES.length) return incoming;
+  const next = { ...current };
+  for (const type of requestedTypes) next[type] = incoming[type];
+  return next;
+}
+
+export function summaryTargets(
+  threads: NoteThreadsResponse,
+  requestedTypes: readonly NoteThreadType[],
+): NoteThreadType[] {
+  return requestedTypes.filter((type) => threads[type].entries.length >= 2);
 }
 
 function SparkleIcon() {
@@ -75,10 +253,14 @@ function SparkleIcon() {
   );
 }
 
-function SummarySkeleton() {
+function SummarySkeleton({
+  label = "Generating AI summary",
+}: {
+  label?: string;
+}) {
   return (
     <div className="space-y-2" role="status" aria-live="polite">
-      <span className="sr-only">Generating AI summary</span>
+      <span className="sr-only">{label}</span>
       <div className="h-2.5 w-full animate-pulse rounded bg-[var(--rule)] motion-reduce:animate-none" />
       <div className="h-2.5 w-5/6 animate-pulse rounded bg-[var(--rule)] motion-reduce:animate-none" />
       <div className="h-2.5 w-2/3 animate-pulse rounded bg-[var(--rule)] motion-reduce:animate-none" />
@@ -86,128 +268,290 @@ function SummarySkeleton() {
   );
 }
 
-function SummaryCard({
+function NoteAttribution({
+  note,
+  participants = [],
+  className = "mt-3",
+  showExact = false,
+  latest = false,
+}: {
+  note: NoteThread["entries"][number];
+  participants?: readonly string[];
+  className?: string;
+  showExact?: boolean;
+  latest?: boolean;
+}) {
+  const timestamp = note.updatedAt ?? note.createdAt;
+  const relative = formatRelativeTime(timestamp) ?? "Time unavailable";
+  const exact = formatExactTimestamp(timestamp);
+  return (
+    <div className={`note-thread-attribution text-[11px] ${className}`}>
+      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        {latest ? (
+          <span className="rounded-full border border-[var(--rule)] px-1.5 py-0.5 text-[10px] font-semibold">
+            Latest
+          </span>
+        ) : null}
+        <span className="note-thread-author">
+          {displayNoteAuthor(note.author)}
+        </span>
+        <span aria-hidden="true">·</span>
+        <time
+          dateTime={timestamp ?? undefined}
+          title={exact ?? undefined}
+          aria-label={exact ?? relative}
+          className="tabular-nums"
+        >
+          {relative}
+        </time>
+        <span aria-hidden="true">·</span>
+        <span>{note.orderLabel}</span>
+        {note.edited ? <span>· Edited</span> : null}
+      </p>
+      {showExact && exact ? (
+        <p className="mt-1 tabular-nums">{exact}</p>
+      ) : null}
+      {participants.length > 1 ? (
+        <p className="mt-1 truncate" title={participants.join(", ")}>
+          <span className="font-semibold text-[var(--ink)]">Participants:</span>{" "}
+          {participants.join(", ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function NoteThreadCard({
   type,
-  thread,
-  summary,
-  loadingThreads,
-  threadUnavailable,
+  state,
+  orderId,
+  promoted,
   onOpen,
   onRetry,
 }: {
   type: NoteThreadType;
-  thread: NoteThread | null;
-  summary: SummaryState;
-  loadingThreads: boolean;
-  threadUnavailable: boolean;
-  onOpen: (trigger: HTMLButtonElement) => void;
+  state: NoteThreadCardState;
+  orderId: number;
+  promoted: boolean;
+  onOpen: (trigger: HTMLButtonElement, intent: DrawerIntent) => void;
   onRetry: () => void;
 }) {
-  const producer = type === "producer";
-  const label = producer ? "Producer Notes" : "Service Notes";
-  const count = thread?.entries.length ?? 0;
-  const latest = thread?.latestAt;
-  const latestExact = formatExactTimestamp(latest);
-  const summaryLabel =
-    summary.status === "ready" && summary.method === "extractive"
-      ? "Note overview"
-      : "AI Summary";
-  return (
-    <article
-      className={`flex min-h-[10.5rem] flex-col overflow-hidden rounded-xl border border-t-[3px] bg-white p-4 shadow-[0_2px_8px_rgba(26,44,54,0.07)] dark:bg-[var(--surface-raised)] dark:shadow-none ${
-        producer
-          ? "border-orange-300 border-t-orange-500 dark:border-orange-500/25 dark:border-t-orange-400/70"
-          : "border-sky-300 border-t-sky-500 dark:border-sky-500/25 dark:border-t-sky-400/70"
-      }`}
-      aria-label={`${label} summary`}
-    >
-      <header className="flex items-center justify-between gap-3">
-        <div
-          className="flex min-w-0 items-center gap-2.5"
-        >
+  const presentation = NOTE_THREAD_PRESENTATION[type];
+  const headingId = `note-thread-heading-${orderId}-${type}`;
+  const viewButtonId = `note-thread-view-${orderId}-${type}`;
+
+  if (state.kind === "empty") {
+    return (
+      <article
+        // The min-height matches the add-action variant, so an empty card
+        // without the button (no permission) sits at the same height as its
+        // neighbor with one.
+        className={`note-thread-card note-thread-card--empty note-thread-card--compact ${presentation.identityClass} flex min-h-0 flex-col gap-2 rounded-lg border border-l-[3px] px-3 py-2.5 min-[480px]:min-h-[3.375rem] min-[480px]:flex-row min-[480px]:items-center min-[480px]:justify-between`}
+        aria-labelledby={headingId}
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
           <span
-            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-              producer
-                ? "bg-orange-100 text-orange-800 dark:bg-orange-500/10 dark:text-orange-300"
-                : "bg-sky-100 text-sky-800 dark:bg-sky-500/10 dark:text-sky-300"
-            }`}
+            className="note-thread-icon flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
           >
-            <ThreadIcon type={type} />
+            <NoteThreadIcon type={type} className="h-4 w-4" />
+          </span>
+          <h4
+            id={headingId}
+            className="shrink-0 text-xs font-semibold text-[var(--ink)]"
+          >
+            {presentation.label}
+          </h4>
+          <span
+            role="status"
+            className="truncate text-[11px] text-[var(--muted)]"
+          >
+            No notes yet
+          </span>
+        </div>
+        {state.canAdd ? (
+          <button
+            type="button"
+            onClick={(event) => onOpen(event.currentTarget, "add")}
+            aria-label={presentation.addLabel}
+            className="note-thread-action inline-flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
+          >
+            <span aria-hidden="true">+</span>
+            {presentation.addLabel}
+          </button>
+        ) : null}
+      </article>
+    );
+  }
+
+  if (state.kind === "loading") {
+    return (
+      <article
+        className={`note-thread-card note-thread-card--full ${presentation.identityClass} flex min-h-[8rem] flex-col rounded-xl border border-t-[3px] p-4 shadow-[0_2px_8px_rgba(26,44,54,0.07)] dark:shadow-none`}
+        aria-labelledby={headingId}
+        aria-busy="true"
+      >
+        <header className="flex items-center gap-2.5">
+          <span
+            className="note-thread-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+          >
+            <NoteThreadIcon type={type} className="h-4 w-4" />
+          </span>
+          <div>
+            <h4
+              id={headingId}
+              className="text-xs font-semibold text-[var(--ink)]"
+            >
+              {presentation.label}
+            </h4>
+            <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+              Loading visible notes…
+            </p>
+          </div>
+        </header>
+        <div className="mt-3">
+          <SummarySkeleton label="Loading visible notes" />
+        </div>
+      </article>
+    );
+  }
+
+  if (state.kind === "error") {
+    return (
+      <article
+        className={`note-thread-card note-thread-card--error note-thread-card--compact ${presentation.identityClass} flex min-h-0 flex-col gap-2 rounded-lg border border-l-[3px] px-3 py-2.5 min-[480px]:flex-row min-[480px]:items-center min-[480px]:justify-between`}
+        aria-labelledby={headingId}
+      >
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            className="note-thread-icon flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+          >
+            <NoteThreadIcon type={type} className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <h4 className="truncate text-xs font-semibold text-[var(--ink)]">
-              {label}
+            <h4
+              id={headingId}
+              className="text-xs font-semibold text-[var(--ink)]"
+            >
+              {presentation.label}
+            </h4>
+            <p className="truncate text-[11px] text-[var(--muted)]" role="alert">
+              {state.message}
+            </p>
+          </div>
+        </div>
+        {state.recoverable ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="note-thread-action min-h-8 shrink-0 rounded-md border px-2.5 py-1 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2"
+          >
+            Retry
+          </button>
+        ) : null}
+      </article>
+    );
+  }
+
+  const thread = state.thread;
+  const visibleCount = state.visibleCount;
+  const latestNote =
+    state.kind === "single" ? state.note : state.notes[0]!;
+  const participants =
+    state.kind === "single" ? [] : visibleNoteParticipants(state.notes);
+  let content: React.ReactNode;
+  let freshness: string | null = null;
+  if (state.kind === "single") {
+    content = (
+      <p className="whitespace-pre-wrap break-words text-[13.5px] font-medium leading-[1.55] text-slate-900 dark:text-[var(--ink)]">
+        {state.note.body}
+      </p>
+    );
+  } else {
+    const summary = state.summaryState;
+    freshness =
+      summary.status === "ready"
+        ? `Generated ${
+            formatRelativeTime(summary.generatedAt) ?? "recently"
+          }`
+        : `Reflects notes through ${
+            formatRelativeTime(thread.latestAt) ?? "latest update"
+          }`;
+    content =
+      summary.status === "loading" || summary.status === "idle" ? (
+        <SummarySkeleton />
+      ) : summary.status === "ready" ? (
+        <p className="whitespace-pre-line text-[13.5px] font-medium leading-[1.55] text-slate-900 dark:text-[var(--ink)]">
+          {summary.text}
+        </p>
+      ) : (
+        <div role="status" aria-live="polite">
+          <p className="text-[13px] font-medium text-slate-600 dark:text-[var(--muted)]">
+            AI summary unavailable
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="note-thread-action mt-1 rounded border px-2 py-1 text-[11px] font-semibold focus-visible:outline-none focus-visible:ring-2"
+          >
+            Retry
+          </button>
+        </div>
+      );
+  }
+
+  return (
+    <article
+      className={`note-thread-card note-thread-card--full ${presentation.identityClass} flex flex-col overflow-hidden rounded-xl border border-t-[3px] p-4 shadow-[0_2px_8px_rgba(26,44,54,0.07)] dark:shadow-none ${
+        promoted ? "note-thread-card--promoted" : ""
+      }`}
+      aria-labelledby={headingId}
+    >
+      <header className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="note-thread-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
+            <NoteThreadIcon type={type} className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <h4
+              id={headingId}
+              className="truncate text-xs font-semibold text-[var(--ink)]"
+            >
+              {presentation.label}
             </h4>
             <p className="mt-0.5 text-[11px] font-medium text-slate-600 dark:text-[var(--muted)]">
-              {producer ? "This order" : "Entire account"}
+              {presentation.scopeLabel}
             </p>
           </div>
         </div>
         <span className="shrink-0 rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-700 dark:border-[var(--rule)] dark:bg-[var(--surface-subtle)] dark:text-[var(--muted)]">
-          {loadingThreads
-            ? "Loading…"
-            : threadUnavailable
-              ? "Unavailable"
-            : `${count.toLocaleString()} ${count === 1 ? "note" : "notes"}`}
+          {`${visibleCount.toLocaleString()} ${
+            visibleCount === 1 ? "note" : "notes"
+          }`}
         </span>
       </header>
 
+      <NoteAttribution note={latestNote} participants={participants} />
+
       <div className="mt-3 flex-1">
         <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600 dark:text-[var(--muted)]">
-          {summary.status !== "ready" || summary.method === "ai" ? (
-            <SparkleIcon />
-          ) : null}
-          {summaryLabel}
+          {state.kind === "single" ? null : <SparkleIcon />}
+          {state.kind === "single" ? "Note" : "AI Summary"}
         </div>
-        {loadingThreads || summary.status === "loading" ? (
-          <SummarySkeleton />
-        ) : threadUnavailable ? (
-          <p className="text-[13px] font-medium text-slate-600 dark:text-[var(--muted)]">
-            Original notes are temporarily unavailable
-          </p>
-        ) : count === 0 ? (
-          <p className="text-xs text-[var(--muted)]">
-            No {producer ? "Producer" : "Service"} Notes yet
-          </p>
-        ) : summary.status === "ready" ? (
-          <p className="whitespace-pre-line text-[13.5px] font-medium leading-[1.55] text-slate-900 dark:text-[var(--ink)]">
-            {summary.text}
-          </p>
-        ) : summary.status === "unavailable" ? (
-          <div role="status" aria-live="polite">
-            <p className="text-[13px] font-medium text-slate-600 dark:text-[var(--muted)]">AI summary unavailable</p>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="mt-1 rounded px-1 py-0.5 text-[11px] font-semibold text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-            >
-              Retry
-            </button>
-          </div>
-        ) : null}
+        {content}
       </div>
 
       <div className="mt-3">
-        <p
-          className="mb-2 text-[11px] font-medium text-slate-600 dark:text-[var(--muted)]"
-          title={latestExact ?? undefined}
-        >
-          {summary.status === "ready"
-            ? `${summary.method === "ai" ? "Generated" : "Updated from notes"} ${
-                formatRelativeTime(summary.generatedAt) ?? "recently"
-              }`
-            : latest
-              ? `Reflects notes through ${formatRelativeTime(latest) ?? "latest update"}`
-              : producer
-                ? "Current note for this order"
-                : "Account-wide service thread"}
-        </p>
+        {freshness ? (
+          <p className="mb-2 text-[11px] font-medium text-slate-600 dark:text-[var(--muted)]">
+            {freshness}
+          </p>
+        ) : null}
         <button
+          id={viewButtonId}
           type="button"
-          onClick={(event) => onOpen(event.currentTarget)}
-          disabled={threadUnavailable}
-          className={`note-thread-view-button note-thread-view-button--${type} flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none`}
-          aria-label={`View full ${label} thread`}
+          onClick={(event) => onOpen(event.currentTarget, "view")}
+          className="note-thread-view-button flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold transition focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
+          aria-label={`View full ${presentation.label} thread`}
         >
           View full thread
           <span aria-hidden="true">→</span>
@@ -217,7 +561,41 @@ function SummaryCard({
   );
 }
 
-function ThreadEntries({
+export function NoteThreadCardGrid({
+  states,
+  orderId,
+  promotedType = null,
+  onOpen,
+  onRetry,
+}: {
+  states: Record<NoteThreadType, NoteThreadCardState>;
+  orderId: number;
+  promotedType?: NoteThreadType | null;
+  onOpen: (
+    type: NoteThreadType,
+    trigger: HTMLButtonElement,
+    intent: DrawerIntent,
+  ) => void;
+  onRetry: (type: NoteThreadType) => void;
+}) {
+  return (
+    <div className="grid items-start gap-3 lg:grid-cols-2">
+      {THREAD_TYPES.map((type) => (
+        <NoteThreadCard
+          key={type}
+          type={type}
+          state={states[type]}
+          orderId={orderId}
+          promoted={promotedType === type}
+          onOpen={(trigger, intent) => onOpen(type, trigger, intent)}
+          onRetry={() => onRetry(type)}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function FullNoteThreadEntries({
   thread,
   type,
 }: {
@@ -227,46 +605,29 @@ function ThreadEntries({
   const producer = type === "producer";
   if (thread.entries.length === 0) {
     return (
-      <p className="rounded-xl border border-dashed border-[var(--rule)] px-4 py-10 text-center text-sm text-[var(--muted)]">
-        No {producer ? "Producer" : "Service"} Notes yet
+      <p
+        className="rounded-lg border border-[var(--rule)] bg-[var(--surface)] px-3 py-2.5 text-xs text-[var(--muted)]"
+        role="status"
+      >
+        No notes yet
       </p>
     );
   }
   return (
     <ol className="space-y-3" aria-label={`${producer ? "Producer" : "Service"} Notes`}>
       {thread.entries.map((entry, index) => {
-        const timestamp = entry.updatedAt ?? entry.createdAt;
-        const exact = formatExactTimestamp(timestamp);
         return (
           <li
             key={entry.id}
             id={`note-entry-${entry.id}`}
             className="rounded-xl border border-[var(--rule)] bg-[var(--surface)] p-3"
           >
-            <header className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <p className="text-xs font-semibold text-[var(--ink)]">
-                  {entry.author}
-                </p>
-                <p className="mt-0.5 text-[10px] text-[var(--muted)]">
-                  {entry.orderLabel}
-                  {entry.edited ? " · Edited" : ""}
-                  {" · "}
-                  Note #{entry.id.replace(/^producer-/, "")}
-                </p>
-              </div>
-              <div className="text-right text-[10px] text-[var(--muted)]">
-                {index === 0 ? (
-                  <span className="mr-1.5 rounded-full border border-[var(--rule)] px-1.5 py-0.5 font-semibold">
-                    Latest
-                  </span>
-                ) : null}
-                <time dateTime={timestamp ?? undefined} title={exact ?? undefined}>
-                  {formatRelativeTime(timestamp) ?? "Time unavailable"}
-                </time>
-                {exact ? <p className="mt-1">{exact}</p> : null}
-              </div>
-            </header>
+            <NoteAttribution
+              note={entry}
+              latest={index === 0}
+              showExact
+              className=""
+            />
             <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--ink)]">
               {entry.body}
             </p>
@@ -292,6 +653,7 @@ function ThreadDrawer({
   orderLabel,
   threads,
   canEditProducer,
+  canAddService,
   producerEditHref,
   serviceBody,
   serviceBusy,
@@ -308,6 +670,7 @@ function ThreadDrawer({
   orderLabel: string;
   threads: NoteThreadsResponse | null;
   canEditProducer: boolean;
+  canAddService: boolean;
   producerEditHref: string;
   serviceBody: string;
   serviceBusy: boolean;
@@ -320,7 +683,9 @@ function ThreadDrawer({
 }) {
   if (!open) return null;
   const thread = threads?.[activeType] ?? null;
-  const typeLabel = activeType === "producer" ? "Producer Notes" : "Service Notes";
+  const presentation = NOTE_THREAD_PRESENTATION[activeType];
+  const typeLabel = presentation.label;
+  const empty = thread?.entries.length === 0;
   return (
     <div className="fixed inset-0 z-50">
       <button
@@ -334,25 +699,35 @@ function ThreadDrawer({
         role="dialog"
         aria-modal="true"
         aria-labelledby="note-thread-title"
-        className="absolute inset-0 flex flex-col bg-[var(--surface-raised)] shadow-2xl sm:inset-y-0 sm:left-auto sm:w-[min(46rem,92vw)] sm:border-l sm:border-[var(--rule)]"
+        className={`absolute inset-0 flex flex-col bg-[var(--surface-raised)] shadow-2xl sm:inset-y-0 sm:left-auto sm:w-[min(46rem,92vw)] sm:border-l sm:border-[var(--rule)] ${presentation.identityClass}`}
       >
         <header className="border-b border-[var(--rule)] px-4 py-3 sm:px-5">
           <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="truncate text-xs text-[var(--muted)]">{accountName}</p>
-              <h2 id="note-thread-title" className="mt-0.5 text-base font-semibold text-[var(--ink)]">
-                {typeLabel}
-              </h2>
-              <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-                {activeType === "service"
-                  ? `All visible Service Notes for this account · opened from ${orderLabel}`
-                  : `${orderLabel} · current Producer Note`}
-                {thread
-                  ? ` · ${thread.entries.length.toLocaleString()} ${
-                      thread.entries.length === 1 ? "entry" : "entries"
-                    }`
-                  : ""}
-              </p>
+            <div className="flex min-w-0 items-start gap-2.5">
+              <span className="note-thread-icon mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
+                <NoteThreadIcon type={activeType} className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-xs text-[var(--muted)]">
+                  {accountName}
+                </p>
+                <h2
+                  id="note-thread-title"
+                  className="mt-0.5 text-base font-semibold text-[var(--note-ink)]"
+                >
+                  {typeLabel}
+                </h2>
+                <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+                  {activeType === "service"
+                    ? `All visible Service Notes for this account · opened from ${orderLabel}`
+                    : `${orderLabel} · current Producer Note`}
+                  {thread && thread.entries.length > 0
+                    ? ` · ${thread.entries.length.toLocaleString()} ${
+                        thread.entries.length === 1 ? "entry" : "entries"
+                      }`
+                    : ""}
+                </p>
+              </div>
             </div>
             <button
               type="button"
@@ -392,9 +767,9 @@ function ThreadDrawer({
                       );
                     }
                   }}
-                  className={`rounded-md px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
+                  className={`note-thread-tab ${NOTE_THREAD_PRESENTATION[type].identityClass} rounded-md px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--note-tint)] ${
                     selected
-                      ? "bg-[var(--surface-raised)] text-[var(--ink)] shadow-sm"
+                      ? "note-thread-tab--selected shadow-sm"
                       : "text-[var(--muted)]"
                   }`}
                 >
@@ -411,11 +786,13 @@ function ThreadDrawer({
           aria-labelledby={`note-thread-tab-${activeType}`}
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5"
         >
-          <p className="mb-3 text-[10px] text-[var(--muted)]">
-            AI-generated summaries are a convenience. The original notes below are the source of truth.
-          </p>
+          {thread && thread.entries.length >= 2 ? (
+            <p className="mb-3 text-[10px] text-[var(--muted)]">
+              AI-generated summaries are a convenience. The original notes below are the source of truth.
+            </p>
+          ) : null}
           {thread ? (
-            <ThreadEntries thread={thread} type={activeType} />
+            <FullNoteThreadEntries thread={thread} type={activeType} />
           ) : (
             <p role="status" className="py-10 text-center text-sm text-[var(--muted)]">
               Loading original notes…
@@ -427,16 +804,24 @@ function ThreadDrawer({
               href={producerEditHref}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-4 inline-flex rounded-lg border border-[var(--rule)] px-3 py-2 text-xs font-semibold text-[var(--ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              data-note-primary-action="producer"
+              aria-label={
+                empty
+                  ? "Add producer note in BigBrother"
+                  : "Edit producer note in BigBrother"
+              }
+              className="note-thread-action mt-4 inline-flex rounded-lg border px-3 py-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2"
             >
-              Edit Producer Note in BigBrother
+              {empty
+                ? "Add Producer Note in BigBrother"
+                : "Edit Producer Note in BigBrother"}
             </a>
           ) : null}
 
-          {activeType === "service" ? (
+          {activeType === "service" && canAddService ? (
             <form
               onSubmit={onServiceSubmit}
-              className="mt-4 rounded-xl border border-[var(--rule)] bg-[var(--surface)] p-3"
+              className="mt-4 rounded-xl border border-[var(--note-border)] bg-[var(--note-surface)] p-3"
             >
               <label htmlFor="service-note-body" className="text-xs font-semibold text-[var(--ink)]">
                 Add a Service Note
@@ -446,24 +831,36 @@ function ThreadDrawer({
                 value={serviceBody}
                 maxLength={2000}
                 rows={3}
+                disabled={serviceBusy}
                 onChange={(event) => onServiceBodyChange(event.target.value)}
                 placeholder="Add a concise note for the service team…"
-                className="mt-2 w-full resize-y rounded-lg border border-[var(--rule)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                aria-describedby={
+                  serviceError ? "service-note-error" : "service-note-count"
+                }
+                className="mt-2 w-full resize-y rounded-lg border border-[var(--rule)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--ink)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--note-tint)]"
               />
               <div className="mt-2 flex items-center justify-between gap-3">
-                <span className="text-[10px] tabular-nums text-[var(--muted)]">
+                <span
+                  id="service-note-count"
+                  className="text-[10px] tabular-nums text-[var(--muted)]"
+                >
                   {serviceBody.length.toLocaleString()}/2,000
                 </span>
                 <button
                   type="submit"
                   disabled={serviceBusy || !serviceBody.trim()}
-                  className="rounded-lg bg-[var(--ink)] px-3 py-1.5 text-xs font-semibold text-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-45"
+                  aria-label="Add service note"
+                  className="note-thread-action rounded-lg border px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   {serviceBusy ? "Adding…" : "Add note"}
                 </button>
               </div>
               {serviceError ? (
-                <p className="mt-2 text-xs text-rose-600 dark:text-rose-300" role="alert">
+                <p
+                  id="service-note-error"
+                  className="mt-2 text-xs text-rose-600 dark:text-rose-300"
+                  role="alert"
+                >
                   {serviceError}
                 </p>
               ) : null}
@@ -481,19 +878,42 @@ export function OrderNoteThreads({
   orderId,
   orderLabel,
   canEditProducer,
+  canAddService = true,
   producerEditHref,
+  producerNotePreview,
+  accountServiceNotesEmpty,
 }: {
   accountId: string;
   accountName: string;
   orderId: number;
   orderLabel: string;
   canEditProducer: boolean;
+  /** Every authenticated operator with this visible book order can append. */
+  canAddService?: boolean;
   producerEditHref: string;
+  /** Snapshot seed for the Producer card — renders instantly, live fetch reconciles. */
+  producerNotePreview?: ProducerNotePreview;
+  /**
+   * Account-level verified "no visible Service Notes" from the snapshot —
+   * lets the Service card render its empty state instantly. Leave undefined
+   * when unknown; never pass a per-view or per-order guess.
+   */
+  accountServiceNotesEmpty?: boolean;
 }) {
   const companyId = Number(accountId.replace(/^co-/, ""));
+  const provisionalProducer = provisionalProducerThread(
+    orderId,
+    producerNotePreview,
+  );
+  const provisionalService = provisionalServiceThread(
+    companyId,
+    accountServiceNotesEmpty,
+  );
   const [threads, setThreads] = useState<NoteThreadsResponse | null>(null);
-  const [threadError, setThreadError] = useState<string | null>(null);
-  const [loadingThreads, setLoadingThreads] = useState(true);
+  const [threadErrors, setThreadErrors] =
+    useState<Record<NoteThreadType, string | null>>(EMPTY_THREAD_ERRORS);
+  const [loadingThreads, setLoadingThreads] =
+    useState<Record<NoteThreadType, boolean>>(INITIAL_THREAD_LOADING);
   const [summaries, setSummaries] =
     useState<Record<NoteThreadType, SummaryState>>(EMPTY_SUMMARIES);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -501,14 +921,18 @@ export function OrderNoteThreads({
   const [serviceBody, setServiceBody] = useState("");
   const [serviceBusy, setServiceBusy] = useState(false);
   const [serviceError, setServiceError] = useState<string | null>(null);
+  const [promotedType, setPromotedType] = useState<NoteThreadType | null>(null);
+  const [announcement, setAnnouncement] = useState("");
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const drawerInitialFocusRef = useRef<NoteThreadType | null>(null);
+  const focusAfterCloseRef = useRef<NoteThreadType | null>(null);
 
   const loadSummary = useCallback(
     async (type: NoteThreadType, expectedVersion: string) => {
       setSummaries((current) => ({
         ...current,
-        [type]: { status: "loading" },
+        [type]: { status: "loading", version: expectedVersion },
       }));
       try {
         const response = await fetch("/api/orders/note-summary", {
@@ -524,69 +948,166 @@ export function OrderNoteThreads({
           result.generatedAt &&
           result.threadVersion === expectedVersion
         ) {
-          setSummaries((current) => ({
-            ...current,
-            [type]: {
-              status: "ready",
-              text: result.summary!,
-              generatedAt: result.generatedAt!,
-              version: result.threadVersion,
-              method: result.method ?? "ai",
-            },
-          }));
+          setSummaries((current) => {
+            const pending = current[type];
+            if (
+              pending.status !== "loading" ||
+              pending.version !== expectedVersion
+            ) {
+              return current;
+            }
+            return {
+              ...current,
+              [type]: {
+                status: "ready",
+                text: result.summary!,
+                generatedAt: result.generatedAt!,
+                version: result.threadVersion,
+                method: result.method ?? "ai",
+              },
+            };
+          });
           return;
         }
       } catch {
         // Original notes remain usable; summary failure is intentionally quiet.
       }
-      setSummaries((current) => ({
-        ...current,
-        [type]: { status: "unavailable", version: expectedVersion },
-      }));
+      setSummaries((current) => {
+        const pending = current[type];
+        if (
+          pending.status !== "loading" ||
+          pending.version !== expectedVersion
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          [type]: { status: "unavailable", version: expectedVersion },
+        };
+      });
     },
     [companyId, orderId],
   );
 
-  const loadThreads = useCallback(async () => {
-    setLoadingThreads(true);
-    setThreadError(null);
-    try {
-      const params = new URLSearchParams({
-        companyId: String(companyId),
-        orderId: String(orderId),
+  const loadThreads = useCallback(
+    async (
+      requestedTypes: readonly NoteThreadType[] = THREAD_TYPES,
+      options: {
+        /**
+         * A silent auto-retry is already scheduled: keep the loading state
+         * up and hold the error back instead of flashing the error card
+         * between attempts.
+         */
+        keepPendingOnError?: boolean;
+      } = {},
+    ): Promise<NoteThreadsResponse | null> => {
+      setLoadingThreads((current) => {
+        const next = { ...current };
+        for (const type of requestedTypes) next[type] = true;
+        return next;
       });
-      const response = await fetch(`/api/orders/note-threads?${params}`, {
-        cache: "no-store",
+      setThreadErrors((current) => {
+        const next = { ...current };
+        for (const type of requestedTypes) next[type] = null;
+        return next;
       });
-      const result = (await response.json()) as NoteThreadsResponse & {
-        error?: string;
-      };
-      if (!response.ok) throw new Error(result.error ?? "Notes unavailable");
-      setThreads(result);
-      setSummaries(EMPTY_SUMMARIES);
-      for (const type of ["producer", "service"] as const) {
-        if (result[type].entries.length > 0) {
+      try {
+        const params = new URLSearchParams({
+          companyId: String(companyId),
+          orderId: String(orderId),
+        });
+        const response = await fetch(`/api/orders/note-threads?${params}`, {
+          cache: "no-store",
+        });
+        const result = (await response.json()) as NoteThreadsResponse & {
+          error?: string;
+        };
+        if (!response.ok) throw new Error(result.error ?? "Notes unavailable");
+
+        setThreads((current) =>
+          mergeRequestedThreads(current, result, requestedTypes),
+        );
+        setSummaries((current) => {
+          const next = { ...current };
+          for (const type of requestedTypes) next[type] = { status: "idle" };
+          return next;
+        });
+        setLoadingThreads((current) => {
+          const next = { ...current };
+          for (const type of requestedTypes) next[type] = false;
+          return next;
+        });
+        // Empty and single-note threads render originals and never summarize.
+        for (const type of summaryTargets(result, requestedTypes)) {
           void loadSummary(type, result[type].version);
         }
+        return result;
+      } catch (cause) {
+        if (options.keepPendingOnError) return null;
+        const message =
+          cause instanceof Error ? cause.message : "Notes unavailable";
+        setThreadErrors((current) => {
+          const next = { ...current };
+          for (const type of requestedTypes) next[type] = message;
+          return next;
+        });
+        setLoadingThreads((current) => {
+          const next = { ...current };
+          for (const type of requestedTypes) next[type] = false;
+          return next;
+        });
+        return null;
       }
-    } catch (cause) {
-      setThreadError(cause instanceof Error ? cause.message : "Notes unavailable");
-    } finally {
-      setLoadingThreads(false);
-    }
-  }, [companyId, orderId, loadSummary]);
+    },
+    [companyId, orderId, loadSummary],
+  );
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadThreads(), 0);
-    return () => window.clearTimeout(timer);
+    let cancelled = false;
+    let timer = 0;
+    // First load with silent retries: only the final failed attempt surfaces
+    // the error card, so a transient blip never breaks a card the collapsed
+    // preview is happily rendering from the local snapshot.
+    const attempt = (index: number) => {
+      const isLast = index >= NOTE_THREAD_AUTO_RETRY_DELAYS_MS.length;
+      void loadThreads(THREAD_TYPES, { keepPendingOnError: !isLast }).then(
+        (result) => {
+          if (cancelled || result || isLast) return;
+          timer = window.setTimeout(
+            () => attempt(index + 1),
+            NOTE_THREAD_AUTO_RETRY_DELAYS_MS[index],
+          );
+        },
+      );
+    };
+    timer = window.setTimeout(() => attempt(0), 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [loadThreads]);
+
+  useEffect(() => {
+    if (!announcement) return;
+    const timer = window.setTimeout(() => setAnnouncement(""), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [announcement]);
 
   useEffect(() => {
     if (!drawerOpen) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const dialog = dialogRef.current;
-    const first = dialog ? focusableElements(dialog)[0] : null;
+    const requestedFocus =
+      drawerInitialFocusRef.current === "service"
+        ? dialog?.querySelector<HTMLElement>("#service-note-body")
+        : drawerInitialFocusRef.current === "producer"
+          ? dialog?.querySelector<HTMLElement>(
+              '[data-note-primary-action="producer"]',
+            )
+          : null;
+    drawerInitialFocusRef.current = null;
+    const first = requestedFocus ?? (dialog ? focusableElements(dialog)[0] : null);
     first?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -611,12 +1132,28 @@ export function OrderNoteThreads({
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", onKeyDown);
-      openerRef.current?.focus();
+      const focusType = focusAfterCloseRef.current;
+      focusAfterCloseRef.current = null;
+      if (focusType) {
+        window.requestAnimationFrame(() => {
+          document
+            .getElementById(`note-thread-view-${orderId}-${focusType}`)
+            ?.focus();
+        });
+      } else {
+        openerRef.current?.focus();
+      }
     };
-  }, [drawerOpen]);
+  }, [drawerOpen, orderId]);
 
-  function openDrawer(type: NoteThreadType, trigger: HTMLButtonElement) {
+  function openDrawer(
+    type: NoteThreadType,
+    trigger: HTMLButtonElement,
+    intent: DrawerIntent,
+  ) {
     openerRef.current = trigger;
+    drawerInitialFocusRef.current = intent === "add" ? type : null;
+    setServiceError(null);
     setActiveType(type);
     setDrawerOpen(true);
   }
@@ -624,9 +1161,10 @@ export function OrderNoteThreads({
   async function submitServiceNote(event: FormEvent) {
     event.preventDefault();
     const body = serviceBody.trim();
-    if (!body || body.length > 2000) return;
+    if (!body || body.length > 2000 || serviceBusy || !canAddService) return;
     setServiceBusy(true);
     setServiceError(null);
+    const previousVersion = threads?.service.version ?? null;
     try {
       const response = await fetch("/api/orders/service-notes", {
         method: "POST",
@@ -637,50 +1175,81 @@ export function OrderNoteThreads({
         error?: string;
       };
       if (!response.ok) throw new Error(result.error ?? "Note was not added");
+      let refreshed = await loadThreads(["service"]);
+      if (
+        refreshed &&
+        previousVersion !== null &&
+        refreshed.service.version === previousVersion
+      ) {
+        // The action can return before the read path observes the write. One
+        // bounded retry avoids either inventing a note or leaving a successful
+        // first write looking empty.
+        await new Promise((resolve) => window.setTimeout(resolve, 300));
+        refreshed = await loadThreads(["service"]);
+      }
+      if (
+        !refreshed ||
+        (previousVersion !== null &&
+          refreshed.service.version === previousVersion)
+      ) {
+        setServiceError(
+          "The note was added, but the thread could not refresh. Retry the thread before adding another note.",
+        );
+        return;
+      }
       setServiceBody("");
-      setServiceBusy(false);
-      void loadThreads();
+      setPromotedType("service");
+      setAnnouncement("Service note added.");
+      focusAfterCloseRef.current = "service";
+      setDrawerOpen(false);
     } catch (cause) {
       setServiceError(
         cause instanceof Error ? cause.message : "Note was not added",
       );
+    } finally {
       setServiceBusy(false);
     }
   }
 
+  const cardStates: Record<NoteThreadType, NoteThreadCardState> = {
+    producer: resolveNoteThreadCardState({
+      thread: threads?.producer ?? provisionalProducer,
+      summary: summaries.producer,
+      loading: loadingThreads.producer,
+      error: threadErrors.producer,
+      canAdd: canEditProducer,
+    }),
+    service: resolveNoteThreadCardState({
+      thread: threads?.service ?? provisionalService,
+      summary: summaries.service,
+      loading: loadingThreads.service,
+      error: threadErrors.service,
+      canAdd: canAddService,
+    }),
+  };
+
   return (
-    <section className="mt-3 border-t border-[var(--rule)] pt-3" aria-label="Order note threads">
-      {threadError ? (
-        <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-2">
-          <p className="text-xs text-rose-700 dark:text-rose-300">{threadError}</p>
-          <button
-            type="button"
-            onClick={() => void loadThreads()}
-            className="rounded px-2 py-1 text-xs font-semibold text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 dark:text-rose-300"
-          >
-            Retry
-          </button>
-        </div>
-      ) : null}
-      <div className="grid gap-3 lg:grid-cols-2">
-        {(["producer", "service"] as const).map((type) => (
-          <SummaryCard
-            key={type}
-            type={type}
-            thread={threads?.[type] ?? null}
-            summary={summaries[type]}
-            loadingThreads={loadingThreads}
-            threadUnavailable={Boolean(threadError)}
-            onOpen={(trigger) => openDrawer(type, trigger)}
-            onRetry={() => {
-              const thread = threads?.[type];
-              if (thread?.entries.length) {
-                void loadSummary(type, thread.version);
-              }
-            }}
-          />
-        ))}
-      </div>
+    <section
+      className="order-note-threads mt-3 border-t border-[var(--rule)] pt-3"
+      aria-label="Order note threads"
+    >
+      <p className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </p>
+      <NoteThreadCardGrid
+        states={cardStates}
+        orderId={orderId}
+        promotedType={promotedType}
+        onOpen={openDrawer}
+        onRetry={(type) => {
+          const thread = threads?.[type];
+          if (thread && thread.entries.length >= 2) {
+            void loadSummary(type, thread.version);
+          } else {
+            void loadThreads([type]);
+          }
+        }}
+      />
       <ThreadDrawer
         open={drawerOpen}
         activeType={activeType}
@@ -688,6 +1257,7 @@ export function OrderNoteThreads({
         orderLabel={orderLabel}
         threads={threads}
         canEditProducer={canEditProducer}
+        canAddService={canAddService}
         producerEditHref={producerEditHref}
         serviceBody={serviceBody}
         serviceBusy={serviceBusy}

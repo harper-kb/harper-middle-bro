@@ -13,6 +13,7 @@ function render(props: Parameters<typeof OrderMetaChips>[0]) {
 
 const base = {
   source: "iq",
+  bindStatus: "pending",
   revenueMicros: 400_600_000,
   createdAt: "2026-08-14T22:47:55.000Z",
   todayDay: "2026-08-16",
@@ -27,10 +28,11 @@ describe("source chip", () => {
     expect(html).toContain("IQ account");
   });
 
-  it("labels a broker order with the neutral tone", () => {
+  it("labels a broker order with its own purple tone and an icon", () => {
     const html = render({ ...base, source: "broker" });
     expect(html).toContain(">Broker<");
     expect(html).toContain("meta-chip--broker");
+    expect(html).toContain("meta-chip-icon");
     expect(html).not.toContain("meta-chip--iq");
     expect(html).toContain("Broker account");
   });
@@ -39,6 +41,8 @@ describe("source chip", () => {
     const html = render({ ...base, source: "mixed" });
     expect(html).toContain(">Mixed<");
     expect(html).toContain("Mixed account");
+    expect(html).not.toContain("meta-chip--broker");
+    expect(html).not.toContain("meta-chip--iq");
   });
 
   it("never classifies a null source as Broker", () => {
@@ -113,6 +117,13 @@ describe("deal age chip", () => {
     const html = render({ ...base, createdAt: null });
     expect(html).toContain("Age unavailable");
     expect(html).not.toContain("0 Day");
+  });
+
+  it("omits age entirely once the order is Bound", () => {
+    const html = render({ ...base, bindStatus: "bound" });
+    expect(html).not.toMatch(/\d+ Days?/);
+    expect(html).not.toContain("Age unavailable");
+    expect(html).not.toContain("Needs attention");
   });
 });
 

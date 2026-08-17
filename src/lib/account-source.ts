@@ -67,3 +67,36 @@ export const ORDER_SOURCE_LABELS: Record<OrderSource, string> = {
   broker: ACCOUNT_SOURCE_LABELS.broker,
   mixed: "Mixed",
 };
+
+/** Label for an order whose deals cannot classify it either way. */
+export const SOURCE_UNAVAILABLE_LABEL = "Source unavailable";
+
+/**
+ * The one place a source turns into a visual identity. Every surface — filter
+ * segment, collapsed row, order chip, company header, search result — composes
+ * its own class from this tone rather than deciding on its own what Broker
+ * looks like, so the purple can never drift back to gray in one corner.
+ *
+ * `mixed` and `unavailable` stay deliberately neutral: neither is Broker, and
+ * tinting them purple would contradict the filter, which surfaces both only
+ * under All.
+ */
+export type SourceTone = "iq" | "broker" | "mixed" | "unavailable";
+
+export function sourceTone(source: OrderSource | null): SourceTone {
+  return source ?? "unavailable";
+}
+
+export function sourceLabel(source: OrderSource | null): string {
+  return source ? ORDER_SOURCE_LABELS[source] : SOURCE_UNAVAILABLE_LABEL;
+}
+
+/** Full-sentence explanation shown in the tooltip beside every source mark. */
+export const SOURCE_DESCRIPTIONS: Record<SourceTone, string> = {
+  iq: "IQ account — every deal on this order is an instant quote",
+  broker: "Broker account — no instant-quote deals on this order",
+  mixed:
+    "Mixed account — this order carries both instant-quote and broker deals",
+  unavailable:
+    "Source unavailable — no deals are available to classify as IQ or Broker",
+};

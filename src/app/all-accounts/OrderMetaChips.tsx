@@ -1,7 +1,13 @@
 "use client";
 
 import { useId } from "react";
-import { ORDER_SOURCE_LABELS, type OrderSource } from "@/lib/account-source";
+import {
+  sourceLabel,
+  sourceTone,
+  SOURCE_DESCRIPTIONS,
+  type OrderSource,
+} from "@/lib/account-source";
+import { SourceIcon } from "@/components/SourceIdentity";
 import { brokerGateView } from "@/lib/broker-gate";
 import {
   dealAgeDays,
@@ -9,54 +15,7 @@ import {
   dealAgeNeedsAttention,
   harperTimestampLabel,
 } from "@/lib/order-age";
-
-const SOURCE_META: Record<OrderSource, { tip: string; tone: string }> = {
-  iq: {
-    tip: "IQ account — every deal on this order is an instant quote",
-    tone: "meta-chip--iq",
-  },
-  broker: {
-    tip: "Broker account — no instant-quote deals on this order",
-    tone: "meta-chip--broker",
-  },
-  // Authoritative third state: forcing it into IQ or Broker would contradict
-  // the filter, which shows mixed accounts only under All.
-  mixed: {
-    tip: "Mixed account — this order carries both instant-quote and broker deals",
-    tone: "meta-chip--broker",
-  },
-};
-
-function IqIcon() {
-  return (
-    <svg viewBox="0 0 12 12" aria-hidden="true" className="meta-chip-icon">
-      <path d="M7 1 2.5 6.75h2.25L4.75 11 9.5 5h-2.4z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function BrokerIcon() {
-  return (
-    <svg viewBox="0 0 12 12" fill="none" aria-hidden="true" className="meta-chip-icon">
-      <circle cx="6" cy="4" r="2" stroke="currentColor" strokeWidth="1.3" />
-      <path
-        d="M2 10.5c0-1.9 1.8-3 4-3s4 1.1 4 3"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function UnknownIcon() {
-  return (
-    <svg viewBox="0 0 12 12" fill="none" aria-hidden="true" className="meta-chip-icon">
-      <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M3.75 6h4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
-}
+import type { BookOrderBindStatus } from "@/lib/supabase-book.server";
 
 function AttentionIcon() {
   return (
@@ -118,16 +77,35 @@ function formatRevenue(revenueMicros: number | null): string | null {
   }).format(cents / 100);
 }
 
+/** Shared IQ/Broker/Mixed source mark used by order cards and company headers. */
+export function OrderSourceBadge({
+  source,
+}: {
+  source: OrderSource | null;
+}) {
+  const tone = sourceTone(source);
+  return (
+    <MetaChip
+      tone={`meta-chip--${tone}`}
+      icon={<SourceIcon source={source} className="meta-chip-icon" />}
+      tip={SOURCE_DESCRIPTIONS[tone]}
+    >
+      {sourceLabel(source)}
+    </MetaChip>
+  );
+}
+
 /**
- * Source / revenue / deal-age metadata shown on every order preview, in All
- * Accounts and in the Pending, Bound and Lost views. Broker Gate is display-only
- * and appears only when the order source is Broker.
+ * Source / revenue metadata shown on every order preview. Deal age is active
+ * work metadata and is omitted once an order is Bound. Broker Gate is
+ * display-only and appears only when the order source is Broker.
  *
  * `todayDay` is the Harper-timezone calendar day resolved once on the server so
  * the age a visitor sees cannot drift between the server render and hydration.
  */
 export function OrderMetaChips({
   source,
+  bindStatus,
   revenueMicros,
   createdAt,
   todayDay,
@@ -135,6 +113,7 @@ export function OrderMetaChips({
   brokerGateAt = null,
 }: {
   source: OrderSource | null;
+  bindStatus: BookOrderBindStatus;
   revenueMicros: number | null;
   createdAt: string | null;
   todayDay: string;
@@ -142,30 +121,16 @@ export function OrderMetaChips({
   brokerGateAt?: string | null;
 }) {
   const revenue = formatRevenue(revenueMicros);
-  const ageDays = dealAgeDays(createdAt, todayDay);
-  const createdStamp = harperTimestampLabel(createdAt);
+  const showAge = bindStatus !== "bound";
+  const ageDays = showAge ? dealAgeDays(createdAt, todayDay) : null;
+  const createdStamp = showAge ? harperTimestampLabel(createdAt) : null;
   const attention = ageDays !== null && dealAgeNeedsAttention(ageDays);
   const showGate = source === "broker";
   const gate = showGate ? brokerGateView(brokerGate, brokerGateAt) : null;
 
   return (
     <span className="meta-chips">
-      {source ? (
-        <MetaChip
-          tone={SOURCE_META[source].tone}
-          icon={source === "iq" ? <IqIcon /> : <BrokerIcon />}
-          tip={SOURCE_META[source].tip}
-        >
-          {ORDER_SOURCE_LABELS[source]}
-        </MetaChip>
-      ) : (
-        <MetaChip
-          icon={<UnknownIcon />}
-          tip="Source unavailable — this order carries no deals to classify as IQ or Broker"
-        >
-          Source unavailable
-        </MetaChip>
-      )}
+      <OrderSourceBadge source={source} />
 
       {showGate ? (
         gate ? (
@@ -204,27 +169,29 @@ export function OrderMetaChips({
         </MetaChip>
       )}
 
-      {ageDays === null ? (
-        <MetaChip tip="Deal age unavailable — no creation timestamp on this order">
-          Age unavailable
-        </MetaChip>
-      ) : (
-        <MetaChip
-          tone={attention ? "meta-chip--attention" : undefined}
-          icon={attention ? <AttentionIcon /> : undefined}
-          tip={
-            attention
-              ? `Needs attention — deal created ${dealAgeLabel(ageDays).toLowerCase()} ago${
-                  createdStamp ? ` (${createdStamp})` : ""
-                }`
-              : createdStamp
-                ? `Deal created ${createdStamp}`
-                : undefined
-          }
-        >
-          <span className="meta-chip-value">{dealAgeLabel(ageDays)}</span>
-        </MetaChip>
-      )}
+      {showAge ? (
+        ageDays === null ? (
+          <MetaChip tip="Deal age unavailable — no creation timestamp on this order">
+            Age unavailable
+          </MetaChip>
+        ) : (
+          <MetaChip
+            tone={attention ? "meta-chip--attention" : undefined}
+            icon={attention ? <AttentionIcon /> : undefined}
+            tip={
+              attention
+                ? `Needs attention — deal created ${dealAgeLabel(ageDays).toLowerCase()} ago${
+                    createdStamp ? ` (${createdStamp})` : ""
+                  }`
+                : createdStamp
+                  ? `Deal created ${createdStamp}`
+                  : undefined
+            }
+          >
+            <span className="meta-chip-value">{dealAgeLabel(ageDays)}</span>
+          </MetaChip>
+        )
+      ) : null}
     </span>
   );
 }

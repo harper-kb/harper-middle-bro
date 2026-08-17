@@ -1,5 +1,5 @@
 /**
- * MANUAL FALLBACK — the primary path is now the in-app five-minute refresher
+ * MANUAL FALLBACK — the primary path is now the in-app two-minute refresher
  * in `src/lib/db/book-refresh.ts` (Supabase Management API, driven by
  * SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF in .env.local). Keep the SQL
  * and mapping there in sync if you touch this script.

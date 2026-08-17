@@ -3,7 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   Show,
   SignInButton,
@@ -15,17 +21,25 @@ import {
   APP_VERSION,
   RELEASE_STAGE,
   SERVICE_MAILBOX,
-  SHORT_NAME,
 } from "@/lib/brand";
 import type { Operator } from "@/lib/types";
 import { useIdlePresence, type Presence } from "@/lib/use-presence";
+import { BrandOverlayTrigger } from "@/components/IdleBrandOverlay";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { LatestDatabaseSync } from "@/components/LatestDatabaseSync";
 import { OperationsStatsBar } from "@/components/OperationsStatsBar";
+import { TopNavHeightSync } from "@/components/TopNavHeightSync";
+import type { RecordsNavigationCountsResponse } from "@/app/api/navigation-counts/route";
 
 /** Left sidebar navigation: account views | service | Manager. */
 
-type NavItem = { href: string; label: string };
+type RecordCountKey = keyof RecordsNavigationCountsResponse;
+
+type NavItem = {
+  href: string;
+  label: string;
+  recordCountKey?: RecordCountKey;
+};
 
 type NavGroup = {
   id: string;
@@ -38,12 +52,28 @@ type NavGroup = {
 const NAV_GROUPS: NavGroup[] = [
   {
     id: "accounts",
-    label: "Accounts",
+    label: "Records",
     items: [
-      { href: "/all-accounts", label: "All Accounts" },
-      { href: "/pending-orders", label: "Pending Orders" },
-      { href: "/bound-orders", label: "Bound Orders" },
-      { href: "/lost-orders", label: "Lost Orders" },
+      {
+        href: "/all-accounts",
+        label: "All Accounts",
+        recordCountKey: "allOrders",
+      },
+      {
+        href: "/pending-orders",
+        label: "Pending Orders",
+        recordCountKey: "pendingOrders",
+      },
+      {
+        href: "/bound-orders",
+        label: "Bound Orders",
+        recordCountKey: "boundOrders",
+      },
+      {
+        href: "/lost-orders",
+        label: "Lost Orders",
+        recordCountKey: "lostOrders",
+      },
     ],
     autoExpandOnActive: true,
   },
@@ -80,6 +110,63 @@ const COLLAPSE_STORAGE_KEY = "desk-nav-collapsed";
 
 const EMPTY_COLLAPSE: Record<string, boolean> = {};
 const NAV_COLLAPSE_EVENT = "step-bro-nav-collapse";
+const RECORD_COUNTS_POLL_MS = 30_000;
+const RECORD_COUNT_KEYS = [
+  "allOrders",
+  "pendingOrders",
+  "boundOrders",
+  "lostOrders",
+] as const satisfies readonly RecordCountKey[];
+
+let cachedRecordCounts: RecordsNavigationCountsResponse | null = null;
+
+function parseRecordCounts(value: unknown): RecordsNavigationCountsResponse | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  const parsed = {} as RecordsNavigationCountsResponse;
+  for (const key of RECORD_COUNT_KEYS) {
+    const count = candidate[key];
+    if (
+      typeof count !== "number" ||
+      !Number.isSafeInteger(count) ||
+      count < 0
+    ) {
+      return null;
+    }
+    parsed[key] = count;
+  }
+  return parsed;
+}
+
+function useRecordNavigationCounts(): RecordsNavigationCountsResponse | null {
+  const [counts, setCounts] = useState(cachedRecordCounts);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/navigation-counts", {
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const next = parseRecordCounts(await response.json());
+        if (!next || !active) return;
+        cachedRecordCounts = next;
+        setCounts(next);
+      } catch {
+        // Keep the last good counts visible through a transient refresh issue.
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), RECORD_COUNTS_POLL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return counts;
+}
 
 /**
  * useSyncExternalStore compares snapshots by identity, so parsing on every
@@ -164,22 +251,24 @@ function PresenceDot({ presence }: { presence: Presence }) {
 }
 
 function itemClass(active: boolean): string {
-  return `flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] active:bg-[var(--sand)] ${
+  return `flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] active:bg-[var(--sand)] ${
     active
       ? "bg-[var(--accent-soft)] font-semibold text-[var(--ink)] shadow-[inset_2px_0_0_var(--accent)]"
       : "font-medium text-[var(--muted)] hover:bg-[var(--sand)] hover:text-[var(--ink)]"
   }`;
 }
 
-function NavSections({
+export function NavSections({
   path,
   presence,
+  recordCounts,
   collapsed,
   onToggle,
   onNavigate,
 }: {
   path: string;
   presence: Presence;
+  recordCounts: RecordsNavigationCountsResponse | null;
   collapsed: Record<string, boolean>;
   onToggle: (id: string) => void;
   onNavigate?: () => void;
@@ -206,15 +295,28 @@ function NavSections({
               <ul className="mt-1 space-y-0.5">
                 {group.items.map((item) => {
                   const active = isActivePath(path, item.href);
+                  const count = item.recordCountKey
+                    ? recordCounts?.[item.recordCountKey]
+                    : undefined;
                   return (
                     <li key={item.href}>
                       <Link
                         href={item.href}
                         onClick={onNavigate}
-                        className={itemClass(active)}
+                        aria-current={active ? "page" : undefined}
+                        className={`${itemClass(active)}${
+                          item.recordCountKey ? " nav-record-link" : ""
+                        }`}
                       >
                         {active && <PresenceDot presence={presence} />}
-                        {item.label}
+                        <span className="min-w-0 flex-1 truncate">
+                          {item.label}
+                        </span>
+                        {count !== undefined ? (
+                          <span className="nav-record-count">
+                            {count.toLocaleString("en-US")}
+                          </span>
+                        ) : null}
                       </Link>
                     </li>
                   );
@@ -229,32 +331,37 @@ function NavSections({
 }
 
 /**
- * Wordmark: the Harper logo and product name on one line, then whoever is at
- * this desk. `email` is omitted on the compact mobile bar.
+ * Wordmark: the Harper logo and the Step Bro logo on one line, then whoever is
+ * at this desk. `email` is omitted on the compact mobile bar.
  */
-function BrandBlock({
-  email,
-  compact = false,
-}: {
-  email?: string;
-  compact?: boolean;
-}) {
+function BrandBlock({ compact = false }: { compact?: boolean }) {
   if (compact) {
     return (
       <div className="flex min-w-0 items-center gap-2">
-        <Link href="/all-accounts" className="flex min-w-0 items-center gap-2">
-          <Image
-            src="/harper-wordmark.png"
-            alt="Harper"
-            width={596}
-            height={152}
-            priority
-            className="h-4 w-auto shrink-0"
-          />
-          <span className="truncate text-sm font-semibold tracking-[-0.02em] text-[var(--ink)]">
-            {SHORT_NAME}
-          </span>
-        </Link>
+        <div
+          className="flex min-w-0 items-end gap-2"
+          data-brand-trigger-lockup
+        >
+          <BrandOverlayTrigger brand="harper" className="shrink-0">
+            <Image
+              src="/harper-wordmark.png"
+              alt=""
+              width={596}
+              height={152}
+              priority
+              className="h-4 w-auto shrink-0"
+            />
+          </BrandOverlayTrigger>
+          {/* The one mark allowed to shrink: on a very narrow phone bar it
+              gives up width before the menu controls do, and `contain` keeps it
+              undistorted on the way down. */}
+          <BrandOverlayTrigger brand="step-bro" className="min-w-0">
+            <span
+              aria-hidden="true"
+              className="step-bro-wordmark h-[1.36rem] min-w-0"
+            />
+          </BrandOverlayTrigger>
+        </div>
         <span className="rounded-full border border-[color-mix(in_srgb,var(--harper-orange)_35%,transparent)] bg-[var(--accent-soft)] px-1.5 py-px text-[7px] font-semibold uppercase tracking-[0.12em] text-[var(--harper-orange)]">
           {RELEASE_STAGE}
         </span>
@@ -263,34 +370,51 @@ function BrandBlock({
   }
 
   return (
-    <div className="min-w-0 rounded-xl border border-[var(--rule)] bg-[var(--surface-raised)] p-3 shadow-sm">
-      <div className="flex min-w-0 items-center justify-between gap-2">
-        <Link href="/all-accounts" className="flex min-w-0 items-center gap-2">
+    <div className="desk-brand-row flex min-w-0 flex-1 items-center justify-between gap-2">
+      <div
+        className="flex min-w-0 items-end gap-2"
+        data-brand-trigger-lockup
+      >
+        <BrandOverlayTrigger brand="harper" className="shrink-0">
           <Image
             src="/harper-wordmark.png"
-            alt="Harper"
+            alt=""
             width={596}
             height={152}
             priority
             className="h-[1.05rem] w-auto shrink-0"
           />
-          <span className="truncate text-[15px] font-semibold tracking-[-0.025em] text-[var(--ink)]">
-            {SHORT_NAME}
-          </span>
-        </Link>
-        <div className="shrink-0">
-          <ThemeToggle compact />
-        </div>
+        </BrandOverlayTrigger>
+        <BrandOverlayTrigger brand="step-bro" className="min-w-0">
+          <span
+            aria-hidden="true"
+            className="step-bro-wordmark h-[1.43rem] shrink-0"
+          />
+        </BrandOverlayTrigger>
       </div>
+      <div className="shrink-0">
+        <ThemeToggle compact />
+      </div>
+    </div>
+  );
+}
 
+/**
+ * Operator email, sync state and build — everything that used to sit under the
+ * brand inside one tall card. It moves below the masthead rule so the brand row
+ * can match the top bar's height exactly.
+ */
+function BrandMeta({ email }: { email?: string }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-[var(--rule)] bg-[var(--surface-raised)] p-3 shadow-sm">
       <p
-        className="mt-2 truncate text-[9px] uppercase tracking-[0.13em] text-[var(--muted)]"
+        className="desk-brand-meta truncate text-[9px] uppercase tracking-[0.13em] text-[var(--muted)]"
         title={email}
       >
         {email ?? SERVICE_MAILBOX}
       </p>
 
-      <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-[var(--rule)] pt-3">
+      <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-[var(--rule)] pt-2">
         <LatestDatabaseSync />
         <div className="flex shrink-0 flex-col items-center justify-center gap-1">
           <span className="rounded-full border border-[color-mix(in_srgb,var(--harper-orange)_35%,transparent)] bg-[var(--accent-soft)] px-1.5 py-px text-[7px] font-semibold uppercase leading-none tracking-[0.12em] text-[var(--harper-orange)]">
@@ -387,6 +511,7 @@ export function Nav({
   const pathname = usePathname();
   const path = pathname ?? active;
   const presence = useIdlePresence();
+  const recordCounts = useRecordNavigationCounts();
 
   const collapsed = useSyncExternalStore(
     subscribeNavCollapse,
@@ -394,6 +519,8 @@ export function Nav({
     () => EMPTY_COLLAPSE,
   );
   const [mobileOpen, setMobileOpen] = useState(false);
+  const desktopTopNavRef = useRef<HTMLDivElement>(null);
+  const mobileTopNavRef = useRef<HTMLElement>(null);
 
   const toggle = useCallback((id: string) => {
     const prev = readNavCollapse();
@@ -410,16 +537,25 @@ export function Nav({
 
   return (
     <>
+      <TopNavHeightSync
+        desktopRef={desktopTopNavRef}
+        mobileRef={mobileTopNavRef}
+      />
+
       {/* Desktop: fixed left sidebar. The .desk-sidebar class drives the
           body padding rule in globals.css — pages never change. */}
       <aside className="desk-sidebar fixed inset-y-0 left-0 z-40 hidden w-[16.5rem] flex-col border-r border-[var(--rule)] bg-[var(--paper)] lg:flex">
-        <div className="p-3 pb-2">
-          <BrandBlock email={operator?.email ?? SERVICE_MAILBOX} />
+        <div className="desk-sidebar-head px-3">
+          <BrandBlock />
+        </div>
+        <div className="px-3 pt-3">
+          <BrandMeta email={operator?.email ?? SERVICE_MAILBOX} />
         </div>
         <div className="desk-nav-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-4">
           <NavSections
             path={path}
             presence={presence}
+            recordCounts={recordCounts}
             collapsed={collapsed}
             onToggle={toggle}
           />
@@ -427,12 +563,18 @@ export function Nav({
         <AccountRail operator={operator} presence={presence} />
       </aside>
 
-      <div className="desk-sticky-header sticky top-0 z-30 hidden border-b border-[var(--rule)] lg:block">
+      <div
+        ref={desktopTopNavRef}
+        className="desk-sticky-header desk-topbar sticky z-30 hidden border-b border-[var(--rule)] lg:block"
+      >
         <OperationsStatsBar />
       </div>
 
       {/* Below lg: sticky top bar + slide-over drawer. */}
-      <header className="desk-sticky-header sticky top-0 z-40 border-b border-[var(--rule)] bg-[var(--paper)]/95 backdrop-blur lg:hidden">
+      <header
+        ref={mobileTopNavRef}
+        className="desk-sticky-header desk-mobile-topbar sticky z-40 border-b border-[var(--rule)] bg-[var(--paper)]/95 backdrop-blur lg:hidden"
+      >
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           {brand}
           <div className="flex items-center gap-2">
@@ -463,9 +605,9 @@ export function Nav({
             onClick={() => setMobileOpen(false)}
           />
           <div className="absolute inset-y-0 left-0 flex w-[17rem] flex-col border-r border-[var(--rule)] bg-[var(--paper)] shadow-2xl">
-            <div className="flex items-start justify-between gap-2 p-3 pb-2">
+            <div className="flex items-center justify-between gap-2 px-3 pt-3">
               <div className="min-w-0 flex-1">
-                <BrandBlock email={operator?.email ?? SERVICE_MAILBOX} />
+                <BrandBlock />
               </div>
               <button
                 type="button"
@@ -476,10 +618,14 @@ export function Nav({
                 ✕
               </button>
             </div>
+            <div className="px-3 pt-3">
+              <BrandMeta email={operator?.email ?? SERVICE_MAILBOX} />
+            </div>
             <div className="desk-nav-scroll min-h-0 flex-1 overflow-y-auto px-2.5 py-4">
               <NavSections
                 path={path}
                 presence={presence}
+                recordCounts={recordCounts}
                 collapsed={collapsed}
                 onToggle={toggle}
                 onNavigate={() => setMobileOpen(false)}

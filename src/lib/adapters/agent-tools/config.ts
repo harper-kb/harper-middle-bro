@@ -4,8 +4,10 @@ import "server-only";
  * Harper Agent Tools door client credentials.
  *
  * Env:
- *   HARPER_AGENT_TOOLS_BASE_URL — gateway origin (no trailing slash)
- *   HARPER_AGENT_TOOLS_TOKEN    — bearer token
+ *   HARPER_AGENT_TOOLS_BASE_URL — gateway origin (no trailing slash), e.g.
+ *     the harper-tools REST API deployment; commands are posted to
+ *     `{base}/api/v1/commands/<domain>/<resource>/<verb>`
+ *   HARPER_AGENT_TOOLS_TOKEN    — API key, sent as a bearer token
  *
  * When unset, capability discovery marks write doors blocked and the client
  * refuses mutations (legacy fallback may still serve a subset).

@@ -44,7 +44,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const threads = await loadNoteThreads({ companyId, orderId });
+    const threads = await loadNoteThreads({
+      companyId,
+      orderId,
+      visibilityScope: `operator:${operator.id}`,
+    });
     return NextResponse.json(threads, { headers: NO_STORE });
   } catch (cause) {
     console.warn("note_threads_load_failed", {

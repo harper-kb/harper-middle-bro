@@ -33,6 +33,8 @@ export type NoteSummaryResponse = {
   generatedAt: string | null;
   threadVersion: string;
   cacheHit: boolean;
-  method?: "ai" | "extractive";
+  method?: "ai";
+  /** Deterministic names from authorized visible entries, never AI-inferred. */
+  participants?: string[];
   error?: string;
 };

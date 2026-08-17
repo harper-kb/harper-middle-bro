@@ -2,7 +2,7 @@ import "server-only";
 
 /**
  * Read-only SQL through the same Supabase Management API connection used by
- * the five-minute live-book refresh. Keep this server-only: the access token
+ * the two-minute live-book refresh. Keep this server-only: the access token
  * must never reach browser code.
  */
 export async function runSupabaseManagementQuery<T>(
@@ -36,4 +36,15 @@ export async function runSupabaseManagementQuery<T>(
     throw new Error("supabase_management_invalid_response");
   }
   return rows as T[];
+}
+
+/**
+ * Whether a failure was the shared quota refusing the request rather than
+ * anything wrong with the query. Callers on a timer back off on this instead of
+ * retrying straight into the same wall; a one-off caller can simply retry.
+ */
+export function isRateLimited(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message === "supabase_management_http_429"
+  );
 }

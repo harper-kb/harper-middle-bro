@@ -26,6 +26,58 @@ export class AgentToolsClientError extends Error {
 }
 
 /**
+ * Hard ceiling on any gateway call. These sit on interactive request paths
+ * (service-note writes, quote URL minting); without a timeout a hung gateway
+ * pinned the request — and the operator's UI — indefinitely.
+ */
+const AGENT_TOOLS_TIMEOUT_MS = 15_000;
+
+/**
+ * The gateway (harper-tools REST API) exposes each command as
+ * `POST {base}/api/v1/commands/<domain>/<resource>/<verb>` with the input as
+ * the JSON body. Callers here still speak the CLI shape
+ * (`"ops sql run --limit 50"`), so the command line is parsed into path
+ * segments plus flag fields; a flag overrides the same key in `input`,
+ * matching the gateway's own CLI contract.
+ */
+function parseCommandLine(command: string): {
+  segments: string[];
+  flags: Record<string, unknown>;
+} {
+  const tokens = command.trim().split(/\s+/).filter(Boolean);
+  const segments: string[] = [];
+  const flags: Record<string, unknown> = {};
+  let index = 0;
+  while (index < tokens.length && !tokens[index].startsWith("--")) {
+    segments.push(tokens[index]);
+    index += 1;
+  }
+  while (index < tokens.length) {
+    const token = tokens[index];
+    index += 1;
+    if (!token.startsWith("--")) continue;
+    const name = token.slice(2).replace(/-/g, "_");
+    if (!name) continue;
+    const hasValue =
+      index < tokens.length && !tokens[index].startsWith("--");
+    if (!hasValue) {
+      flags[name] = true;
+      continue;
+    }
+    const value = tokens[index];
+    index += 1;
+    flags[name] = /^-?\d+(\.\d+)?$/.test(value)
+      ? Number(value)
+      : value === "true"
+        ? true
+        : value === "false"
+          ? false
+          : value;
+  }
+  return { segments, flags };
+}
+
+/**
  * Execute one Agent Tools CLI-shaped command on the server.
  * Never call this from the browser — HWS/product routes stay behind this door.
  */
@@ -41,7 +93,17 @@ export async function executeAgentToolsCommand(
     );
   }
 
-  const url = `${creds.baseUrl}/execute`;
+  const { segments, flags } = parseCommandLine(command);
+  if (segments.length === 0) {
+    throw new AgentToolsClientError(
+      `Agent Tools command has no path: "${command}"`,
+      null,
+    );
+  }
+
+  const url = `${creds.baseUrl}/api/v1/commands/${segments
+    .map(encodeURIComponent)
+    .join("/")}`;
   let res: Response;
   try {
     res = await fetch(url, {
@@ -51,12 +113,16 @@ export async function executeAgentToolsCommand(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ command, input: input ?? {} }),
+      body: JSON.stringify({ ...(input ?? {}), ...flags }),
       cache: "no-store",
+      signal: AbortSignal.timeout(AGENT_TOOLS_TIMEOUT_MS),
     });
   } catch (err) {
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
     throw new AgentToolsClientError(
-      `Agent Tools unreachable: ${err instanceof Error ? err.message : "network error"}`,
+      timedOut
+        ? `Agent Tools timed out after ${AGENT_TOOLS_TIMEOUT_MS}ms`
+        : `Agent Tools unreachable: ${err instanceof Error ? err.message : "network error"}`,
       null,
     );
   }
@@ -68,7 +134,7 @@ export async function executeAgentToolsCommand(
     body = {};
   }
 
-  if (!res.ok) {
+  if (!res.ok || body.ok === false) {
     return {
       ok: false,
       status: res.status,
@@ -81,10 +147,18 @@ export async function executeAgentToolsCommand(
     };
   }
 
+  // The gateway answers {ok, command, tier, result: <payload>}; callers
+  // consume the command payload directly, so unwrap the envelope.
+  const result = body.result;
+  const data =
+    result && typeof result === "object" && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : body;
+
   return {
     ok: true,
     status: res.status,
-    data: body,
+    data,
     error: null,
     sourceApi: AGENT_TOOLS_SOURCE,
   };

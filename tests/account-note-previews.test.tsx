@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AccountNotePreviews } from "@/app/all-accounts/AccountNotePreviews";
+import fs from "fs";
+import path from "path";
+import {
+  AccountNotePreviews,
+  compactNoteSummary,
+} from "@/app/all-accounts/AccountNotePreviews";
 import type { BookOrderListItem } from "@/lib/db";
 import {
   pickLatestServiceNote,
@@ -81,7 +86,7 @@ describe("pickLatestServiceNote", () => {
           body: "Older note",
           author: "Ada",
           createdAt: "2026-08-14T12:00:00.000Z",
-          noteCount: 2,
+          noteCount: 3,
         },
       }),
       order({
@@ -92,7 +97,7 @@ describe("pickLatestServiceNote", () => {
           body: "Out for signature",
           author: "Ether Hammemi",
           createdAt: "2026-08-15T04:00:49.170Z",
-          noteCount: 1,
+          noteCount: 3,
         },
       }),
     ]);
@@ -115,7 +120,7 @@ describe("pickLatestServiceNote", () => {
           body: "First",
           author: "A",
           createdAt: "2026-08-15T04:00:00.000Z",
-          noteCount: 1,
+          noteCount: 2,
         },
       }),
       order({
@@ -126,7 +131,7 @@ describe("pickLatestServiceNote", () => {
           body: "Second",
           author: "B",
           createdAt: "2026-08-15T04:00:00.000Z",
-          noteCount: 1,
+          noteCount: 2,
         },
       }),
     ]);
@@ -189,12 +194,23 @@ describe("note preview bodies", () => {
     expect(producerNotePreviewBody(" Endorsement  - ")).toBe("Endorsement -");
     expect(producerNotePreviewBody("\n")).toBe("Empty producer note");
   });
+
+  it("compacts a multi-note AI summary without rewriting a single note", () => {
+    const summary =
+      "**Summary:** The client requested an urgent reinstatement and the service team confirmed that the documents were received. Underwriting review remains pending while the team follows up.";
+    const compact = compactNoteSummary(summary, 90);
+
+    expect(compact).not.toContain("**");
+    expect(compact.length).toBeLessThanOrEqual(91);
+    expect(compact.endsWith("…")).toBe(true);
+  });
 });
 
 describe("AccountNotePreviews", () => {
   it("renders Habibi-shaped service note metadata without fabricating content", () => {
     const html = renderToStaticMarkup(
       <AccountNotePreviews
+        accountId="co-1"
         orders={[
           order({
             harperOrderId: 12909,
@@ -213,12 +229,14 @@ describe("AccountNotePreviews", () => {
     expect(html).toContain("Out for signature");
     expect(html).toContain("Ether Hammemi");
     expect(html).toContain("Order #12909");
+    expect(html).toContain("note-identity--service");
     expect(html).not.toContain("Producer Note");
   });
 
   it("shows both books side by side and compacts each body", () => {
     const html = renderToStaticMarkup(
       <AccountNotePreviews
+        accountId="co-1"
         orders={[
           order({
             harperOrderId: 11311,
@@ -241,13 +259,70 @@ describe("AccountNotePreviews", () => {
     expect(html).toContain("Followed up with the Docusign team");
     expect(html).toContain("Endorsement -");
     expect(html).toContain("Robert Kijak");
+    expect(html).toContain("note-identity--producer");
+    expect(html).toContain("note-identity--service");
     expect(html).toContain("+2 earlier");
     expect(html.match(/note-preview--compact/g)).toHaveLength(2);
+  });
+
+  it("shows a shorter labeled AI summary only for a multi-note Service thread", () => {
+    const html = renderToStaticMarkup(
+      <AccountNotePreviews
+        accountId="co-1"
+        initialServiceSummary="The client needs urgent reinstatement. Documents are received and underwriting review remains pending."
+        initialServiceParticipants={["Ether Hammemi", "Garrett Gargan"]}
+        onReveal={() => {}}
+        orders={[
+          order({
+            note: {
+              id: "500",
+              body: "Latest original service note",
+              author: "Ether Hammemi",
+              createdAt: "2026-08-05T04:00:00.000Z",
+              noteCount: 3,
+            },
+          }),
+        ]}
+      />,
+    );
+
+    expect(html).toContain("AI Summary");
+    expect(html).toContain("The client needs urgent reinstatement");
+    expect(html).toContain("Ether Hammemi");
+    expect(html).toContain("Garrett Gargan");
+    expect(html).toContain("Participants:");
+    expect(html).toContain("Expand");
+    expect(html).toContain("+2 earlier");
+  });
+
+  it("ignores a seeded summary when only one Service Note is visible", () => {
+    const html = renderToStaticMarkup(
+      <AccountNotePreviews
+        accountId="co-1"
+        initialServiceSummary="This should never render."
+        orders={[
+          order({
+            note: {
+              id: "501",
+              body: "Only original service note",
+              author: "Ether Hammemi",
+              createdAt: "2026-08-05T04:00:00.000Z",
+              noteCount: 1,
+            },
+          }),
+        ]}
+      />,
+    );
+
+    expect(html).toContain("Only original service note");
+    expect(html).not.toContain("AI Summary");
+    expect(html).not.toContain("This should never render");
   });
 
   it("shows a producer note even when the account has no service note", () => {
     const html = renderToStaticMarkup(
       <AccountNotePreviews
+        accountId="co-1"
         orders={[
           order({
             harperOrderId: 777,
@@ -264,9 +339,42 @@ describe("AccountNotePreviews", () => {
     expect(html).not.toContain("note-preview--compact");
   });
 
+  it("keeps an honest visible author row when attribution is missing", () => {
+    const html = renderToStaticMarkup(
+      <AccountNotePreviews
+        accountId="co-1"
+        orders={[
+          order({
+            producerNote: "Original producer note",
+            producerNoteUpdatedAt: "2026-08-14T04:00:00.000Z",
+            producerNoteUpdatedByName: null,
+          }),
+        ]}
+      />,
+    );
+
+    expect(html).toContain("Unknown author");
+    expect(html).toContain("note-preview-author");
+  });
+
+  it("uses semantic orange/blue tokens rather than status red", () => {
+    const css = fs.readFileSync(
+      path.join(process.cwd(), "src/app/globals.css"),
+      "utf8",
+    );
+
+    expect(css).toContain("--note-producer: #d97706");
+    expect(css).toContain("--note-service: var(--info)");
+    expect(css).toContain(".note-identity--producer");
+    expect(css).toContain(".note-identity--service");
+    expect(css).not.toMatch(
+      /\.note-preview--producer\s*\{[^}]*--note-tint:\s*var\(--accent\)/,
+    );
+  });
+
   it("shows one quiet empty state when neither book has a note", () => {
     const html = renderToStaticMarkup(
-      <AccountNotePreviews orders={[order()]} />,
+      <AccountNotePreviews accountId="co-1" orders={[order()]} />,
     );
     expect(html).toContain("No service or producer note");
     expect(html.match(/note-preview--empty/g)).toHaveLength(1);

@@ -6,7 +6,14 @@ import {
   executeAgentToolsCommand,
 } from "@/lib/adapters/agent-tools";
 import { getDb } from "@/lib/db";
-import { invalidateNoteThreads } from "@/lib/note-threads.server";
+import {
+  isRefreshConfigured,
+  refreshCompanyServiceNotes,
+} from "@/lib/db/book-refresh";
+import {
+  invalidateNoteThreads,
+  localNoteThreadsReady,
+} from "@/lib/note-threads.server";
 import { getSessionOperator } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +54,34 @@ export async function GET(request: Request) {
     );
   }
 
+  // Local-first: the book refresh mirrors the full thread into SQLite, so
+  // this is an indexed local read. The Agent Tools path below survives only
+  // for the window before the first mirrored snapshot lands.
+  const db = getDb();
+  if (localNoteThreadsReady(db)) {
+    const rows = db
+      .prepare(
+        `SELECT id, body, author, created_at
+         FROM book_service_notes
+         WHERE account_id = ? AND order_id = ?
+         ORDER BY created_at DESC, CAST(id AS INTEGER) DESC
+         LIMIT 50`,
+      )
+      .all(`co-${companyId}`, Number(orderId)) as {
+      id: string;
+      body: string;
+      author: string;
+      created_at: string;
+    }[];
+    const notes = rows.map((row) => ({
+      id: String(row.id ?? ""),
+      body: String(row.body ?? ""),
+      createdAt: String(row.created_at ?? ""),
+      author: String(row.author ?? "Unknown author"),
+    }));
+    return NextResponse.json({ notes }, { headers: NO_STORE });
+  }
+
   const sql = `
     SELECT
       n.id::text AS id,
@@ -54,7 +89,7 @@ export async function GET(request: Request) {
       n.created_at::text AS created_at,
       COALESCE(
         NULLIF(TRIM(COALESCE(a.first_name, '') || ' ' || COALESCE(a.last_name, '')), ''),
-        'Harper operator'
+        'Unknown author'
       ) AS author
     FROM public.service_note_entries n
     LEFT JOIN public.internal_agents a ON a.id = n.author_internal_agent_id
@@ -92,7 +127,7 @@ export async function GET(request: Request) {
           id: String(row.id ?? ""),
           body: String(row.body ?? ""),
           createdAt: String(row.created_at ?? ""),
-          author: String(row.author ?? "Harper operator"),
+          author: String(row.author ?? "Unknown author"),
         },
       ];
     });
@@ -166,6 +201,21 @@ export async function POST(request: Request) {
       { error: receipt.summary || "The note was held; nothing changed." },
       { status: 409, headers: NO_STORE },
     );
+  }
+  // Write-through: refetch this company's notes into the SQLite mirror before
+  // responding, so the author's own note is on the very next read instead of
+  // the next refresh tick. Failure is not an error — the note is safely
+  // written upstream and the tick's digest sweep folds it in within minutes.
+  if (isRefreshConfigured()) {
+    try {
+      await refreshCompanyServiceNotes(getDb(), Number(companyId));
+    } catch (cause) {
+      console.warn("service_note_write_through_failed", {
+        companyId,
+        errorCategory:
+          cause instanceof Error ? cause.message : "note_refresh_unknown_error",
+      });
+    }
   }
   invalidateNoteThreads(Number(companyId));
   return NextResponse.json({ ok: true }, { headers: NO_STORE });

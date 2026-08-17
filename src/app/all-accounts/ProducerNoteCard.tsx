@@ -72,7 +72,7 @@ export function ProducerNoteCard({
   const { preview, needsToggle } = previewText(body);
   const relative = formatRelativeTime(updatedAt);
   const exact = formatExactTimestamp(updatedAt);
-  const author = authorName?.trim() || "Unknown producer";
+  const author = authorName?.trim() || "Unknown author";
   const showToggle = needsToggle;
 
   return (

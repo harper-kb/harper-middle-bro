@@ -9,6 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import type { OperationsStatsResponse } from "@/app/api/operations-metrics/route";
+import { CompanySearch } from "./CompanySearch";
 
 const POLL_INTERVAL_MS = 30_000;
 const STALE_AFTER_MS = 10 * 60_000;
@@ -390,7 +391,9 @@ function StatsBarContent() {
       aria-label="Operational stats"
       className="bg-[var(--paper)]/95 backdrop-blur"
     >
-      <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.5 px-3 py-1.5 sm:gap-2 sm:px-4 xl:gap-3">
+      <div className="ops-bar-row grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 px-3 py-1.5 sm:gap-2 sm:px-4 xl:gap-3">
+        <CompanySearch />
+
         <div
           className={`ops-metrics-scroll grid min-w-0 grid-cols-[minmax(14rem,1.7fr)_repeat(3,minmax(5.75rem,1fr))] items-center overflow-x-auto transition-opacity duration-150 xl:overflow-visible ${
             switching && data != null ? "opacity-55" : "opacity-100"

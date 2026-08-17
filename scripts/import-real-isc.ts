@@ -33,8 +33,8 @@ import {
   classifyScope,
   iscParseAttachable,
   parseIscDec,
-} from "../src/lib/isc-intake";
-import type { IscParseResult } from "../src/lib/isc-intake";
+} from "../src/lib/intake/isc-intake";
+import type { IscParseResult } from "../src/lib/intake/isc-intake";
 import { attachIscSchedule, fileDocument } from "../src/lib/policy-intelligence";
 import type { DocumentKind } from "../src/lib/documents";
 

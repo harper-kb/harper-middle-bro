@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "dev-clerk-stub.tsx",
+    "dev-clerk-server-stub.ts",
+    "test/stubs/server-only.ts",
+    "scripts/server-only-stub.ts",
+    "scripts/**/*.{ts,tsx,mjs}"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,tsx,mjs}", "test/**/*.ts", "*.{ts,tsx}"],
+  "ignoreDependencies": ["tailwindcss", "postcss"],
+  "ignoreBinaries": ["railway"],
+  "rules": {
+    "exports": "off",
+    "types": "off",
+    "enumMembers": "off",
+    "classMembers": "off",
+    "duplicates": "off"
+  }
+}

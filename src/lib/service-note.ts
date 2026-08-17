@@ -14,9 +14,9 @@ export type BookOrderServiceNote = {
   /** Authoritative `created_at` ISO. */
   createdAt: string;
   /**
-   * Visible (non-deleted) entries on this order, including the latest. Used so
-   * an account spanning several orders can show `+N earlier` without a
-   * second round-trip.
+   * Visible (non-deleted) entries in this account-wide Service Note thread,
+   * including the latest. Repeated on each order's latest-note snapshot so a
+   * collapsed account can gate summaries without fetching single-note threads.
    */
   noteCount: number;
 };
@@ -29,6 +29,54 @@ export type AccountServiceNotePreview = {
   orderId: number;
   earlierCount: number;
 };
+
+/**
+ * One full Service Note thread entry, mirrored locally so the expanded thread
+ * reads SQLite instead of a live Management API query per interaction.
+ * Account-scoped (the thread spans every order on the company), each entry
+ * keeping its order anchor. Author resolved to a display name at sync time —
+ * a directory rename is picked up by the periodic full reconcile, same as
+ * carrier and producer names.
+ */
+export type BookServiceNoteEntry = {
+  /** Stable `service_note_entries.id` as text. */
+  id: string;
+  /** Book account id (`co-<companyId>`). */
+  accountId: string;
+  /** Harper `orders_temp.id` the entry is anchored to. */
+  orderId: number;
+  body: string;
+  author: string;
+  /** Authoritative `created_at` ISO. */
+  createdAt: string;
+};
+
+export function parseBookServiceNoteEntry(
+  value: unknown,
+): BookServiceNoteEntry | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id.trim() : "";
+  const accountId =
+    typeof row.accountId === "string" ? row.accountId.trim() : "";
+  const orderId = Number(row.orderId);
+  const createdAt =
+    typeof row.createdAt === "string" ? row.createdAt.trim() : "";
+  if (!id || !accountId || !Number.isSafeInteger(orderId) || !createdAt) {
+    return null;
+  }
+  return {
+    id,
+    accountId,
+    orderId,
+    body: typeof row.body === "string" ? row.body : "",
+    author:
+      typeof row.author === "string" && row.author.trim()
+        ? row.author.trim()
+        : "Unknown author",
+    createdAt,
+  };
+}
 
 type OrderWithServiceNote = {
   harperOrderId: number;
@@ -66,7 +114,9 @@ export function pickLatestServiceNote(
   for (const order of orders) {
     const note = order.rich.serviceNote;
     if (!note) continue;
-    totalNotes += Math.max(1, note.noteCount);
+    // Current snapshots repeat the account-wide visible count on each order.
+    // `max` avoids multiplying that count on accounts with several orders.
+    totalNotes = Math.max(totalNotes, Math.max(1, note.noteCount));
     candidates.push({ ...note, orderId: order.harperOrderId });
   }
   if (candidates.length === 0) return null;
@@ -108,7 +158,7 @@ export function parseBookOrderServiceNote(
     author:
       typeof row.author === "string" && row.author.trim()
         ? row.author.trim()
-        : "Harper operator",
+        : "Unknown author",
     createdAt,
     noteCount,
   };

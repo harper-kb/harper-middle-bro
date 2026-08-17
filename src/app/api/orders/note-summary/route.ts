@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { loadNoteThreads } from "@/lib/note-threads.server";
 import { summarizeNoteThread } from "@/lib/note-summary.server";
 import type { NoteThreadType } from "@/lib/note-thread-types";
+import { visibleNoteParticipants } from "@/lib/note-attribution";
 import { getSessionOperator } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -59,13 +60,24 @@ export async function POST(request: Request) {
   }
 
   try {
-    const threads = await loadNoteThreads({ companyId, orderId });
+    const threads = await loadNoteThreads({
+      companyId,
+      orderId,
+      visibilityScope: `operator:${operator.id}`,
+    });
+    const thread = threads[threadType];
     const summary = await summarizeNoteThread({
       companyId,
       orderId,
-      thread: threads[threadType],
+      thread,
     });
-    return NextResponse.json(summary, { headers: NO_STORE });
+    return NextResponse.json(
+      {
+        ...summary,
+        participants: visibleNoteParticipants(thread.entries),
+      },
+      { headers: NO_STORE },
+    );
   } catch {
     return NextResponse.json(
       {

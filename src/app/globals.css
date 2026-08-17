@@ -37,6 +37,46 @@
   --warning-soft: rgba(154, 107, 19, 0.12);
   --info: #356b86;
   --info-soft: rgba(53, 107, 134, 0.12);
+  /* Notes are operational content, not statuses. Producer stays distinctly
+     orange (never Lost/error red); Service stays on the desk's blue axis. */
+  --note-producer: #d97706;
+  --note-service: var(--info);
+
+  /* Shared Step Bro easing. Every expand/collapse, soft-focus and pin
+     transition rides this one curve. */
+  --acct-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* ——— Desk masthead grid ———
+     The sidebar and the top bar are two columns of one masthead. Rather than
+     deriving each column's lines separately and hoping they meet, both are the
+     same box: one height, content centred, a shared rule as the bottom border.
+     That makes the axis and the T-intersection true by construction instead of
+     by arithmetic that drifts the moment a font metric changes.
+
+     The height is bounded from below by the top bar's tallest control (the
+     34px date picker), so this is close to as short as the masthead can go. */
+  --desk-gutter: 0.75rem;
+  --desk-masthead-h: 2.875rem;
+  --desk-mobile-topbar-h: 6.4rem;
+  /* The top navigation owns this token at runtime. These CSS values are the
+     no-JS/first-paint fallback; TopNavHeightSync publishes the measured
+     border-box height and exact viewport bottom, preserving fractional pixels. */
+  --top-nav-offset: 0px;
+  --top-nav-height: var(--desk-masthead-h);
+  /* Local page chrome stays below modal/drawer layers (50/100/110/200) while
+     sitting above row tooltips and filter menus (40). */
+  --z-records-context: 45;
+  --z-desk-top-nav: 46;
+  --z-records-filter-backdrop: 55;
+  --z-records-filter-control: 60;
+
+  /* ——— Broker source identity ———
+     Parallel to the IQ identity, which reads off --info. A desaturated indigo
+     violet: far enough from --info (teal blue), --accent (coral), --warning and
+     --danger that source never reads as a status. Deliberately not the Tailwind
+     violet that PaymentHistory uses for refunds — that is a payment concept and
+     keeps its own scale. */
+  --broker: #5c4bb0;
 
   /* Legacy aliases remain so the existing application inherits the semantic
      theme without a second styling system. */
@@ -49,6 +89,59 @@
   --sand: var(--surface-subtle);
   --rule: var(--border);
   color-scheme: light;
+}
+
+/* Derived Broker roles. Declared once: every value is a color-mix over
+   --broker and the surface tokens, so the dark-mode override of --broker below
+   re-derives the whole set without a second block. */
+:root {
+  --broker-ink: var(--broker);
+  --broker-icon: var(--broker);
+  --broker-surface: color-mix(in srgb, var(--broker) 12%, transparent);
+  --broker-border: color-mix(in srgb, var(--broker) 34%, transparent);
+  --broker-hover: color-mix(in srgb, var(--broker) 20%, var(--surface-raised));
+  --broker-selected: color-mix(in srgb, var(--broker) 15%, var(--surface-raised));
+  --broker-focus: var(--broker);
+  --note-producer-ink: color-mix(
+    in srgb,
+    var(--note-producer) 68%,
+    var(--foreground)
+  );
+  --note-producer-border: color-mix(
+    in srgb,
+    var(--note-producer) 34%,
+    var(--border)
+  );
+  --note-producer-surface: color-mix(
+    in srgb,
+    var(--note-producer) 8%,
+    var(--surface-raised)
+  );
+  --note-producer-hover: color-mix(
+    in srgb,
+    var(--note-producer) 13%,
+    var(--surface-raised)
+  );
+  --note-service-ink: color-mix(
+    in srgb,
+    var(--note-service) 72%,
+    var(--foreground)
+  );
+  --note-service-border: color-mix(
+    in srgb,
+    var(--note-service) 34%,
+    var(--border)
+  );
+  --note-service-surface: color-mix(
+    in srgb,
+    var(--note-service) 8%,
+    var(--surface-raised)
+  );
+  --note-service-hover: color-mix(
+    in srgb,
+    var(--note-service) 13%,
+    var(--surface-raised)
+  );
 }
 
 :root[data-theme="dark"] {
@@ -80,6 +173,9 @@
   --warning-soft: rgba(230, 189, 107, 0.13);
   --info: #8fc4df;
   --info-soft: rgba(143, 196, 223, 0.13);
+  --note-producer: #f2a65a;
+  /* Lifted well clear of the dark surfaces; the derived Broker roles follow. */
+  --broker: #b7abe8;
   --gold: #c9a46c;
   --coral: #ff8178;
   color-scheme: dark;
@@ -256,7 +352,15 @@ textarea {
   transition: opacity 0.15s ease;
 }
 
-.filter-toolbar[aria-busy="true"] {
+/* Busy feedback dims the controls, never the toolbar container: opacity on
+   the container creates a stacking context that traps the open pipeline
+   popover, letting the KPI numbers repainting behind it draw over the menu
+   for the length of the transition. Scoping to the controls keeps the open
+   popover crisp and always on top while the numbers update. */
+.filter-toolbar[aria-busy="true"] .filter-group-label,
+.filter-toolbar[aria-busy="true"] .seg,
+.filter-toolbar[aria-busy="true"] .filter-select,
+.filter-toolbar[aria-busy="true"] .filter-clear {
   opacity: 0.7;
 }
 
@@ -339,8 +443,26 @@ textarea {
 }
 
 .seg-option--broker[aria-checked="true"] {
-  background: var(--surface-hover);
-  color: var(--foreground);
+  background: var(--broker-selected);
+  color: var(--broker-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--broker) 45%, transparent);
+}
+
+.seg-option--broker[aria-checked="false"]:hover {
+  background: var(--broker-hover);
+  color: var(--broker-ink);
+}
+
+.seg-option--broker:focus-visible {
+  outline-color: var(--broker-focus);
+}
+
+/* Unselected segments stay in the control's neutral voice — an always-tinted
+   icon would read as already selected. */
+.seg-option-icon {
+  width: 0.6875rem;
+  height: 0.6875rem;
+  flex: none;
 }
 
 .seg-option--accent[aria-checked="true"] {
@@ -396,13 +518,65 @@ textarea {
   outline-offset: 1px;
 }
 
-/* IQ Stage multi-select — compact popover, not a segmented control. */
-.iq-stage-select {
+/* Pipeline multi-select (IQ Stage / Broker Gate) — compact popover, not a
+   segmented control. The accent variant tints only the trigger icon, the
+   focus ring, the checkboxes and the option codes; selection itself is
+   carried by the checkboxes and the trigger count, never by the tint alone. */
+.pipeline-select {
   position: relative;
   min-width: 9.5rem;
 }
 
-.iq-stage-trigger {
+.records-filter-control--open {
+  z-index: var(--z-records-filter-control);
+}
+
+.records-filter-focus-backdrop {
+  z-index: var(--z-records-filter-backdrop);
+  border: 0;
+  background: color-mix(in srgb, var(--overlay) 13%, transparent);
+  -webkit-backdrop-filter: blur(3px) saturate(0.95);
+  backdrop-filter: blur(3px) saturate(0.95);
+  touch-action: none;
+  animation: records-filter-focus-in 170ms var(--acct-ease) both;
+}
+
+@keyframes records-filter-focus-in {
+  from {
+    opacity: 0;
+    -webkit-backdrop-filter: blur(0) saturate(1);
+    backdrop-filter: blur(0) saturate(1);
+  }
+  to {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(3px) saturate(0.95);
+    backdrop-filter: blur(3px) saturate(0.95);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .records-filter-focus-backdrop {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .records-filter-focus-backdrop {
+    background: color-mix(in srgb, var(--overlay) 24%, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+.pipeline-select--iq {
+  --pipeline-accent: var(--info);
+}
+
+.pipeline-select--broker {
+  --pipeline-accent: var(--broker);
+}
+
+.pipeline-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
@@ -413,25 +587,33 @@ textarea {
   text-align: left;
 }
 
-.iq-stage-trigger:focus-visible {
-  outline: 2px solid var(--accent);
+.pipeline-trigger:focus-visible {
+  outline: 2px solid var(--pipeline-accent, var(--accent));
   outline-offset: 1px;
 }
 
-.iq-stage-trigger-label {
+.pipeline-trigger-icon {
+  width: 0.6875rem;
+  height: 0.6875rem;
+  flex: none;
+  color: var(--pipeline-accent, var(--muted));
+}
+
+.pipeline-trigger-label {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.iq-stage-chevron {
+.pipeline-chevron {
   width: 0.75rem;
   height: 0.75rem;
   flex: none;
   color: var(--muted);
 }
 
-.iq-stage-popover {
+.pipeline-popover {
   position: absolute;
   top: calc(100% + 0.25rem);
   left: 0;
@@ -446,21 +628,21 @@ textarea {
   box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow-color) 28%, transparent);
 }
 
-.iq-stage-popover-actions {
+.pipeline-popover-actions {
   display: flex;
   gap: 0.25rem;
   padding: 0.375rem 0.375rem 0;
   border-bottom: 1px solid var(--rule);
 }
 
-.iq-stage-popover-list {
+.pipeline-popover-list {
   margin: 0;
   padding: 0.375rem;
   overflow-y: auto;
   list-style: none;
 }
 
-.iq-stage-option {
+.pipeline-option {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
@@ -473,51 +655,955 @@ textarea {
   cursor: pointer;
 }
 
-.iq-stage-option:hover {
+.pipeline-option:hover {
   background: var(--surface-hover);
 }
 
-.iq-stage-option input {
+.pipeline-option input {
   margin-top: 0.15rem;
   flex: none;
-  accent-color: var(--info);
+  accent-color: var(--pipeline-accent, var(--info));
+}
+
+/* Gate codes read as the primary token; the milestone label sits beside. */
+.pipeline-option-code {
+  flex: none;
+  min-width: 1.6rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--pipeline-accent, var(--foreground));
+}
+
+/* ——— Carrier filter (search row, all four Accounts views) ———
+   Same popover language as the pipeline selects, keyed to the neutral desk
+   accent. The control sits at the far right of the search row, so the
+   popover anchors right instead of left and never overflows the viewport. */
+.pipeline-select--carrier {
+  --pipeline-accent: var(--accent);
+}
+
+/* Carrier and State & Sort sit together at the far right of the search row;
+   the row's own layout (flex + ml-auto group) positions them, so the
+   controls themselves carry no margins. */
+
+.carrier-trigger {
+  min-width: 11rem;
+  max-width: 17rem;
+}
+
+/* One-line triggers: a long selection summary truncates (the full list
+   lives in the title tooltip) instead of growing the control taller. */
+.carrier-trigger .pipeline-trigger-label,
+.state-dropdown-trigger .pipeline-trigger-label {
+  white-space: nowrap;
+}
+
+/* Restrained active treatment — a filter that is on, not a CTA. */
+.carrier-trigger--active {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--rule));
+  background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface-raised));
+  color: var(--accent-ink);
+}
+
+.carrier-trigger-spinner {
+  width: 0.65rem;
+  height: 0.65rem;
+  flex: none;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--border-strong) 45%, transparent);
+  border-top-color: var(--accent);
+  animation: carrier-spin 0.8s linear infinite;
+}
+
+@keyframes carrier-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carrier-trigger-spinner {
+    display: none;
+  }
+}
+
+.carrier-popover {
+  left: auto;
+  right: 0;
+  width: min(21rem, calc(100vw - 2rem));
+  max-height: min(24rem, 70vh);
+}
+
+.carrier-popover[aria-busy="true"] .carrier-popover-list {
+  opacity: 0.7;
+}
+
+.carrier-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem 0.25rem;
+}
+
+.carrier-popover-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.carrier-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0.625rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  padding: 0.3rem 0.5rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.carrier-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--rule));
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.carrier-search-input {
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+  font-size: 0.75rem;
+  color: var(--ink);
+}
+
+.carrier-search-input::placeholder {
+  color: var(--muted);
+}
+
+/* Same arrangement as the Accounts search: the shell around the field owns
+   the accent ring, so the field itself must not draw a second one inside. */
+.carrier-search-input:focus,
+.carrier-search-input:focus-visible {
+  outline: none;
+}
+
+.carrier-popover-list {
+  border-top: 1px solid var(--rule);
+}
+
+.carrier-group-label {
+  padding: 0.375rem 0.4rem 0.125rem;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.carrier-option {
+  align-items: center;
+}
+
+.carrier-option-name {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.carrier-option-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.6875rem;
+  color: var(--muted);
+}
+
+/* Selection that no longer matches under the current filters: kept, named,
+   and explicitly marked — the word carries the state, not a tint. */
+.carrier-option--unavailable .carrier-option-name {
+  color: var(--muted);
+}
+
+.carrier-option-note {
+  flex: none;
+  border: 1px solid var(--rule);
+  border-radius: 9999px;
+  padding: 0 0.375rem;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  line-height: 1rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.carrier-popover-empty {
+  padding: 0.75rem 0.625rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* ——— State & Sort (second control beside Carrier) ———
+   Shares the carrier popover language. The state picker is a dropdown
+   selection inside the popover: a select-style field that drops down the
+   searchable menu, so the sort groups below stay in view. */
+.state-sort-popover {
+  width: min(19rem, calc(100vw - 2rem));
+  max-height: min(30rem, 80vh);
+}
+
+.state-dropdown-trigger {
+  margin: 0 0.625rem 0.5rem;
+  width: calc(100% - 1.25rem);
+  flex: none;
+}
+
+.state-dropdown-chevron--open {
+  transform: rotate(180deg);
+}
+
+.state-dropdown-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.25rem;
+}
+
+.state-sort-state-list {
+  min-height: 0;
+  max-height: 11rem;
+  border-top: 1px solid var(--rule);
+}
+
+.state-sort-sort {
+  flex: none;
+  padding: 0.125rem 0 0.25rem;
+}
+
+.state-sort-sort .carrier-popover-label {
+  display: block;
+  padding: 0.125rem 0.625rem 0.25rem;
+}
+
+.state-sort-radios {
+  padding: 0 0.375rem 0.25rem;
+}
+
+.state-sort-radio {
+  align-items: center;
+}
+
+.state-sort-radio input {
+  margin-top: 0;
 }
 
 /* ——— Collapsed account-row summary ———
    A compact read-before-opening layer. The open row uses a restrained orange
    surface and inset rail rather than a heavy card or shadow. */
 .account-list-row {
+  /* One choreography, four tracks. The phase machine in
+     use-account-row-transition.ts holds the row in `expanding`/`collapsing`
+     for exactly as long as the slowest track below, then unmounts whichever
+     note surface no longer belongs to the resting state. */
+  --acct-preview-fade-dur: 140ms;
+  --acct-preview-fade-delay: 0ms;
+  --acct-note-geometry-dur: 200ms;
+  --acct-note-geometry-delay: 40ms;
+  --acct-panel-dur: 240ms;
+  --acct-panel-delay: 40ms;
   position: relative;
-  transition: background-color 0.16s ease, box-shadow 0.16s ease;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease,
+    filter 160ms var(--acct-ease);
+}
+
+/* Closing reverses the hierarchy: the inside cards go first, the outside
+   previews arrive last so the two never read as duplicates. */
+.account-list-row--collapsing {
+  --acct-preview-fade-dur: 160ms;
+  --acct-preview-fade-delay: 120ms;
+  --acct-note-geometry-delay: 60ms;
+  --acct-panel-dur: 220ms;
 }
 
 .account-list-row--open {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-.account-list-row-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(12rem, 22rem) auto;
-  align-items: center;
-  gap: 0.75rem 1rem;
-  padding: 0.75rem 1rem;
-  transition: background-color 0.16s ease;
+/* ——— Focus mode ———
+   While an account is open its siblings soften just enough to fall back a
+   layer. Deliberately under the threshold where text stops being readable:
+   the operator has to be able to scan the softened rows and pick the next one,
+   so this is emphasis, never a disabled or overlaid state. */
+/* Sharpness and a touch of desaturation carry the whole effect; opacity is
+   deliberately left at 1. Muted metadata already sits at 4.47:1 in light mode,
+   so any dimming here would drop real text below AA to buy emphasis that blur
+   provides for free. Measured at 1x and 2x — 0.7px is the point where the row
+   visibly recedes and every word is still readable.
+
+   Scoped to `--collapsed` rather than the whole softened set: a row still
+   animating shut keeps its order panel mounted, and a filter on the row would
+   become the containing block for the fixed-position note drawer inside it. */
+.account-list-row--collapsed.account-list-row--deemphasized {
+  filter: blur(0.7px) saturate(0.9);
 }
 
-.account-list-row-note {
+/* Reading or reaching for a softened row clears it immediately — hovering and
+   tabbing must never be a commitment to expand. */
+.account-list-row--deemphasized:hover,
+.account-list-row--deemphasized:focus-within {
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-list-row {
+    transition-duration: 1ms;
+  }
+}
+
+/* Blur is the wrong tool when the reader has asked for crisper output. Trade it
+   for a restrained desaturation, and drop even that at higher contrast, where
+   the expanded row's own surface and accent rail carry the hierarchy alone. */
+@media (prefers-reduced-transparency: reduce) {
+  .account-list-row--collapsed.account-list-row--deemphasized {
+    filter: saturate(0.75);
+  }
+}
+
+@media (prefers-contrast: more) {
+  .account-list-row--collapsed.account-list-row--deemphasized {
+    filter: none;
+  }
+}
+
+/* ——— Records sticky context bar ———
+   The document is the Records scrollport. The panel therefore clips with
+   `overflow: clip`, not `hidden`: hidden would create a local scroll container
+   and make the header scroll away inside a non-scrolling box. */
+.account-results {
+  --account-header-surface: color-mix(
+    in srgb,
+    var(--sand) 62%,
+    var(--surface-raised)
+  );
+  --account-header-surface-pinned: color-mix(
+    in srgb,
+    var(--sand) 88%,
+    var(--surface-raised)
+  );
+}
+
+/* Dark surfaces need a bigger numeric step than light ones to read as a
+   separate plane at all. */
+:root[data-theme="dark"] .account-results {
+  --account-header-surface: color-mix(
+    in srgb,
+    var(--surface-subtle) 85%,
+    var(--surface-raised)
+  );
+  --account-header-surface-pinned: var(--surface-hover);
+}
+
+.account-results-header {
+  position: sticky;
+  top: var(
+    --top-nav-bottom,
+    calc(var(--top-nav-offset) + var(--top-nav-height))
+  );
+  /* Under the desk nav and modal layers; over the scrolling account rows. */
+  z-index: var(--z-records-context);
+  min-height: 3.25rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--account-header-surface);
+  color: var(--muted);
+  container-name: records-context;
+  container-type: inline-size;
+  isolation: isolate;
+  transition:
+    background-color 190ms var(--acct-ease),
+    box-shadow 190ms var(--acct-ease),
+    border-color 190ms var(--acct-ease);
+}
+
+.account-results-header--pinned {
+  background: var(--account-header-surface-pinned);
+  border-bottom-color: var(--border-strong);
+  box-shadow: 0 4px 10px -6px var(--shadow-color),
+    0 12px 24px -14px var(--shadow-color);
+}
+
+.records-context-layout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "identity filters close pagination";
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-height: 3.25rem;
+  padding: 0.45rem 0.75rem;
+}
+
+.records-context-identity {
+  grid-area: identity;
+  display: flex;
   min-width: 0;
+  align-items: baseline;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.records-view-indicator {
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: none;
+  align-self: center;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.records-view-indicator--pending {
+  background: var(--warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 14%, transparent);
+}
+
+.records-view-indicator--bound {
+  background: var(--success);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.records-view-indicator--lost {
+  background: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.records-view-title {
+  overflow: hidden;
+  max-width: 12rem;
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+
+.records-context-separator {
+  color: var(--border-strong);
+}
+
+.records-context-count {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.records-context-count strong {
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.records-filter-summary {
+  grid-area: filters;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.35rem;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(0.2rem);
+  transition:
+    opacity 190ms var(--acct-ease),
+    transform 190ms var(--acct-ease),
+    visibility 0s linear 190ms;
+}
+
+.account-results-header--pinned .records-filter-summary {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.records-filter-chips {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.records-filter-chip,
+.records-filter-overflow {
+  display: inline-flex;
+  min-width: 0;
+  flex: none;
+  align-items: center;
+  border: 1px solid var(--rule);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--surface-raised) 76%, var(--sand));
+  color: var(--foreground);
+  font-size: 0.675rem;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.records-filter-chip {
+  max-width: 9.5rem;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.records-filter-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.records-filter-chip--iq {
+  border-color: color-mix(in srgb, var(--info) 38%, var(--rule));
+  background: color-mix(in srgb, var(--info-soft) 74%, var(--surface-raised));
+  color: color-mix(in srgb, var(--info) 72%, var(--foreground));
+}
+
+.records-filter-chip--broker {
+  border-color: var(--broker-border);
+  background: var(--broker-surface);
+  color: var(--broker-ink);
+}
+
+.records-filter-overflow {
+  min-height: 2.25rem;
+  padding: 0.3rem 0.55rem;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.records-filter-overflow:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.records-filter-overflow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.records-filter-overflow--medium,
+.records-filter-overflow--narrow {
+  display: none;
+}
+
+.records-filter-popover {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 2;
+  width: min(24rem, calc(100vw - 2rem));
+  max-height: min(
+    22rem,
+    calc(100vh - var(--top-nav-offset) - var(--top-nav-height) - 5rem)
+  );
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.75rem;
+  background: var(--surface-raised);
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--shadow-color) 70%, transparent);
+  color: var(--foreground);
+}
+
+.records-filter-popover-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-raised);
+  padding: 0.65rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.records-filter-popover-list {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+}
+
+.records-filter-popover-list li {
+  display: grid;
+  grid-template-columns: 0.45rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.55rem;
+  border-radius: 0.55rem;
+  padding: 0.5rem;
+}
+
+.records-filter-popover-mark {
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-top: 0.3rem;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.records-filter-popover-mark--iq {
+  background: var(--info);
+}
+
+.records-filter-popover-mark--broker {
+  background: var(--broker);
+}
+
+.records-filter-popover-category,
+.records-filter-popover-detail {
+  display: block;
+}
+
+.records-filter-popover-category {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.records-filter-popover-detail {
+  margin-top: 0.1rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+}
+
+/* Hairline probe directly above the header. Its negative margin keeps the
+   observer from adding even one pixel to document flow. */
+.account-results-sentinel {
+  height: 1px;
+  margin-bottom: -1px;
+}
+
+.records-close-slot {
+  grid-area: close;
+  display: flex;
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.close-all-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2.25rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.5rem;
+  background: var(--surface-raised);
+  padding: 0.3rem 0.55rem;
+  font-size: 0.6875rem;
+  line-height: 1;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--foreground);
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, transform 0.1s ease;
+}
+
+.close-all-button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.close-all-button:active {
+  transform: translateY(0.5px);
+}
+
+.close-all-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.close-all-icon {
+  width: 0.6875rem;
+  height: 0.6875rem;
+  flex: none;
+  color: var(--muted);
+}
+
+.close-all-button:hover .close-all-icon {
+  color: var(--foreground);
+}
+
+.close-all-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.account-pagination--top {
+  grid-area: pagination;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.account-pagination-button {
+  display: inline-flex;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.account-pagination-page {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-results-header,
+  .records-filter-summary,
+  .records-filter-overflow,
+  .close-all-button {
+    transition: none;
+  }
+
+  .close-all-button:active {
+    transform: none;
+  }
+}
+
+@container records-context (max-width: 66rem) {
+  .records-filter-chips .records-filter-chip:nth-child(n + 4) {
+    display: none;
+  }
+
+  .records-filter-overflow--wide {
+    display: none;
+  }
+
+  .records-filter-overflow--medium {
+    display: inline-flex;
+  }
+}
+
+@container records-context (max-width: 54rem) {
+  .records-context-layout {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "identity pagination"
+      "filters close";
+    gap: 0.35rem 0.65rem;
+    min-height: 5.35rem;
+    padding-block: 0.4rem;
+  }
+
+  .records-close-slot {
+    min-width: 2.25rem;
+  }
+
+  .records-filter-popover {
+    top: calc(100% + 0.25rem);
+  }
+}
+
+@container records-context (max-width: 38rem) {
+  .records-filter-chips .records-filter-chip:nth-child(n + 2) {
+    display: none;
+  }
+
+  .records-filter-overflow--medium {
+    display: none;
+  }
+
+  .records-filter-overflow--narrow {
+    display: inline-flex;
+  }
+
+  .close-all-label,
+  .close-all-count {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .close-all-button {
+    width: 2.25rem;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .account-pagination-word,
+  .account-pagination-page-word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .account-pagination--top {
+    gap: 0.3rem;
+  }
+
+  .account-pagination-button {
+    padding-inline: 0.4rem;
+  }
+
+  .records-view-title {
+    max-width: 8rem;
+  }
+}
+
+@container records-context (max-width: 30rem) {
+  .records-view-title {
+    max-width: 7.5rem;
+  }
+
+  .records-context-count-noun {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .account-pagination--top {
+    gap: 0.2rem;
+  }
+}
+
+@container records-context (max-width: 22rem) {
+  .records-view-title {
+    max-width: 6.25rem;
+  }
+}
+
+.account-list-row-header {
+  display: grid;
+  /* Every track is a length or an fr so the template stays interpolable. */
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 22rem) 2.25rem;
+  align-items: center;
+  column-gap: 1rem;
+  row-gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  transition: background-color 0.16s ease,
+    grid-template-columns var(--acct-note-geometry-dur) var(--acct-ease)
+      var(--acct-note-geometry-delay),
+    row-gap var(--acct-note-geometry-dur) var(--acct-ease)
+      var(--acct-note-geometry-delay);
 }
 
 .account-list-row-header .account-expand-button {
+  grid-column: 3;
   justify-self: end;
 }
 
-@media (max-width: 900px) {
-  .account-list-row-header {
-    grid-template-columns: minmax(0, 1fr) auto;
+/* ——— Outside preview slot ———
+   The slot owns both the fade and the geometry so the header never keeps an
+   empty note column once the account is open. */
+.account-note-slot {
+  display: grid;
+  /* minmax(0, 1fr) rather than an implicit auto track: the nowrap author/order
+     line must never push its own min-content back into the header. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 1fr;
+  min-width: 0;
+  transition: grid-template-rows var(--acct-note-geometry-dur) var(--acct-ease)
+    var(--acct-note-geometry-delay);
+}
+
+.account-note-slot-inner {
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  transition: opacity var(--acct-preview-fade-dur) var(--acct-ease)
+      var(--acct-preview-fade-delay),
+    transform var(--acct-preview-fade-dur) var(--acct-ease)
+      var(--acct-preview-fade-delay);
+}
+
+.account-list-row--expanding .account-note-slot,
+.account-list-row--expanded .account-note-slot {
+  grid-template-rows: 0fr;
+}
+
+.account-list-row--expanding .account-note-slot-inner,
+.account-list-row--expanded .account-note-slot-inner {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+/* Clip only mid-flight. A resting row must not cut off a preview focus ring. */
+.account-list-row--expanding .account-note-slot,
+.account-list-row--collapsing .account-note-slot,
+.account-list-row--expanded .account-note-slot {
+  overflow: hidden;
+}
+
+@media (min-width: 901px) {
+  /* Above this breakpoint the note track always resolves to its 22rem max, so
+     pinning the inner width keeps the previews from re-wrapping — and growing
+     the header — while the track animates down to zero. */
+  .account-note-slot {
+    justify-items: end;
   }
 
-  .account-list-row-note {
+  .account-note-slot-inner {
+    width: 22rem;
+  }
+
+  .account-list-row-header--open {
+    grid-template-columns: minmax(0, 1fr) minmax(0rem, 0rem) 2.25rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .account-list-row-header,
+  .account-list-row-header--open {
+    grid-template-columns: minmax(0, 1fr) 2.25rem;
+  }
+
+  .account-list-row-header--open {
+    row-gap: 0rem;
+  }
+
+  .account-note-slot {
     grid-column: 1 / -1;
     order: 3;
   }
@@ -529,37 +1615,55 @@ textarea {
   }
 }
 
-/* ——— Collapsed note previews (Service + Producer) ———
-   Two restrained tinted cards: Service Note in blue, Producer Note on the
-   Harper accent. Each pairs its tint with a distinct icon shape and an explicit
-   label, so neither reads as the IQ source badge (--info) or as the other book.
-   Not BigBrother's dark panel. */
+/* ——— Shared note identities + collapsed previews ———
+   The same semantic variables flow through collapsed previews, expanded
+   cards, drawers and actions. Producer is operational orange—not Lost/error
+   red. Service is the desk's blue. Labels and distinct icons do the naming. */
+.note-identity--producer,
+.note-preview--producer {
+  --note-tint: var(--note-producer);
+  --note-ink: var(--note-producer-ink);
+  --note-border: var(--note-producer-border);
+  --note-surface: var(--note-producer-surface);
+  --note-hover: var(--note-producer-hover);
+}
+
+.note-identity--service,
+.note-preview--service {
+  --note-tint: var(--note-service);
+  --note-ink: var(--note-service-ink);
+  --note-border: var(--note-service-border);
+  --note-surface: var(--note-service-surface);
+  --note-hover: var(--note-service-hover);
+}
+
 .note-preview-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.45rem;
   width: 100%;
   max-width: 22rem;
   margin-left: auto;
 }
 
 .note-preview {
-  --note-tint: #3b82f6;
   --note-clamp: 2;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.25rem;
   width: 100%;
-  padding: 0.45rem 0.65rem;
-  border-radius: 0.55rem;
-  border: 1px solid color-mix(in srgb, var(--note-tint) 28%, var(--rule));
-  background: color-mix(in srgb, var(--note-tint) 8%, var(--surface-raised));
+  padding: 0.55rem 0.7rem 0.6rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--note-border, var(--rule));
+  border-top: 2px solid var(--note-tint, var(--rule));
+  background: color-mix(
+    in srgb,
+    var(--note-surface, var(--surface-raised)) 58%,
+    var(--surface-raised)
+  );
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow-color) 32%, transparent);
   text-align: left;
   color: var(--ink);
-}
-
-.note-preview--producer {
-  --note-tint: var(--accent);
 }
 
 .note-preview--compact {
@@ -568,26 +1672,36 @@ textarea {
 
 .note-preview--empty {
   border-color: var(--rule);
+  border-top-color: var(--rule);
   background: color-mix(in srgb, var(--sand) 35%, var(--surface-raised));
+  box-shadow: none;
 }
 
-.note-preview--empty .note-preview-icon,
+.note-preview--empty .note-preview-icon-wrap,
 .note-preview--empty .note-preview-label {
   color: var(--muted);
 }
 
 .note-preview--action {
   cursor: pointer;
-  transition: background-color 0.14s ease, border-color 0.14s ease;
+  transition:
+    background-color 0.14s ease,
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
 }
 
 .note-preview--action:hover {
-  border-color: color-mix(in srgb, var(--note-tint) 45%, var(--rule));
-  background: color-mix(in srgb, var(--note-tint) 12%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--note-tint) 48%, var(--rule));
+  border-top-color: var(--note-tint);
+  background: var(--note-hover);
+  box-shadow: 0 3px 10px
+    color-mix(in srgb, var(--shadow-color) 42%, transparent);
+  transform: translateY(-1px);
 }
 
 .note-preview--action:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--note-tint);
   outline-offset: 2px;
 }
 
@@ -595,21 +1709,34 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.3rem 0.35rem;
+  gap: 0.35rem 0.45rem;
   min-width: 0;
 }
 
-.note-preview-icon {
+.note-preview-icon-wrap {
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
   flex: none;
-  color: var(--note-tint);
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.45rem;
+  background: var(--note-surface, var(--surface-subtle));
+  color: var(--note-ink, var(--muted));
+}
+
+.note-preview-icon {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  flex: none;
+  color: inherit;
 }
 
 .note-preview-label {
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--note-tint) 78%, var(--ink));
+  letter-spacing: 0;
+  color: var(--note-ink);
 }
 
 .note-preview-dot,
@@ -620,13 +1747,17 @@ textarea {
 
 .note-preview-earlier {
   margin-left: auto;
-  font-size: 0.65rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-subtle) 65%, transparent);
+  padding: 0.05rem 0.35rem;
+  font-size: 0.625rem;
   font-weight: 600;
   color: var(--muted);
 }
 
 .note-preview-body {
-  margin: 0;
+  margin: 0.05rem 0 0;
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.3;
@@ -639,13 +1770,25 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.note-preview-summary-label {
+  margin: 0.05rem 0 -0.05rem;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--note-ink);
+}
+
 .note-preview-body--empty {
   font-weight: 500;
   color: var(--muted);
 }
 
 .note-preview-meta {
-  margin: 0;
+  margin: 0.05rem 0 0;
+  display: flex;
+  min-width: 0;
+  align-items: center;
   font-size: 0.65rem;
   color: var(--muted);
   white-space: nowrap;
@@ -654,7 +1797,35 @@ textarea {
 }
 
 .note-preview-author {
-  font-weight: 500;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.note-preview-participants {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-preview-meta-label,
+.note-preview-expand {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.note-preview-expand {
+  flex: none;
+  color: var(--note-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-preview--action {
+    transition: none;
+  }
+
+  .note-preview--action:hover {
+    transform: none;
+  }
 }
 
 @media (max-width: 900px) {
@@ -680,6 +1851,76 @@ textarea {
 .account-row-name {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* ——— Order-detail region ———
+   A 0fr→1fr grid row rather than a measured max-height: the panel keeps sizing
+   itself when an AI summary resolves after the animation has already finished. */
+.account-orders-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  /* Expanding a row near the fold must not yank the scroll position. */
+  overflow-anchor: none;
+  transition: grid-template-rows var(--acct-panel-dur) var(--acct-ease)
+    var(--acct-panel-delay);
+}
+
+.account-list-row--expanding .account-orders-shell,
+.account-list-row--expanded .account-orders-shell {
+  grid-template-rows: 1fr;
+}
+
+.account-orders-shell-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* At rest the panel must not clip the note drawer, tooltips or focus rings. */
+.account-list-row--expanded .account-orders-shell-inner {
+  overflow: visible;
+}
+
+.account-list-row--expanding .order-note-threads {
+  animation: account-note-cards-in 180ms var(--acct-ease) 140ms backwards;
+}
+
+.account-list-row--collapsing .order-note-threads {
+  opacity: 0;
+  transition: opacity 120ms var(--acct-ease);
+}
+
+@keyframes account-note-cards-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-list-row-header,
+  .account-note-slot,
+  .account-note-slot-inner,
+  .account-orders-shell {
+    transition-duration: 1ms;
+    transition-delay: 0ms;
+  }
+
+  .account-list-row--expanding .account-note-slot-inner,
+  .account-list-row--expanded .account-note-slot-inner {
+    transform: none;
+  }
+
+  .account-list-row--expanding .order-note-threads {
+    animation: none;
+  }
+
+  .account-list-row--collapsing .order-note-threads {
+    transition: none;
+  }
 }
 
 .account-orders-panel {
@@ -755,6 +1996,141 @@ textarea {
   color: var(--accent-ink);
 }
 
+/* ——— Collapsed row identity line ———
+   Name, deal state, then place. The badge reads as a state, not a button, so
+   it stays small enough that the account name keeps the line. */
+.account-state-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.0625rem 0.4rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1rem;
+  color: var(--muted);
+}
+
+/* Same tokens the expanded order card's status chip uses, so a row and the
+   card it opens can never disagree about a deal's state. */
+.account-state-badge--pending {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--rule));
+  background: color-mix(in srgb, var(--warning) 17%, var(--surface-raised));
+  color: color-mix(in srgb, var(--warning) 68%, var(--foreground));
+}
+
+.account-state-badge--bound {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--rule));
+  background: color-mix(in srgb, var(--success) 14%, var(--surface-raised));
+  color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+}
+
+.account-state-badge--lost {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--rule));
+  background: color-mix(in srgb, var(--danger) 11%, var(--surface-raised));
+  color: color-mix(in srgb, var(--danger) 68%, var(--foreground));
+}
+
+/* Mixed is deliberately colourless — collapsing several states into one hue
+   would claim a state the account does not have. */
+.account-state-badge--mixed {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: color-mix(in srgb, var(--muted) 45%, var(--foreground));
+}
+
+.account-row-sep {
+  flex: none;
+  color: var(--border-strong);
+}
+
+.account-row-place {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.account-row-state {
+  flex: none;
+}
+
+.account-row-dba {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ——— Stage and order-count line ——— */
+.account-stage-line {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.4rem;
+  margin-top: 0.1875rem;
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+}
+
+.account-stage-prefix {
+  flex: none;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Gate codes carry the Broker identity wherever they appear, so G1–G6 always
+   read as Broker workflow rather than as generic labels. */
+.account-stage-code {
+  flex: none;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--broker-ink);
+}
+
+.account-stage-code + .account-stage-value::before {
+  content: "—";
+  margin-right: 0.3rem;
+  color: var(--border-strong);
+}
+
+.account-stage-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* A missing stage is stated plainly rather than dressed up as a real one. */
+.account-stage-value--unset {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.account-stage-dot {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.account-stage-count {
+  flex: none;
+  font-weight: 500;
+  color: var(--muted);
+}
+
 .account-summary {
   display: flex;
   min-width: 0;
@@ -800,6 +2176,11 @@ textarea {
 .account-summary-item--iq,
 .account-summary-item--iq .account-summary-icon {
   color: var(--info);
+}
+
+.account-summary-item--broker,
+.account-summary-item--broker .account-summary-icon {
+  color: var(--broker-ink);
 }
 
 .account-summary-item--attention,
@@ -897,6 +2278,144 @@ textarea {
   outline-offset: 2px;
 }
 
+/* ——— Bind Policy → Big Brother handoff ———
+   One top-level layer: the backdrop blurs the whole application, the panel
+   sits on top of it and stays sharp. Above the order drawer (110) so it can
+   be raised from an expanded order, below the idle brand overlay (200) so
+   that screen stays the topmost experience when it takes over. */
+.bind-handoff-backdrop {
+  background: color-mix(in srgb, var(--overlay) 72%, transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(0.85);
+  backdrop-filter: blur(8px) saturate(0.85);
+  overscroll-behavior: contain;
+  animation: bind-handoff-backdrop-in 200ms ease-out both;
+}
+
+@keyframes bind-handoff-backdrop-in {
+  from {
+    opacity: 0;
+    -webkit-backdrop-filter: blur(0) saturate(1);
+    backdrop-filter: blur(0) saturate(1);
+  }
+  to {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(8px) saturate(0.85);
+    backdrop-filter: blur(8px) saturate(0.85);
+  }
+}
+
+.bind-handoff-panel {
+  animation: bind-handoff-panel-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes bind-handoff-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.bind-handoff-context {
+  border-left: 2px solid color-mix(in srgb, var(--accent) 62%, transparent);
+  padding-left: 0.625rem;
+  font-size: 0.8125rem;
+  line-height: 1.3rem;
+  color: var(--muted);
+}
+
+.bind-handoff-unavailable {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface-subtle) 60%, transparent);
+  padding: 0.5rem 0.65rem;
+  font-size: 0.75rem;
+  line-height: 1.1rem;
+  color: var(--muted);
+}
+
+.bind-handoff-unavailable-icon {
+  flex: none;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-top: 0.1rem;
+}
+
+.bind-handoff-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--success) 58%, var(--rule));
+  background: color-mix(in srgb, var(--success) 18%, var(--surface-raised));
+  padding: 0.5rem 0.9rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--success) 74%, var(--foreground));
+  transition: border-color 0.15s ease, background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.bind-handoff-action:hover {
+  border-color: color-mix(in srgb, var(--success) 80%, var(--rule));
+  background: color-mix(in srgb, var(--success) 25%, var(--surface-raised));
+  color: color-mix(in srgb, var(--success) 84%, var(--foreground));
+}
+
+.bind-handoff-action:focus-visible {
+  outline: 2px solid var(--success);
+  outline-offset: 2px;
+}
+
+.bind-handoff-action:disabled {
+  cursor: not-allowed;
+  border-color: var(--rule);
+  background: color-mix(in srgb, var(--surface-subtle) 70%, transparent);
+  color: var(--muted);
+}
+
+.bind-handoff-external-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .bind-handoff-backdrop {
+    background: color-mix(in srgb, var(--overlay) 96%, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bind-handoff-backdrop,
+  .bind-handoff-panel {
+    animation-name: bind-handoff-fade-in;
+    animation-duration: 80ms;
+    animation-timing-function: linear;
+  }
+
+  .bind-handoff-action {
+    transition: none;
+  }
+}
+
+@keyframes bind-handoff-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* ——— Order preview metadata ———
    Source / revenue / deal age on the order previews. Inline chips rather than
    cards: one height, one radius, one icon size, and tabular numerals so the
@@ -955,6 +2474,19 @@ textarea {
 }
 
 .meta-chip--broker {
+  border-color: var(--broker-border);
+  background: var(--broker-surface);
+  color: var(--broker-ink);
+}
+
+.meta-chip--broker:focus-visible {
+  outline-color: var(--broker-focus);
+}
+
+/* Mixed and unavailable keep the neutral treatment Broker used to borrow:
+   neither is a Broker account, so neither may wear Broker purple. */
+.meta-chip--mixed,
+.meta-chip--unavailable {
   border-color: var(--border-strong);
   background: color-mix(in srgb, var(--foreground) 6%, transparent);
   color: color-mix(in srgb, var(--muted) 45%, var(--foreground));
@@ -1005,6 +2537,7 @@ textarea {
 .meta-chip--gate .meta-chip-value {
   font-weight: 700;
   letter-spacing: 0.02em;
+  color: var(--broker-ink);
 }
 
 .meta-chip--gate-label {
@@ -1019,6 +2552,52 @@ textarea {
   color: var(--muted);
 }
 
+/* ——— Shared account-source identity ———
+   The icon+label pair used wherever a surface has no chrome of its own. Tones
+   come from the same tokens the chips and segments read, so Broker cannot drift
+   back to gray in one corner of the app. */
+.source-identity {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--muted) 45%, var(--foreground));
+}
+
+.source-identity--md {
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+.source-identity-icon {
+  width: 0.6875rem;
+  height: 0.6875rem;
+  flex: none;
+}
+
+.source-identity--md .source-identity-icon {
+  width: 0.8125rem;
+  height: 0.8125rem;
+}
+
+.source-identity-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-identity--iq {
+  color: var(--info);
+}
+
+.source-identity--broker {
+  color: var(--broker-ink);
+}
+
 .broker-gate-rail {
   display: flex;
   flex-direction: column;
@@ -1026,6 +2605,22 @@ textarea {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--rule);
+}
+
+/* Purple names the rail; the track below stays neutral so progress still
+   reads as progress rather than as more source identity. */
+.broker-gate-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.broker-gate-heading-label {
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .broker-gate-rail-track {
@@ -1044,6 +2639,9 @@ textarea {
   gap: 0;
 }
 
+/* Every gate code is Broker purple. Progress is still legible because the
+   current gate keeps the filled surface and stronger border — the upcoming
+   ones only carry the hue, held back so they read as not-yet-reached. */
 .broker-gate-dot {
   display: inline-flex;
   min-width: 1.75rem;
@@ -1056,14 +2654,15 @@ textarea {
   font-size: 0.6875rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--broker) 58%, var(--muted));
 }
 
+/* Only the gate the order is actually sitting on takes the Broker accent. */
 .broker-gate-dot--current {
-  border-color: color-mix(in srgb, var(--foreground) 35%, transparent);
-  background: color-mix(in srgb, var(--foreground) 8%, var(--surface-raised));
-  color: var(--foreground);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 12%, transparent);
+  border-color: color-mix(in srgb, var(--broker) 52%, transparent);
+  background: var(--broker-selected);
+  color: var(--broker-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--broker) 22%, transparent);
 }
 
 .broker-gate-connector {
@@ -1087,7 +2686,7 @@ textarea {
   font-size: 0.6875rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--foreground);
+  color: var(--broker-ink);
 }
 
 .broker-gate-caption-label {
@@ -1123,6 +2722,49 @@ textarea {
   box-shadow: 1px 0 0 var(--inset-highlight);
 }
 
+.desk-sticky-header {
+  top: var(--top-nav-offset);
+  z-index: var(--z-desk-top-nav);
+}
+
+.desk-mobile-topbar {
+  min-height: calc(
+    var(--desk-mobile-topbar-h) + env(safe-area-inset-top)
+  );
+  padding-top: env(safe-area-inset-top);
+}
+
+@media (max-width: 1023px) {
+  :root {
+    /* 3.525rem brand/actions row + 2.75rem stats row + their two rules. */
+    --top-nav-height: calc(
+      var(--desk-mobile-topbar-h) + env(safe-area-inset-top)
+    );
+  }
+}
+
+/* The "Step Bro" half of the lockup is a raster wordmark drawn as a mask, so it
+   takes --ink in either theme exactly as the text it replaced did.
+   It is sized for cap-height parity with the Harper wordmark rather than box
+   parity: the swoosh makes the cap height only 0.569 of this mark's box against
+   Harper's 0.776, so a box 1.365x the Harper box puts both cap lines on one
+   line. Both marks end in a "p" descender of near-identical relative depth, so
+   bottom-aligning the boxes (items-end on the lockup) lands the two baselines
+   within a fifth of a pixel — no nudge needed. */
+.step-bro-wordmark {
+  display: block;
+  aspect-ratio: 524 / 160;
+  background-color: var(--ink);
+  -webkit-mask-image: url("/step-bro-wordmark.png");
+  mask-image: url("/step-bro-wordmark.png");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
 .desk-nav-scroll {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
@@ -1139,6 +2781,38 @@ textarea {
 .desk-nav-scroll::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: var(--border-strong);
+}
+
+.nav-record-count {
+  min-width: 4ch;
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  line-height: 1rem;
+  opacity: 0;
+  text-align: right;
+  transform: translateX(0.2rem);
+  transition:
+    color 140ms ease,
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.nav-record-link[aria-current="page"] .nav-record-count,
+.nav-record-link:hover .nav-record-count,
+.nav-record-link:focus-visible .nav-record-count {
+  color: var(--ink);
+  opacity: 1;
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-record-count {
+    transition: none;
+  }
 }
 
 /* The stats metrics scroll only when the fixed date/action controls need the
@@ -1164,6 +2838,7 @@ textarea {
 /* An active red alert pushes the whole desk down so the strip never covers
    content; the fixed sidebar drops below it too. */
 body:has(.red-alert-banner) {
+  --top-nav-offset: 2.25rem;
   padding-top: 2.25rem;
 }
 
@@ -1172,7 +2847,29 @@ body:has(.red-alert-banner) .desk-sidebar {
 }
 
 body:has(.red-alert-banner) .desk-sticky-header {
-  top: 2.25rem;
+  top: var(--top-nav-offset);
+}
+
+/* ——— Masthead alignment (desktop only) ———
+   Below lg the sidebar is a drawer and the stats bar sits under a separate
+   brand row, so there is no shared grid to hold and these rules stay off. */
+@media (min-width: 1024px) {
+  /* Column one. The rule is this row's own bottom border. */
+  .desk-sidebar-head {
+    display: flex;
+    align-items: center;
+    height: var(--desk-masthead-h);
+    padding-block: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  /* Column two. The 1px lives on .desk-topbar's border-b, so the row itself is
+     one pixel shorter and the two rules land on the same line. Vertical padding
+     is dropped in favour of centring inside the fixed band. */
+  .desk-topbar .ops-bar-row {
+    min-height: calc(var(--desk-masthead-h) - 1px);
+    padding-block: 0;
+  }
 }
 
 .life-map {
@@ -1279,6 +2976,124 @@ body:has(.red-alert-banner) .desk-sticky-header {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* ——— Global company search ———
+   The bar control expands in place into the editable field, so only its width
+   and the focus treatment animate; the metrics beside it reflow smoothly
+   rather than being overlapped. The palette gets a quick backdrop fade plus a
+   scale/rise on the panel. */
+.company-search-shell {
+  transition: width 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* The desk-wide input focus ring draws a hard accent rectangle around the
+   field itself. Here the focus affordance belongs to the surface around it —
+   the bar control's accent ring, and the palette's whole dialog — so the inner
+   rectangle is suppressed rather than doubled up. The desk rule excludes this
+   class by name (the way it already excludes .acord-in), because it outranks
+   any override on specificity; this also drops the UA default ring. */
+.company-search-field:focus,
+.company-search-field:focus-visible {
+  outline: none;
+}
+
+/* Same arrangement in the Accounts search: the shell around the field owns the
+   accent ring, so the field itself must not draw a second one inside it. */
+.account-search-field:focus,
+.account-search-field:focus-visible {
+  outline: none;
+}
+
+.company-search-dropdown {
+  animation: company-search-drop-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Inline-search focus layer. Its inline bounds are measured from the visible
+   sidebar and sticky header, so only route content is de-emphasized; the nav,
+   operational bar, field and result portal stay above it and remain sharp. */
+.company-search-page-backdrop {
+  background: color-mix(in srgb, var(--overlay) 11%, transparent);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: company-search-page-focus-in 0.17s ease-out both;
+  will-change: opacity, backdrop-filter;
+}
+
+@keyframes company-search-page-focus-in {
+  from {
+    opacity: 0;
+    -webkit-backdrop-filter: blur(0);
+    backdrop-filter: blur(0);
+  }
+  to {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+  }
+}
+
+@keyframes company-search-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.company-search-backdrop {
+  background: color-mix(in srgb, var(--overlay) 88%, transparent);
+  backdrop-filter: blur(6px);
+  animation: company-search-backdrop-in 0.16s ease-out both;
+}
+
+@keyframes company-search-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.company-search-panel {
+  animation: company-search-panel-in 0.19s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes company-search-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .company-search-shell {
+    transition-property: border-color, box-shadow;
+  }
+
+  .company-search-dropdown,
+  .company-search-page-backdrop,
+  .company-search-backdrop,
+  .company-search-panel {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .company-search-page-backdrop {
+    background: color-mix(in srgb, var(--overlay) 18%, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 
@@ -2262,7 +4077,9 @@ textarea:not(.acord-ta)::placeholder {
   opacity: 0.8;
 }
 
-input:not([type="checkbox"]):not([type="radio"]):not(.acord-in):focus-visible,
+input:not([type="checkbox"]):not([type="radio"]):not(.acord-in):not(
+    .company-search-field
+  ):not(.account-search-field):not(.carrier-search-input):focus-visible,
 textarea:not(.acord-ta):focus-visible,
 select:focus-visible,
 button:focus-visible,
@@ -2454,40 +4271,1830 @@ table:not(.acord-grid) tbody tr:hover {
   color-scheme: light;
 }
 
-/* Thread CTAs need explicit light-theme contrast; generic utility remapping
-   elsewhere in this stylesheet must not wash out their text. */
-.note-thread-view-button--producer {
-  border-color: #f0a46b;
-  background: #fff4e8;
-  color: #71310f;
+/* Note thread cards keep their natural content height. The shared grid uses
+   `items-start`, so a compact empty row never stretches to match a populated
+   summary beside it. After the first visible note lands, the same keyed card
+   gets one restrained size/fade cue while its new summary is generated. */
+.note-thread-card {
+  border-color: var(--note-border, var(--rule));
+  transition:
+    min-height 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms ease,
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.note-thread-view-button--producer:hover:not(:disabled) {
-  border-color: #dc7a35;
-  background: #ffe8d1;
-  color: #542207;
+.note-thread-card--full {
+  border-top-color: var(--note-tint);
+  background: color-mix(in srgb, var(--note-surface) 42%, var(--surface-raised));
 }
 
-.note-thread-view-button--service {
-  border-color: #75b9d8;
-  background: #edf8fd;
-  color: #104f6d;
+.note-thread-card--compact {
+  border-left-color: var(--note-tint);
+  background: var(--note-surface);
 }
 
-.note-thread-view-button--service:hover:not(:disabled) {
-  border-color: #438eaf;
-  background: #dff2fa;
-  color: #0b3d56;
+.note-thread-icon {
+  background: var(--note-surface);
+  color: var(--note-ink);
 }
 
-:root[data-theme="dark"] .note-thread-view-button--producer {
-  border-color: rgba(255, 140, 87, 0.35);
-  background: rgba(255, 109, 99, 0.08);
-  color: #ffc09b;
+.note-thread-action,
+.note-thread-view-button {
+  border-color: var(--note-border);
+  background: var(--note-surface);
+  color: var(--note-ink);
 }
 
-:root[data-theme="dark"] .note-thread-view-button--service {
-  border-color: rgba(111, 190, 226, 0.35);
-  background: rgba(53, 107, 134, 0.12);
-  color: #a9dcf3;
+.note-thread-action:hover:not(:disabled),
+.note-thread-view-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--note-tint) 52%, var(--rule));
+  background: var(--note-hover);
+}
+
+.note-thread-action:focus-visible,
+.note-thread-view-button:focus-visible {
+  outline-color: var(--note-tint);
+}
+
+.note-thread-tab--selected {
+  background: var(--note-surface);
+  color: var(--note-ink);
+}
+
+.note-thread-attribution {
+  color: var(--muted);
+}
+
+.note-thread-author {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.note-thread-card--promoted {
+  animation: note-thread-card-promoted 200ms cubic-bezier(0.2, 0.8, 0.2, 1)
+    both;
+}
+
+@keyframes note-thread-card-promoted {
+  from {
+    opacity: 0.72;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-thread-card {
+    transition: none;
+  }
+
+  .note-thread-card--promoted {
+    animation: none;
+  }
+}
+
+/* Minimal order detail: the card stays part of the account surface while one
+   restrained orange edge identifies the order represented by the sheet. */
+.step-bro-order-card {
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.step-bro-order-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--rule));
+}
+
+.step-bro-order-card--active {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--rule));
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface-raised));
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--accent) 78%, transparent),
+    0 1px 0 color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.order-detail-drawer-backdrop {
+  background: color-mix(in srgb, #070707 38%, transparent);
+  backdrop-filter: blur(2px);
+  animation: order-detail-backdrop-in 160ms ease both;
+}
+
+.order-detail-drawer-panel {
+  container: order-detail / inline-size;
+  isolation: isolate;
+  animation: order-detail-panel-in 210ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.order-detail-content {
+  animation: order-detail-content-in 140ms ease both;
+}
+
+.order-detail-drawer-header {
+  --order-status-accent: var(--accent);
+  --order-status-ink: var(--accent-ink);
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--order-status-accent) 18%, var(--rule));
+  background:
+    radial-gradient(
+      circle at 18% -110%,
+      color-mix(in srgb, var(--order-status-accent) 17%, transparent) 0,
+      transparent 61%
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(
+          in srgb,
+          var(--order-status-accent) 4%,
+          var(--surface-raised)
+        ),
+      var(--surface-raised) 72%
+    );
+}
+
+.order-detail-drawer-header::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: color-mix(
+    in srgb,
+    var(--order-status-accent) 74%,
+    transparent
+  );
+  content: "";
+  pointer-events: none;
+}
+
+.order-detail-drawer-header > * {
+  position: relative;
+}
+
+.order-detail-drawer-header--pending {
+  --order-status-accent: var(--warning);
+  --order-status-ink: color-mix(
+    in srgb,
+    var(--warning) 72%,
+    var(--foreground)
+  );
+}
+
+.order-detail-drawer-header--bound {
+  --order-status-accent: var(--success);
+  --order-status-ink: color-mix(
+    in srgb,
+    var(--success) 72%,
+    var(--foreground)
+  );
+}
+
+.order-detail-drawer-header--lost {
+  --order-status-accent: var(--danger);
+  --order-status-ink: color-mix(
+    in srgb,
+    var(--danger) 70%,
+    var(--foreground)
+  );
+}
+
+.order-detail-status-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 1.35rem;
+  border: 1px solid
+    color-mix(in srgb, var(--order-status-accent) 32%, var(--rule));
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--order-status-accent) 10%,
+    var(--surface-raised)
+  );
+  padding: 0.1rem 0.48rem;
+  color: var(--order-status-ink);
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1rem;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.order-detail-status-dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--order-status-accent);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--order-status-accent) 13%, transparent);
+}
+
+.order-detail-close-button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.625rem;
+  background: color-mix(
+    in srgb,
+    var(--surface-raised) 82%,
+    transparent
+  );
+  box-shadow: 0 1px 0 var(--inset-highlight) inset;
+  color: var(--muted);
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.order-detail-close-button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--ink);
+  transform: translateY(-1px);
+}
+
+.order-detail-close-button:focus-visible,
+.order-detail-quote-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.order-detail-summary-grid {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+}
+
+.order-detail-quote-card,
+.order-detail-financial-card,
+.order-detail-policy-card,
+.company-summary-card,
+.company-payment-card {
+  --order-card-accent: var(--info);
+  --order-card-ink: color-mix(
+    in srgb,
+    var(--order-card-accent) 72%,
+    var(--foreground)
+  );
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid
+    color-mix(in srgb, var(--order-card-accent) 21%, var(--rule));
+  border-radius: 0.875rem;
+  background: color-mix(
+    in srgb,
+    var(--order-card-accent) 2.5%,
+    var(--surface-raised)
+  );
+  box-shadow: 0 1px 0 var(--inset-highlight) inset;
+}
+
+.order-detail-quote-card::before,
+.order-detail-financial-card::before,
+.order-detail-policy-card::before,
+.company-summary-card::before,
+.company-payment-card::before {
+  position: absolute;
+  inset: 0.05rem 0.9rem auto;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--order-card-accent) 72%, transparent),
+    transparent
+  );
+  content: "";
+  pointer-events: none;
+}
+
+.order-detail-quote-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(
+          in srgb,
+          var(--order-card-accent) 7%,
+          var(--surface-raised)
+        ),
+      var(--surface-raised) 66%
+    );
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.order-detail-quote-card:focus-within {
+  border-color: color-mix(
+    in srgb,
+    var(--order-card-accent) 42%,
+    var(--rule)
+  );
+  box-shadow:
+    0 1px 0 var(--inset-highlight) inset,
+    0 8px 22px color-mix(in srgb, var(--shadow-color) 34%, transparent);
+}
+
+.order-detail-icon-tile,
+.company-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid
+    color-mix(in srgb, var(--order-card-accent) 20%, var(--rule));
+  border-radius: 0.65rem;
+  background: color-mix(
+    in srgb,
+    var(--order-card-accent) 11%,
+    var(--surface-raised)
+  );
+  color: var(--order-card-ink);
+}
+
+.order-detail-empty-value {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 550;
+  line-height: 1.3rem;
+}
+
+.order-detail-quote-action {
+  display: inline-flex;
+  grid-column: 2;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  gap: 0.4rem;
+  min-height: 2rem;
+  border: 1px solid
+    color-mix(in srgb, var(--order-card-accent) 30%, var(--rule));
+  border-radius: 0.6rem;
+  background: var(--surface-raised);
+  padding: 0.35rem 0.62rem;
+  color: var(--order-card-ink);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1rem;
+  text-decoration: none;
+  box-shadow: 0 1px 0 var(--inset-highlight) inset;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.order-detail-quote-action:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--order-card-accent) 52%,
+    var(--rule)
+  );
+  background: color-mix(
+    in srgb,
+    var(--order-card-accent) 7%,
+    var(--surface-raised)
+  );
+  box-shadow: 0 5px 13px
+    color-mix(in srgb, var(--shadow-color) 34%, transparent);
+  transform: translateY(-1px);
+}
+
+.order-detail-financial-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.order-detail-financial-card {
+  grid-column: span 6;
+  padding: 0.85rem;
+}
+
+.order-detail-financial-card--payment {
+  --order-card-accent: var(--info);
+}
+
+.order-detail-financial-card--method {
+  --order-card-accent: color-mix(
+    in srgb,
+    var(--info) 58%,
+    var(--broker)
+  );
+}
+
+.order-detail-financial-card--fee {
+  --order-card-accent: var(--accent);
+  --order-card-ink: var(--accent-ink);
+}
+
+.order-detail-financial-value {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.45rem;
+}
+
+.order-detail-financial-value--unavailable {
+  color: var(--muted);
+  font-size: 0.825rem;
+  font-weight: 550;
+  letter-spacing: 0;
+  line-height: 1.2rem;
+}
+
+.order-detail-financial-supporting {
+  min-height: 1rem;
+  color: var(--muted);
+  font-size: 0.625rem;
+  font-weight: 550;
+  line-height: 1rem;
+}
+
+.order-detail-payment-status {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.order-detail-quote-card[data-value-state="unavailable"],
+.order-detail-financial-card[data-value-state="unavailable"] {
+  background: color-mix(
+    in srgb,
+    var(--surface-subtle) 25%,
+    var(--surface-raised)
+  );
+}
+
+.order-detail-quote-card[data-value-state="unavailable"]::before,
+.order-detail-financial-card[data-value-state="unavailable"]::before {
+  opacity: 0.45;
+}
+
+.order-detail-quote-card[data-value-state="unavailable"]
+  .order-detail-icon-tile,
+.order-detail-financial-card[data-value-state="unavailable"]
+  .order-detail-icon-tile {
+  color: color-mix(in srgb, var(--order-card-ink) 52%, var(--muted));
+}
+
+.order-detail-policy-section {
+  min-width: 0;
+}
+
+.order-detail-policy-section-heading {
+  --order-card-accent: var(--success);
+  --order-card-ink: color-mix(
+    in srgb,
+    var(--success) 72%,
+    var(--foreground)
+  );
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding-inline: 0.15rem;
+}
+
+.order-detail-policy-section-heading h3 {
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1rem;
+}
+
+.order-detail-policy-section-heading p {
+  margin-top: 0.1rem;
+  color: var(--muted);
+  font-size: 0.625rem;
+  line-height: 0.9rem;
+}
+
+.order-detail-policy-section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid color-mix(in srgb, var(--success) 22%, var(--rule));
+  border-radius: 0.65rem;
+  background: color-mix(
+    in srgb,
+    var(--success) 9%,
+    var(--surface-raised)
+  );
+  color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+}
+
+.order-detail-policy-count {
+  border: 1px solid color-mix(in srgb, var(--success) 24%, var(--rule));
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--success) 8%,
+    var(--surface-raised)
+  );
+  padding: 0.16rem 0.5rem;
+  color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.order-detail-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, 18rem), 1fr)
+  );
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+}
+
+.order-detail-policy-card {
+  --order-card-accent: var(--success);
+  padding: 0.9rem;
+}
+
+.order-detail-policy-eyebrow,
+.order-detail-policy-fact-label {
+  color: var(--muted);
+  font-size: 0.575rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 0.85rem;
+  text-transform: uppercase;
+}
+
+.order-detail-policy-number {
+  margin-top: 0.15rem;
+  overflow-wrap: anywhere;
+  user-select: text;
+  color: var(--ink);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.9rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.2rem;
+}
+
+.order-detail-policy-number--unavailable {
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.775rem;
+  font-weight: 550;
+  letter-spacing: 0;
+}
+
+.order-detail-policy-status {
+  border: 1px solid color-mix(in srgb, var(--success) 28%, var(--rule));
+  border-radius: 999px;
+  background: var(--success-soft);
+  padding: 0.08rem 0.4rem;
+  color: var(--success);
+  font-size: 0.575rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 0.85rem;
+  text-transform: uppercase;
+}
+
+.order-detail-policy-deal {
+  color: var(--muted);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+}
+
+.order-detail-policy-coverages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.order-detail-policy-coverages li {
+  border: 1px solid color-mix(in srgb, var(--success) 17%, var(--rule));
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--success) 5%,
+    var(--surface-raised)
+  );
+  padding: 0.12rem 0.45rem;
+  color: var(--ink);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 0.9rem;
+}
+
+.order-detail-policy-coverages-empty {
+  margin-top: 0.75rem;
+  color: var(--muted);
+  font-size: 0.675rem;
+}
+
+.order-detail-policy-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 0.8rem;
+  margin-top: 0.8rem;
+  border-top: 1px solid
+    color-mix(in srgb, var(--success) 12%, var(--rule));
+  padding-top: 0.75rem;
+}
+
+.order-detail-policy-fact--wide {
+  grid-column: 1 / -1;
+}
+
+.order-detail-policy-fact-value {
+  margin-top: 0.12rem;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1rem;
+}
+
+.order-detail-policy-empty {
+  margin-top: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--success) 18%, var(--rule));
+  border-radius: 0.8rem;
+  background: color-mix(
+    in srgb,
+    var(--success) 3%,
+    var(--surface-raised)
+  );
+  padding: 0.8rem 0.9rem;
+}
+
+.order-detail-policy-empty p {
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.order-detail-policy-empty span {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1rem;
+}
+
+@container order-detail (min-width: 34rem) {
+  .order-detail-quote-card {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .order-detail-quote-action {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .order-detail-financial-card {
+    grid-column: span 3;
+  }
+
+  .order-detail-financial-card:last-child {
+    grid-column: span 6;
+  }
+}
+
+@container order-detail (min-width: 39rem) {
+  .order-detail-financial-card,
+  .order-detail-financial-card:last-child {
+    grid-column: span 2;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .order-detail-quote-card,
+  .order-detail-financial-card,
+  .order-detail-status-badge {
+    border-color: var(--border-strong);
+  }
+}
+
+@keyframes order-detail-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes order-detail-panel-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0.84;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes order-detail-content-in {
+  from {
+    opacity: 0.72;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-bro-order-card {
+    transition: none;
+  }
+
+  .order-detail-close-button,
+  .order-detail-quote-card,
+  .order-detail-quote-action {
+    transition: none;
+  }
+
+  .order-detail-close-button:hover,
+  .order-detail-quote-action:hover {
+    transform: none;
+  }
+
+  .order-detail-drawer-backdrop,
+  .order-detail-drawer-panel,
+  .order-detail-content {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .order-detail-drawer-backdrop {
+    background: rgb(7 7 7 / 62%);
+    backdrop-filter: none;
+  }
+}
+
+/* Company detail uses the same low-tint card foundation as Order Detail.
+   Category color stays in the hairline, icon tile and top accent; content
+   surfaces remain neutral in both themes. */
+.company-page-header-sentinel {
+  height: 1px;
+  margin-bottom: -1px;
+  pointer-events: none;
+}
+
+.company-page-sticky-region {
+  position: sticky;
+  top: var(--company-header-offset, 0px);
+  z-index: 19;
+  display: grid;
+  gap: 0.75rem;
+  margin-top: -0.4rem;
+  padding-block: 0.4rem 0.5rem;
+  background: var(--background);
+}
+
+.company-page-back-row {
+  min-width: 0;
+}
+
+.company-page-header {
+  --company-header-accent: var(--info);
+  position: relative;
+  display: grid;
+  align-items: end;
+  gap: 1rem;
+  overflow: visible;
+  border: 1px solid
+    color-mix(in srgb, var(--company-header-accent) 23%, var(--rule));
+  border-radius: 1rem;
+  background:
+    radial-gradient(
+      circle at 12% -80%,
+      color-mix(in srgb, var(--company-header-accent) 13%, transparent),
+      transparent 58%
+    ),
+    var(--surface-raised);
+  padding: 1rem;
+  box-shadow: 0 1px 0 var(--inset-highlight) inset;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.company-page-header--pending {
+  --company-header-accent: var(--warning);
+}
+
+.company-page-header--bound {
+  --company-header-accent: var(--success);
+}
+
+.company-page-header--lost {
+  --company-header-accent: var(--danger);
+}
+
+.company-page-header--pinned {
+  border-color: color-mix(
+    in srgb,
+    var(--company-header-accent) 38%,
+    var(--border-strong)
+  );
+  box-shadow:
+    0 1px 0 var(--inset-highlight) inset,
+    0 10px 24px -16px var(--shadow-color),
+    0 4px 10px -8px var(--shadow-color);
+}
+
+.company-page-header::before {
+  position: absolute;
+  inset: 0.85rem auto 0.85rem 0;
+  width: 2px;
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--company-header-accent) 76%,
+    transparent
+  );
+  content: "";
+}
+
+.company-page-title {
+  margin-top: 0.3rem;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: clamp(1.55rem, 3vw, 2rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+}
+
+.company-page-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.company-deal-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.65rem;
+}
+
+.company-deal-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1rem;
+}
+
+.company-deal-count--bound {
+  color: var(--success);
+}
+
+.company-deal-count--pending {
+  color: color-mix(in srgb, var(--warning) 72%, var(--foreground));
+}
+
+.company-deal-count--lost {
+  color: var(--danger);
+}
+
+.company-deal-count-dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.company-id-card {
+  --order-card-accent: var(--accent);
+  --order-card-ink: var(--accent-ink);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  width: fit-content;
+  min-width: 11.5rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--rule));
+  border-radius: 0.8rem;
+  background: color-mix(
+    in srgb,
+    var(--accent) 5%,
+    var(--surface-raised)
+  );
+  padding: 0.55rem 0.6rem;
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--accent) 58%, transparent),
+    0 1px 0 var(--inset-highlight) inset;
+}
+
+.company-id-label,
+.company-card-label,
+.company-section-eyebrow {
+  display: block;
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  line-height: 0.9rem;
+  text-transform: uppercase;
+}
+
+.company-id-value {
+  display: block;
+  user-select: text;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2rem;
+}
+
+.company-card-icon {
+  flex: none;
+  width: 2.1rem;
+  height: 2.1rem;
+}
+
+.company-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.company-summary-card {
+  grid-column: span 12;
+  align-self: stretch;
+  overflow: visible;
+  padding: 0.95rem;
+}
+
+.company-summary-card--producer {
+  --order-card-accent: color-mix(
+    in srgb,
+    var(--muted) 58%,
+    var(--info)
+  );
+}
+
+.company-summary-card--time {
+  --order-card-accent: color-mix(
+    in srgb,
+    var(--info) 58%,
+    var(--broker)
+  );
+}
+
+.company-summary-card--location {
+  --order-card-accent: color-mix(
+    in srgb,
+    var(--success) 52%,
+    var(--info)
+  );
+}
+
+.company-summary-card--contacts,
+.company-summary-card--premium {
+  --order-card-accent: var(--info);
+}
+
+.company-summary-card--revenue {
+  --order-card-accent: var(--success);
+}
+
+.company-card-content {
+  min-width: 0;
+  margin-top: 0.85rem;
+}
+
+.company-card-help {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.company-card-help:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.company-card-primary {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 0.825rem;
+  font-weight: 600;
+}
+
+.company-card-empty {
+  color: var(--muted);
+  font-size: 0.825rem;
+  font-weight: 550;
+  line-height: 1.25rem;
+}
+
+.company-card-supporting {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1.1rem;
+}
+
+.company-card-meta {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1rem;
+}
+
+.company-producer-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid
+    color-mix(in srgb, var(--order-card-accent) 22%, var(--rule));
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--order-card-accent) 8%,
+    var(--surface-raised)
+  );
+  color: var(--order-card-ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.company-local-time-value,
+.company-metric-value {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: clamp(1.45rem, 4vw, 1.85rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+.company-local-time-row,
+.company-revenue-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.company-local-time-value,
+.company-revenue-row .company-metric-value {
+  flex: none;
+}
+
+.company-local-time-details {
+  min-width: 0;
+  flex: 1;
+  text-align: right;
+}
+
+.company-revenue-breakdown {
+  min-width: 0;
+  margin-left: auto;
+  text-align: right;
+}
+
+.company-contact-list {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(min(100%, 18rem), 1fr)
+  );
+  gap: 0.7rem;
+}
+
+.company-contact-item {
+  min-width: 0;
+  border: 1px solid
+    color-mix(in srgb, var(--order-card-accent) 13%, var(--rule));
+  border-radius: 0.7rem;
+  background: color-mix(
+    in srgb,
+    var(--order-card-accent) 2%,
+    var(--surface-raised)
+  );
+  padding: 0.75rem;
+}
+
+.company-card-action {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.4rem;
+  color: var(--order-card-ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.company-card-action:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.company-card-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.company-payment-heading {
+  --order-card-accent: var(--info);
+  --order-card-ink: color-mix(
+    in srgb,
+    var(--info) 72%,
+    var(--foreground)
+  );
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.company-section-title {
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2rem;
+}
+
+.company-payment-count {
+  flex: none;
+  border: 1px solid
+    color-mix(in srgb, var(--info) 18%, var(--rule));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 5%, var(--surface-raised));
+  padding: 0.18rem 0.55rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.company-payment-card {
+  --order-card-accent: var(--info);
+  overflow: hidden;
+}
+
+.company-payment-summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem 1.25rem;
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--success) 5%, transparent),
+    transparent 58%
+  );
+  padding: 0.85rem 1rem;
+}
+
+.company-payment-summary > :first-child {
+  flex: 1 1 20rem;
+}
+
+.company-payment-summary-label,
+.company-payment-history-title {
+  color: var(--muted);
+  font-size: 0.625rem;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  line-height: 1rem;
+  text-transform: uppercase;
+}
+
+.company-payment-summary-value-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+}
+
+.company-payment-summary-value {
+  color: var(--ink);
+  font-size: clamp(1.35rem, 3vw, 1.65rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+.company-payment-summary-currency {
+  color: var(--muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+.company-payment-settled-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid color-mix(in srgb, var(--success) 24%, var(--rule));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 9%, var(--surface-raised));
+  padding: 0.16rem 0.48rem;
+  color: color-mix(in srgb, var(--success) 72%, var(--foreground));
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.company-payment-summary-supporting,
+.company-payment-history-subtitle {
+  margin-top: 0.12rem;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+}
+
+.company-payment-action {
+  display: inline-flex;
+  width: fit-content;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid
+    color-mix(in srgb, var(--info) 25%, var(--rule));
+  border-radius: 0.65rem;
+  background: var(--surface-raised);
+  padding: 0.45rem 0.7rem;
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  box-shadow: 0 1px 0 var(--inset-highlight) inset;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.company-payment-action-chevron {
+  display: inline-block;
+  color: var(--order-card-ink);
+  font-size: 0.75rem;
+  line-height: 1;
+  transition: transform 140ms ease;
+}
+
+.company-payment-action-chevron--expanded {
+  transform: rotate(180deg);
+}
+
+.company-payment-history-panel {
+  border-top: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--sand) 22%, transparent);
+  padding: 0.9rem 1rem 1rem;
+}
+
+.company-payment-history-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.company-payment-history-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.company-payment-history-item {
+  min-width: 0;
+  border: 1px solid
+    color-mix(in srgb, var(--order-card-accent) 12%, var(--rule));
+  border-radius: 0.65rem;
+  background: color-mix(
+    in srgb,
+    var(--order-card-accent) 1.5%,
+    var(--surface-raised)
+  );
+  padding: 0.72rem 0.8rem;
+}
+
+.company-payment-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--info) 48%, var(--rule));
+  background: color-mix(in srgb, var(--info) 5%, var(--surface-raised));
+  box-shadow: 0 5px 14px
+    color-mix(in srgb, var(--shadow-color) 28%, transparent);
+  transform: translateY(-1px);
+}
+
+.company-payment-action:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.company-payment-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (min-width: 640px) {
+  .company-page-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 1.15rem 1.25rem;
+  }
+
+  .company-id-card {
+    justify-self: end;
+  }
+}
+
+@media (min-width: 768px) {
+  .company-summary-card--producer,
+  .company-summary-card--time,
+  .company-summary-card--premium,
+  .company-summary-card--revenue {
+    grid-column: span 6;
+  }
+
+  .company-summary-card--location,
+  .company-summary-card--contacts {
+    grid-column: span 12;
+  }
+}
+
+@media (min-width: 1024px) {
+  .company-summary-card--producer {
+    grid-column: span 3;
+  }
+
+  .company-summary-card--time {
+    grid-column: span 4;
+  }
+
+  .company-summary-card--location {
+    grid-column: span 5;
+  }
+
+  .company-summary-card--contacts {
+    grid-column: span 12;
+  }
+
+  .company-summary-card--premium,
+  .company-summary-card--revenue {
+    grid-column: span 6;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .company-page-header,
+  .company-id-card,
+  .company-summary-card,
+  .company-payment-card,
+  .company-contact-item {
+    border-color: var(--border-strong);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .company-page-header,
+  .company-payment-action,
+  .company-payment-action-chevron {
+    transition: none;
+  }
+
+  .company-payment-action:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ——— Harper × Step Bro idle brand screen ———
+   One viewport layer sits above every application portal. The backdrop is
+   a tempered neutral scrim: enough blur to quiet customer data while the
+   application's shapes and depth still read clearly behind the brand. */
+.brand-overlay-trigger {
+  display: inline-flex;
+  min-width: 0;
+  align-items: end;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  line-height: 0;
+  transition:
+    opacity 150ms ease,
+    filter 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.brand-overlay-trigger:hover {
+  opacity: 0.82;
+}
+
+.brand-overlay-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.brand-overlay-trigger .step-bro-wordmark {
+  max-width: 100%;
+}
+
+html.idle-brand-overlay-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.idle-brand-overlay {
+  isolation: isolate;
+  width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding:
+    max(1.25rem, env(safe-area-inset-top))
+    max(1.25rem, env(safe-area-inset-right))
+    max(1.25rem, env(safe-area-inset-bottom))
+    max(1.25rem, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--background) 74%, transparent);
+  -webkit-backdrop-filter: blur(4px) saturate(0.9);
+  backdrop-filter: blur(4px) saturate(0.9);
+  color: var(--ink);
+  overscroll-behavior: contain;
+  animation: idle-brand-backdrop-in 260ms var(--acct-ease) both;
+}
+
+:root[data-theme="dark"] .idle-brand-overlay {
+  background: color-mix(in srgb, var(--background) 80%, transparent);
+}
+
+.idle-brand-overlay--closing {
+  animation: idle-brand-backdrop-out 220ms ease-in both;
+}
+
+.idle-brand-composition {
+  position: relative;
+  display: flex;
+  width: min(100%, 56rem);
+  margin: auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-block: clamp(0.5rem, 3vh, 2rem);
+  text-align: center;
+  animation: idle-brand-composition-in 300ms var(--acct-ease) both;
+}
+
+.idle-brand-lockup {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: end;
+  justify-content: center;
+  gap: clamp(0.75rem, 1.8vw, 1.5rem);
+  width: 100%;
+}
+
+.idle-brand-harper-logo {
+  display: block;
+  width: auto;
+  height: clamp(2.85rem, 6.2vw, 4.6rem);
+  max-width: min(40vw, 596px);
+  object-fit: contain;
+  user-select: none;
+}
+
+.idle-brand-step-logo {
+  width: auto;
+  height: clamp(3.9rem, 8.46vw, 6.28rem);
+  max-width: min(43vw, 524px);
+  background-color: var(--ink);
+}
+
+.idle-brand-tagline {
+  margin-top: clamp(1.8rem, 4.5vh, 3.25rem);
+  color: color-mix(in srgb, var(--ink) 88%, var(--muted));
+  max-width: 100%;
+  font-size: clamp(1.45rem, 2.6vw, 2rem);
+  text-wrap: balance;
+  white-space: nowrap;
+  animation: idle-brand-detail-in 280ms 45ms var(--acct-ease) both;
+}
+
+.idle-brand-back {
+  display: inline-flex;
+  min-width: 9.75rem;
+  min-height: 2.8rem;
+  align-items: center;
+  justify-content: center;
+  margin-top: clamp(1.65rem, 4vh, 2.75rem);
+  border: 1px solid
+    color-mix(in srgb, var(--harper-orange) 42%, var(--rule));
+  border-top-color: color-mix(
+    in srgb,
+    var(--harper-orange) 62%,
+    var(--rule)
+  );
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  box-shadow:
+    0 1px 0 var(--inset-highlight) inset,
+    0 12px 30px color-mix(in srgb, var(--shadow-color) 38%, transparent);
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms var(--acct-ease);
+  animation: idle-brand-detail-in 280ms 75ms var(--acct-ease) both;
+}
+
+.idle-brand-back:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--harper-orange) 68%,
+    var(--rule)
+  );
+  background: color-mix(
+    in srgb,
+    var(--harper-orange) 7%,
+    var(--surface-raised)
+  );
+  box-shadow:
+    0 1px 0 var(--inset-highlight) inset,
+    0 15px 34px color-mix(in srgb, var(--shadow-color) 48%, transparent);
+  transform: translateY(-1px);
+}
+
+.idle-brand-back:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+  box-shadow:
+    0 0 0 5px var(--accent-soft),
+    0 12px 30px color-mix(in srgb, var(--shadow-color) 38%, transparent);
+}
+
+.idle-brand-overlay--closing .idle-brand-composition {
+  animation: idle-brand-composition-out 200ms ease-in both;
+}
+
+.idle-brand-overlay--closing .idle-brand-tagline,
+.idle-brand-overlay--closing .idle-brand-back {
+  animation: idle-brand-detail-out 165ms ease-in both;
+}
+
+@keyframes idle-brand-backdrop-in {
+  from {
+    opacity: 0;
+    -webkit-backdrop-filter: blur(2px) saturate(0.9);
+    backdrop-filter: blur(2px) saturate(0.9);
+  }
+  to {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(4px) saturate(0.9);
+    backdrop-filter: blur(4px) saturate(0.9);
+  }
+}
+
+@keyframes idle-brand-backdrop-out {
+  from {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(4px) saturate(0.9);
+    backdrop-filter: blur(4px) saturate(0.9);
+  }
+  to {
+    opacity: 0;
+    -webkit-backdrop-filter: blur(3px) saturate(0.9);
+    backdrop-filter: blur(3px) saturate(0.9);
+  }
+}
+
+@keyframes idle-brand-composition-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes idle-brand-composition-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(3px) scale(0.995);
+  }
+}
+
+@keyframes idle-brand-detail-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes idle-brand-detail-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+@keyframes idle-brand-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes idle-brand-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 35rem) {
+  .idle-brand-lockup {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    gap: clamp(0.55rem, 2vh, 0.85rem);
+  }
+
+  .idle-brand-harper-logo,
+  .idle-brand-step-logo {
+    justify-self: center;
+  }
+
+  .idle-brand-harper-logo {
+    height: clamp(2.35rem, 12vw, 3.1rem);
+    max-width: min(78vw, 596px);
+  }
+
+  .idle-brand-step-logo {
+    height: clamp(3.2rem, 16.4vw, 4.25rem);
+    max-width: min(82vw, 524px);
+  }
+
+  .idle-brand-tagline {
+    margin-top: clamp(1.35rem, 4vh, 2rem);
+    font-size: clamp(1.05rem, 5.4vw, 1.35rem);
+  }
+
+  .idle-brand-back {
+    margin-top: clamp(1.35rem, 3.5vh, 2rem);
+  }
+}
+
+@media (max-height: 34rem) and (min-width: 35.001rem) {
+  .idle-brand-harper-logo {
+    height: 2.75rem;
+  }
+
+  .idle-brand-step-logo {
+    height: 3.75rem;
+  }
+
+  .idle-brand-tagline {
+    margin-top: 1.1rem;
+    font-size: 1.35rem;
+  }
+
+  .idle-brand-back {
+    min-height: 2.55rem;
+    margin-top: 1rem;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .idle-brand-overlay {
+    background: color-mix(in srgb, var(--background) 97%, transparent);
+  }
+
+  .idle-brand-back {
+    border-color: var(--harper-orange);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .idle-brand-overlay,
+  :root[data-theme="dark"] .idle-brand-overlay {
+    background: var(--background);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-overlay-trigger,
+  .idle-brand-back {
+    transition: none;
+  }
+
+  .idle-brand-back:hover {
+    transform: none;
+  }
+
+  .idle-brand-overlay,
+  .idle-brand-composition,
+  .idle-brand-tagline,
+  .idle-brand-back {
+    animation-name: idle-brand-fade-in;
+    animation-duration: 80ms;
+    animation-delay: 0ms;
+    animation-timing-function: linear;
+  }
+
+  .idle-brand-overlay--closing,
+  .idle-brand-overlay--closing .idle-brand-composition,
+  .idle-brand-overlay--closing .idle-brand-tagline,
+  .idle-brand-overlay--closing .idle-brand-back {
+    animation-name: idle-brand-fade-out;
+    animation-duration: 70ms;
+  }
+}
+
+@media print {
+  .idle-brand-overlay {
+    display: none !important;
+  }
 }

@@ -13,13 +13,12 @@
  *      exactly as the same text pasted by hand — one verdict path, two doors.
  *   3. A page with no text layer (a scan) yields nothing, so the upload path
  *      can refuse it rather than verify an "empty" certificate as clean.
- *   4. The upload never becomes a source of coverage facts: the recreation
- *      is resolved from the record, and the action files the upload
- *      untrusted.
+ *
+ * (A fourth, source-text pass over cert-upload-actions.ts went away with that
+ * module — it was only reachable from the old account-page CertVerifyPanel,
+ * both removed in the dead-code sweep. CoiVerifier drives verification now.)
  */
 
-import fs from "node:fs";
-import path from "node:path";
 import { parseCertificateText, verifyAgainstRecord } from "../src/lib/cert-verify";
 import { bareFormSet, FORM_SETS, type PolicyFormSet } from "../src/lib/forms";
 import { extractPdfText } from "../src/lib/pdf-text.server";
@@ -160,32 +159,6 @@ async function main() {
     blank.replace(/\s/g, "") === "",
     "A page with no text layer yields no text at all",
     JSON.stringify(blank.slice(0, 40)),
-  );
-
-  /* 5. Structural: the upload is never a source of coverage facts. */
-  const src = fs.readFileSync(
-    path.join(process.cwd(), "src/lib/cert-upload-actions.ts"),
-    "utf-8",
-  );
-  check(
-    /no text layer/i.test(src) && src.includes("Paste the certificate text instead"),
-    "The action refuses a scan instead of verifying an empty certificate",
-  );
-  check(
-    src.includes("trusted: false") && src.includes('kindHint: "coi"'),
-    "The upload is filed as an untrusted COI document",
-  );
-  check(
-    src.includes("buildCertificatePacket") && src.includes("getPolicyFormSet"),
-    "The recreation resolves from the schedule of record, not from the upload",
-  );
-  check(
-    !/extracted\.limits/.test(src),
-    "No path copies the uploaded cert's limits into the recreation",
-  );
-  check(
-    src.includes("if (!operator)"),
-    "The action refuses an unauthenticated caller",
   );
 
   console.log(failed === 0 ? "\nAll upload checks passed." : `\n${failed} FAILURE(S).`);

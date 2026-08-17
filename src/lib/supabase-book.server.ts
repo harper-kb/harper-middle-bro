@@ -9,14 +9,19 @@ import {
 } from "./account-source";
 import {
   parseBookOrderServiceNote,
+  parseBookServiceNoteEntry,
   type BookOrderServiceNote,
+  type BookServiceNoteEntry,
 } from "./service-note";
 
-export type { BookOrderServiceNote } from "./service-note";
+export type {
+  BookOrderServiceNote,
+  BookServiceNoteEntry,
+} from "./service-note";
 
 /**
  * Loader for the real-book overlay: a curated slice of actual Harper
- * companies/policies/orders exported from Supabase by the five-minute
+ * companies/policies/orders exported from Supabase by the two-minute
  * refresher (`src/lib/db/book-refresh.ts`) into
  * `data/supabase-book.local.json` (gitignored).
  *
@@ -211,6 +216,105 @@ export interface BookOrder {
   brokerGate: string | null;
   /** ISO timestamp of that override row when known. */
   brokerGateAt: string | null;
+  /**
+   * Stable `orders_temp.producer` → `producers.id`. Deduplication key for the
+   * account-level producer summary; two producers may share a display name.
+   */
+  producerId: number | null;
+  /** `producers.first_name`/`last_name` for that id. Null = unnamed in the directory. */
+  producerName: string | null;
+}
+
+/**
+ * One normalized customer identifier for global company search. Values are
+ * search keys only — lowercased emails and digit-only phones — so a match can
+ * be found without the search path carrying a formatted customer email or
+ * phone number.
+ */
+export interface BookContactKey {
+  accountId: string;
+  kind: "email" | "phone";
+  value: string;
+}
+
+/** One display contact on the company page's Contacts card. */
+export interface BookCompanyContact {
+  /** Stable `companies_contacts.id`. */
+  id: number;
+  /** Resolved display name; "Unnamed contact" when the row carries none. */
+  name: string;
+  email: string | null;
+  phone: string | null;
+}
+
+/**
+ * Company-page overview fields mirrored locally so `/accounts/[id]` renders
+ * without a live Management API round-trip: location, stored timezone, the
+ * company-level producer (resolved from `producer_assigned` by slug), and the
+ * display contacts. The company digest covers all of it, so a change lands
+ * with the next refresh tick.
+ */
+export interface BookCompanyDetail {
+  accountId: string;
+  address1: string | null;
+  address2: string | null;
+  city: string | null;
+  /** Raw `companies.company_state` as displayed. */
+  state: string | null;
+  /** Two-letter abbreviation resolved through `public.states`. */
+  stateCode: string | null;
+  postalCode: string | null;
+  /** Raw `companies.company_timezone`; resolution happens at read time. */
+  timeZone: string | null;
+  producerId: number | null;
+  producerName: string | null;
+  contacts: BookCompanyContact[];
+}
+
+export function parseBookCompanyDetail(
+  value: unknown,
+): BookCompanyDetail | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const accountId =
+    typeof row.accountId === "string" ? row.accountId.trim() : "";
+  if (!accountId) return null;
+  const text = (input: unknown): string | null => {
+    if (typeof input !== "string") return null;
+    const trimmed = input.trim();
+    return trimmed || null;
+  };
+  const contacts = (Array.isArray(row.contacts) ? row.contacts : []).flatMap(
+    (entry): BookCompanyContact[] => {
+      if (!entry || typeof entry !== "object") return [];
+      const contact = entry as Record<string, unknown>;
+      const id = Number(contact.id);
+      if (!Number.isSafeInteger(id) || id <= 0) return [];
+      return [
+        {
+          id,
+          name: text(contact.name) ?? "Unnamed contact",
+          email: text(contact.email),
+          phone: text(contact.phone),
+        },
+      ];
+    },
+  );
+  const producerId = Number(row.producerId);
+  return {
+    accountId,
+    address1: text(row.address1),
+    address2: text(row.address2),
+    city: text(row.city),
+    state: text(row.state),
+    stateCode: text(row.stateCode),
+    postalCode: text(row.postalCode),
+    timeZone: text(row.timeZone),
+    producerId:
+      Number.isSafeInteger(producerId) && producerId > 0 ? producerId : null,
+    producerName: text(row.producerName),
+    contacts,
+  };
 }
 
 export interface SupabaseBook {
@@ -223,6 +327,20 @@ export interface SupabaseBook {
   schedules?: Record<string, PolicyFormSet>;
   /** Order grain for All Accounts — empty on older snapshots until refresh. */
   orders: BookOrder[];
+  /** Search keys for global company search — empty on older snapshots. */
+  contactKeys: BookContactKey[];
+  /**
+   * Every visible Service Note entry across the book (~4.6k rows / ~0.4 MB
+   * measured live) — the local mirror the expanded note threads read instead
+   * of a live Management API query per interaction. Absent on snapshots
+   * written before note threads were mirrored.
+   */
+  serviceNoteEntries?: BookServiceNoteEntry[];
+  /**
+   * Company-page overview mirror (location / timezone / producer / display
+   * contacts) — absent on snapshots written before it shipped.
+   */
+  companyDetails?: BookCompanyDetail[];
   reportingWindows?: BookReportingWindows;
   /**
    * False when the snapshot on disk predates the IQ Stage / Broker Gate order
@@ -237,6 +355,24 @@ export interface SupabaseBook {
    * note" until the next tick.
    */
   serviceNotesPresent?: boolean;
+  /**
+   * False when the snapshot predates the search keys and order producer. Global
+   * search would find nothing by email or phone, and every result would read
+   * "Producer unavailable", so the boot path refreshes instead of serving them.
+   */
+  searchFieldsPresent?: boolean;
+  /**
+   * False when the snapshot predates the mirrored Service Note threads. Note
+   * threads then fall back to the legacy live read until the boot refresh
+   * publishes a snapshot that carries them.
+   */
+  noteThreadsPresent?: boolean;
+  /**
+   * False when the snapshot predates the company-page overview mirror. The
+   * overview then falls back to the legacy live read until the boot refresh
+   * publishes a snapshot that carries it.
+   */
+  companyDetailsPresent?: boolean;
 }
 
 const BOOK_PATH = path.join(process.cwd(), "data", "supabase-book.local.json");
@@ -277,7 +413,7 @@ export function bookSource(): BookSource {
 }
 
 /**
- * The five-minute refresher (src/lib/db/book-refresh.ts) hands its freshly
+ * The two-minute refresher (src/lib/db/book-refresh.ts) hands its freshly
  * fetched book straight to the loader cache so the re-sync sees it without a
  * process restart or a disk round-trip.
  */
@@ -288,7 +424,7 @@ export function setSupabaseBookCache(book: SupabaseBook) {
 /**
  * Validate one snapshot order. Accepts the legacy `isBound` shape (older
  * snapshots) and normalizes it so a boot before the next refresh never wipes
- * the book — legacy statuses are corrected by the next five-minute refresh.
+ * the book — legacy statuses are corrected by the next refresh tick.
  */
 function toBookOrder(value: unknown): BookOrder | null {
   if (!value || typeof value !== "object") return null;
@@ -366,7 +502,23 @@ function toBookOrder(value: unknown): BookOrder | null {
       typeof o.brokerGateAt === "string" && o.brokerGateAt.trim()
         ? o.brokerGateAt
         : null,
+    producerId: Number.isSafeInteger(o.producerId)
+      ? (o.producerId as number)
+      : null,
+    producerName:
+      typeof o.producerName === "string" && o.producerName.trim()
+        ? o.producerName.trim()
+        : null,
   };
+}
+
+function toContactKey(value: unknown): BookContactKey | null {
+  if (!value || typeof value !== "object") return null;
+  const k = value as Record<string, unknown>;
+  if (k.kind !== "email" && k.kind !== "phone") return null;
+  if (typeof k.accountId !== "string" || !k.accountId) return null;
+  if (typeof k.value !== "string" || !k.value.trim()) return null;
+  return { accountId: k.accountId, kind: k.kind, value: k.value.trim() };
 }
 
 function readBook(): SupabaseBook | null {
@@ -378,6 +530,9 @@ function readBook(): SupabaseBook | null {
       accounts?: unknown;
       policies?: unknown;
       orders?: unknown;
+      contactKeys?: unknown;
+      serviceNoteEntries?: unknown;
+      companyDetails?: unknown;
       reportingWindows?: unknown;
     };
     const accounts = Array.isArray(parsed.accounts)
@@ -431,6 +586,32 @@ function readBook(): SupabaseBook | null {
         "serviceNote" in rich
       );
     });
+    const contactKeys = (
+      Array.isArray(parsed.contactKeys) ? parsed.contactKeys : []
+    )
+      .map(toContactKey)
+      .filter((k): k is BookContactKey => k !== null);
+    // Key presence again, not value: only a snapshot written by the query that
+    // carries producers has the field at all.
+    const searchFieldsPresent =
+      Array.isArray(parsed.contactKeys) &&
+      ordersRaw.some(
+        (o) => typeof o === "object" && o !== null && "producerId" in o,
+      );
+    // Key presence: a book with zero notes still writes the (empty) array, so
+    // only a snapshot from before the mirror shipped lacks the key entirely.
+    const noteThreadsPresent = Array.isArray(parsed.serviceNoteEntries);
+    const serviceNoteEntries = (
+      noteThreadsPresent ? (parsed.serviceNoteEntries as unknown[]) : []
+    )
+      .map(parseBookServiceNoteEntry)
+      .filter((entry): entry is BookServiceNoteEntry => entry !== null);
+    const companyDetailsPresent = Array.isArray(parsed.companyDetails);
+    const companyDetails = (
+      companyDetailsPresent ? (parsed.companyDetails as unknown[]) : []
+    )
+      .map(parseBookCompanyDetail)
+      .filter((detail): detail is BookCompanyDetail => detail !== null);
 
     return {
       fetchedAt: typeof parsed.fetchedAt === "string" ? parsed.fetchedAt : "",
@@ -438,8 +619,14 @@ function readBook(): SupabaseBook | null {
       accounts,
       policies,
       orders,
+      contactKeys,
+      serviceNoteEntries,
+      companyDetails,
       stageFieldsPresent,
       serviceNotesPresent,
+      searchFieldsPresent,
+      noteThreadsPresent,
+      companyDetailsPresent,
       reportingWindows:
         parsed.reportingWindows &&
         typeof parsed.reportingWindows === "object"

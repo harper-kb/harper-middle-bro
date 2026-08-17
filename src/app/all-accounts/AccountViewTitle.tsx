@@ -11,27 +11,33 @@ import {
 import {
   ACCOUNT_ORDERS_VIEWS,
   getAccountOrdersView,
+  SOURCE_PIPELINE_FILTER_PARAMS,
+  supportsSourcePipelineFilters,
 } from "./view-config";
 import type { BookOrdersViewMode } from "@/lib/db";
 
 function viewHref(
-  href: string,
+  view: (typeof ACCOUNT_ORDERS_VIEWS)[number],
   currentParams: Record<string, string | undefined>,
 ): string {
   const params = new URLSearchParams();
   const supportsRange =
-    href === "/pending-orders" || href === "/bound-orders";
-  // IQ Stage only applies on All Accounts / Pending with source=iq.
-  const supportsIqStage =
-    href === "/all-accounts" || href === "/pending-orders";
+    view.href === "/all-accounts" ||
+    view.href === "/pending-orders" ||
+    view.href === "/bound-orders";
+  // IQ Stage / Broker Gate only apply on All Accounts / Pending — one shared
+  // scope rule with the page and the toolbar, so a source-scoped filter param
+  // never survives a jump to Bound or Lost.
+  const supportsPipelineFilters = supportsSourcePipelineFilters(view.id);
   for (const [key, value] of Object.entries(currentParams)) {
     if (value === undefined || key === "page") continue;
     if (key === "range" && !supportsRange) continue;
-    if (key === "iqStage" && !supportsIqStage) continue;
+    if (SOURCE_PIPELINE_FILTER_PARAMS.includes(key) && !supportsPipelineFilters)
+      continue;
     params.set(key, value);
   }
   const query = params.toString();
-  return `${href}${query ? `?${query}` : ""}`;
+  return `${view.href}${query ? `?${query}` : ""}`;
 }
 
 export function AccountViewTitle({
@@ -168,7 +174,7 @@ export function AccountViewTitle({
                 }}
                 role="menuitem"
                 tabIndex={-1}
-                href={viewHref(view.href, currentParams)}
+                href={viewHref(view, currentParams)}
                 aria-current={selected ? "page" : undefined}
                 className={`flex items-center justify-between gap-4 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] ${
                   selected

@@ -1,5 +1,5 @@
 /**
- * Live Service Note preview check — confirms the five-minute book carries
+ * Live Service Note preview check — confirms the refreshed book carries
  * Workbench notes from public.service_note_entries (not producer notes), that
  * Habibi Smoke & Vape matches the authoritative latest entry, and that
  * listBookAccountsPage surfaces the note on the collapsed account row without

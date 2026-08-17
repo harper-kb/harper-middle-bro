@@ -43,6 +43,46 @@ interface AddressAdapter {
   validate(oneline: string): Promise<AddressVerdict>;
 }
 
+type CensusAddressMatch = {
+  matchedAddress?: string;
+  coordinates?: {
+    x?: number;
+    y?: number;
+  };
+  addressComponents?: {
+    fromAddress?: string;
+    preDirection?: string;
+    preQualifier?: string;
+    preType?: string;
+    streetName?: string;
+    suffixType?: string;
+    suffixDirection?: string;
+    suffixQualifier?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
+};
+
+async function censusAddressMatch(
+  oneline: string,
+): Promise<CensusAddressMatch | null> {
+  const url =
+    "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress" +
+    `?address=${encodeURIComponent(oneline)}` +
+    "&benchmark=Public_AR_Current&format=json";
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`Census geocoder HTTP ${res.status}`);
+  const data = (await res.json()) as {
+    result?: {
+      addressMatches?: CensusAddressMatch[];
+    };
+  };
+  return data.result?.addressMatches?.[0] ?? null;
+}
+
 function verdictFromStandardized(
   input: string,
   standardized: StandardizedAddress,
@@ -73,35 +113,7 @@ function verdictFromStandardized(
 const censusAdapter: AddressAdapter = {
   name: "census",
   async validate(oneline) {
-    const url =
-      "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress" +
-      `?address=${encodeURIComponent(oneline)}` +
-      "&benchmark=Public_AR_Current&format=json";
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) throw new Error(`Census geocoder HTTP ${res.status}`);
-    const data = (await res.json()) as {
-      result?: {
-        addressMatches?: {
-          matchedAddress?: string;
-          addressComponents?: {
-            fromAddress?: string;
-            preDirection?: string;
-            preQualifier?: string;
-            preType?: string;
-            streetName?: string;
-            suffixType?: string;
-            suffixDirection?: string;
-            suffixQualifier?: string;
-            city?: string;
-            state?: string;
-            zip?: string;
-          };
-        }[];
-      };
-    };
-    const match = data.result?.addressMatches?.[0];
+    const match = await censusAddressMatch(oneline);
     if (!match?.matchedAddress) {
       return {
         status: "unverifiable",
@@ -130,6 +142,48 @@ const censusAdapter: AddressAdapter = {
     );
   },
 };
+
+export interface VerifiedAddressCoordinates {
+  latitude: number;
+  longitude: number;
+  matchedAddress: string;
+  provider: "census";
+}
+
+/**
+ * Resolve a complete US postal address through the same approved Census
+ * provider already used by address validation. Coordinates are returned only
+ * for an actual street-range match; callers must still map them to an IANA
+ * timezone and cache the stable result.
+ */
+export async function geocodeVerifiedUsAddress(
+  address: string,
+): Promise<VerifiedAddressCoordinates | null> {
+  const oneline = address.replace(/\s+/g, " ").trim();
+  if (!oneline) return null;
+  const match = await censusAddressMatch(oneline);
+  const latitude = match?.coordinates?.y;
+  const longitude = match?.coordinates?.x;
+  if (
+    !match?.matchedAddress ||
+    typeof latitude !== "number" ||
+    !Number.isFinite(latitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    typeof longitude !== "number" ||
+    !Number.isFinite(longitude) ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null;
+  }
+  return {
+    latitude,
+    longitude,
+    matchedAddress: match.matchedAddress,
+    provider: "census",
+  };
+}
 
 /** Smarty US Street API — activates with SMARTY_AUTH_ID / SMARTY_AUTH_TOKEN. */
 const smartyAdapter: AddressAdapter = {

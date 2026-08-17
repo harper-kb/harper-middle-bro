@@ -1,7 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import {
+  listBookAccountCarrierFacet,
+  listBookAccountLocationStateFacet,
   listBookAccountsPage,
   type BookOrdersViewMode,
 } from "@/lib/db";
@@ -18,16 +19,43 @@ import {
   serializeIqStages,
 } from "@/lib/iq-stage";
 import {
+  parseBrokerGates,
+  serializeBrokerGates,
+} from "@/lib/broker-gate";
+import {
+  CARRIER_FILTER_PARAM,
+  parseCarrierFilter,
+  serializeCarrierFilter,
+} from "@/lib/carrier-filter";
+import {
+  LOCATION_STATE_FILTER_PARAM,
+  parseLocationStates,
+  serializeLocationStates,
+} from "@/lib/location-state";
+import {
+  ACCOUNT_SORT_PARAM,
+  parseAccountSort,
+  serializeAccountSort,
+} from "@/lib/account-sort";
+import {
   bigBrotherBaseUrl,
   canEditOrders,
 } from "@/lib/order-action-gates";
 import { getSessionOperator } from "@/lib/session";
 import { AccountFilterToolbar } from "./AccountFilterToolbar";
+import { AccountSearchField } from "./AccountSearchField";
 import { AccountViewTitle } from "./AccountViewTitle";
-import { AllAccountsList } from "./AllAccountsList";
+import { CarrierMultiSelect } from "./CarrierMultiSelect";
+import { StateSortSelect } from "./StateSortSelect";
+import { AccountResultsPanel } from "./AccountResultsPanel";
+import { RecordsLiveRefresh } from "./RecordsLiveRefresh";
 import { KpiStrip, type KpiStat } from "./KpiStrip";
 import { PaginationControls } from "./PaginationControls";
-import { getAccountOrdersView } from "./view-config";
+import {
+  getAccountOrdersView,
+  SOURCE_PIPELINE_FILTER_PARAMS,
+  supportsSourcePipelineFilters,
+} from "./view-config";
 
 const PAGE_SIZE = 100;
 
@@ -143,9 +171,14 @@ function emptyMessage(
   mode: BookOrdersViewMode,
   query: string,
   source: AccountSourceId,
+  /** Active carrier + location-state selections, combined. */
+  facetCount: number,
 ): string {
   const sourceLabel =
     source === "all" ? "" : ` ${ACCOUNT_SOURCE_LABELS[source]}`;
+  if (facetCount > 0) {
+    return "No accounts in this view match the selected carrier and location filters.";
+  }
   if (query) {
     return `No${sourceLabel} ${mode === "all" ? "accounts" : `${mode} order accounts`} match this search.`;
   }
@@ -170,20 +203,7 @@ function emptyMessage(
   if (mode === "lost") {
     return "No accounts currently have Lost orders.";
   }
-  return "No accounts in the book yet — the five-minute refresh will fill this in.";
-}
-
-function hrefWithParams(
-  basePath: string,
-  params: SearchParams,
-  patch: Record<string, string | undefined>,
-): string {
-  const next = new URLSearchParams();
-  for (const [key, value] of Object.entries({ ...params, ...patch })) {
-    if (value !== undefined && value !== "") next.set(key, value);
-  }
-  const query = next.toString();
-  return `${basePath}${query ? `?${query}` : ""}`;
+  return "No accounts in the book yet — the two-minute refresh will fill this in.";
 }
 
 export async function AccountOrdersPage({
@@ -201,21 +221,43 @@ export async function AccountOrdersPage({
     Number.parseInt(params.page ?? "1", 10) || 1,
   );
   const view = getAccountOrdersView(mode);
-  const range =
-    mode === "pending" || mode === "bound"
-      ? parseOrderReportingRange(params.range)
-      : undefined;
-  // IQ Stage only on IQ + All Accounts / Pending Orders.
-  const iqStageSupported = source === "iq" && (mode === "all" || mode === "pending");
+  const range = parseOrderReportingRange(params.range);
+  // Source-scoped pipeline filters, both gated to All Accounts / Pending
+  // Orders by the shared view config: IQ Stage under IQ, Broker Gate under
+  // Broker. An unsupported param never reaches the query — the normalizing
+  // redirect below strips it first.
+  const pipelineModeSupported = supportsSourcePipelineFilters(mode);
+  const iqStageSupported = source === "iq" && pipelineModeSupported;
   const iqStages = iqStageSupported ? parseIqStages(params.iqStage) : [];
   const serializedStages = serializeIqStages(iqStages);
+  const brokerGateSupported = source === "broker" && pipelineModeSupported;
+  const brokerGates = brokerGateSupported
+    ? parseBrokerGates(params.brokerGate)
+    : [];
+  const serializedGates = serializeBrokerGates(brokerGates);
+  // Carrier, Location State and Sort — apply to every record view and source.
+  const carriers = parseCarrierFilter(params[CARRIER_FILTER_PARAM]);
+  const serializedCarriers = serializeCarrierFilter(carriers);
+  const locationStates = parseLocationStates(
+    params[LOCATION_STATE_FILTER_PARAM],
+  );
+  const serializedLocationStates = serializeLocationStates(locationStates);
+  const sort = parseAccountSort(params[ACCOUNT_SORT_PARAM]);
+  const serializedSort = serializeAccountSort(sort);
   if (
     (range && params.range !== range) ||
     (!range && params.range !== undefined) ||
     (source === "all" && params.source !== undefined) ||
     (source !== "all" && params.source !== source) ||
     (!iqStageSupported && params.iqStage !== undefined) ||
-    (iqStageSupported && (params.iqStage ?? undefined) !== serializedStages)
+    (iqStageSupported && (params.iqStage ?? undefined) !== serializedStages) ||
+    (!brokerGateSupported && params.brokerGate !== undefined) ||
+    (brokerGateSupported &&
+      (params.brokerGate ?? undefined) !== serializedGates) ||
+    (params[CARRIER_FILTER_PARAM] ?? undefined) !== serializedCarriers ||
+    (params[LOCATION_STATE_FILTER_PARAM] ?? undefined) !==
+      serializedLocationStates ||
+    (params[ACCOUNT_SORT_PARAM] ?? undefined) !== serializedSort
   ) {
     const normalized = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -223,7 +265,10 @@ export async function AccountOrdersPage({
         value !== undefined &&
         key !== "range" &&
         key !== "source" &&
-        key !== "iqStage"
+        key !== CARRIER_FILTER_PARAM &&
+        key !== LOCATION_STATE_FILTER_PARAM &&
+        key !== ACCOUNT_SORT_PARAM &&
+        !SOURCE_PIPELINE_FILTER_PARAMS.includes(key)
       ) {
         normalized.set(key, value);
       }
@@ -231,6 +276,12 @@ export async function AccountOrdersPage({
     if (range) normalized.set("range", range);
     if (source !== "all") normalized.set("source", source);
     if (serializedStages) normalized.set("iqStage", serializedStages);
+    if (serializedGates) normalized.set("brokerGate", serializedGates);
+    if (serializedCarriers)
+      normalized.set(CARRIER_FILTER_PARAM, serializedCarriers);
+    if (serializedLocationStates)
+      normalized.set(LOCATION_STATE_FILTER_PARAM, serializedLocationStates);
+    if (serializedSort) normalized.set(ACCOUNT_SORT_PARAM, serializedSort);
     const query = normalized.toString();
     redirect(`${view.href}${query ? `?${query}` : ""}`);
   }
@@ -252,6 +303,10 @@ export async function AccountOrdersPage({
     range,
     source,
     iqStages,
+    brokerGates,
+    carriers,
+    locationStates,
+    sort,
     offset: (requestedPage - 1) * PAGE_SIZE,
     limit: PAGE_SIZE,
   });
@@ -264,10 +319,48 @@ export async function AccountOrdersPage({
       range,
       source,
       iqStages,
+      brokerGates,
+      carriers,
+      locationStates,
+      sort,
       offset: (page - 1) * PAGE_SIZE,
       limit: PAGE_SIZE,
     });
   }
+  // Contextual options under every active filter except each facet's own
+  // selection (facet self-exclusion) — same request, same data revision as
+  // the rows above. Sort never reaches a facet: it orders, never filters.
+  const carrierFacet = listBookAccountCarrierFacet({
+    query: q,
+    mode,
+    range,
+    source,
+    iqStages,
+    brokerGates,
+    locationStates,
+    selectedCarriers: carriers,
+  });
+  const locationStateFacet = listBookAccountLocationStateFacet({
+    query: q,
+    mode,
+    range,
+    source,
+    iqStages,
+    brokerGates,
+    carriers,
+    selectedStates: locationStates,
+  });
+  const carrierLabelByKey = new Map<string, string>();
+  for (const option of carrierFacet.options) {
+    carrierLabelByKey.set(option.key, option.label);
+  }
+  for (const option of carrierFacet.unavailableSelected) {
+    carrierLabelByKey.set(option.key, option.label);
+  }
+  const selectedCarrierSummaries = carriers.map((key) => ({
+    key,
+    label: carrierLabelByKey.get(key) ?? key,
+  }));
 
   const {
     total,
@@ -291,6 +384,7 @@ export async function AccountOrdersPage({
   return (
     <>
       <Nav active={view.href} operator={operator} />
+      <RecordsLiveRefresh />
       <main className="mx-auto max-w-6xl px-4 py-8">
         <div className="mb-6">
           <p className="eyebrow">Records</p>
@@ -304,6 +398,11 @@ export async function AccountOrdersPage({
               rangeWindowLabel={boundaryLabel}
               showIqStage={iqStageSupported}
               iqStages={iqStages}
+              showBrokerGate={brokerGateSupported}
+              brokerGates={brokerGates}
+              carriers={carriers}
+              locationStates={locationStates}
+              sort={sort}
             />
           </div>
           <div className="mt-4">
@@ -327,81 +426,64 @@ export async function AccountOrdersPage({
           </p>
         </div>
 
-        <form
-          action={view.href}
-          method="get"
-          className="mb-4 flex flex-wrap items-center gap-2"
-        >
-          {range ? <input type="hidden" name="range" value={range} /> : null}
-          {source !== "all" ? (
-            <input type="hidden" name="source" value={source} />
-          ) : null}
-          {serializedStages ? (
-            <input type="hidden" name="iqStage" value={serializedStages} />
-          ) : null}
-          <input
-            type="search"
-            name="q"
-            defaultValue={q}
-            placeholder="Search by account name or DBA…"
-            className="w-72 rounded-lg border border-[var(--rule)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm text-[var(--ink)] placeholder:text-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <AccountSearchField
+            basePath={view.href}
+            currentParams={params}
+            committedQuery={q}
+            resultCount={total}
           />
-          <button type="submit" className="btn-ghost px-3 py-1.5 text-xs">
-            Search
-          </button>
-          {q ? (
-            <Link
-              href={hrefWithParams(view.href, params, {
-                q: undefined,
-                page: undefined,
-              })}
-              className="text-xs text-[var(--muted)] underline-offset-2 hover:underline"
-            >
-              Clear
-            </Link>
-          ) : null}
-        </form>
-
-        <div
-          id="account-results"
-          tabIndex={-1}
-          className="scroll-mt-4 overflow-hidden rounded-xl border border-[var(--rule)] bg-[var(--surface-raised)] shadow-sm focus:outline-none"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--rule)] bg-[var(--sand)]/50 px-4 py-2 text-[var(--muted)]">
-            <div className="flex items-center gap-2.5">
-              <span className="text-xs font-semibold uppercase tracking-wide">
-                Account
-              </span>
-              <span
-                className="h-4 w-px bg-[var(--rule)]"
-                aria-hidden="true"
-              />
-              <span className="flex items-baseline gap-1 normal-case tracking-normal">
-                <span className="text-sm font-semibold tabular-nums text-[var(--ink)]">
-                  {total.toLocaleString()}
-                </span>
-                <span className="text-[11px] text-[var(--muted)]">
-                  {total === 1 ? "total account" : "total accounts"}
-                </span>
-              </span>
-            </div>
-            <PaginationControls
-              currentPage={page}
-              totalPages={pageCount}
-              currentParams={params}
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <CarrierMultiSelect
               basePath={view.href}
-              placement="top"
+              currentParams={params}
+              selected={carriers}
+              options={carrierFacet.options}
+              unavailableSelected={carrierFacet.unavailableSelected}
+              resultTotal={total}
+            />
+            <StateSortSelect
+              basePath={view.href}
+              currentParams={params}
+              selectedStates={locationStates}
+              sort={sort}
+              options={locationStateFacet.options}
+              unavailableSelected={locationStateFacet.unavailableSelected}
+              resultTotal={total}
             />
           </div>
-          <AllAccountsList
-            rows={rows}
-            emptyMessage={emptyMessage(mode, q, source)}
-            richCards={mode !== "all"}
-            canEditOrders={canEditOrders(operator)}
-            bigBrotherBaseUrl={bigBrotherBaseUrl()}
-            todayDay={todayDay}
-          />
         </div>
+
+        <AccountResultsPanel
+          rows={rows}
+          emptyMessage={emptyMessage(
+            mode,
+            q,
+            source,
+            carriers.length + locationStates.length,
+          )}
+          canEditOrders={canEditOrders(operator)}
+          bigBrotherBaseUrl={bigBrotherBaseUrl()}
+          todayDay={todayDay}
+          total={total}
+          view={{ id: view.id, title: view.title }}
+          filterState={{
+            source,
+            iqStages,
+            brokerGates,
+            range,
+            carriers: selectedCarrierSummaries,
+            locationStates,
+            sort,
+            search: q,
+          }}
+          pagination={{
+            currentPage: page,
+            totalPages: pageCount,
+            currentParams: params,
+            basePath: view.href,
+          }}
+        />
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[var(--muted)]">
           <span>

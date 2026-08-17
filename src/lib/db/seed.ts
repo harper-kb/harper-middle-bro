@@ -10,8 +10,16 @@ import { SEED_ACCOUNTS, SEED_POLICIES, SEED_UNDERWRITERS } from "../seed";
 import {
   loadSupabaseBook,
   UNASSIGNED_UNDERWRITER,
+  type BookContactKey,
   type BookOrder,
+  type BookServiceNoteEntry,
 } from "../supabase-book.server";
+import {
+  META_COMPANY_DETAILS_SYNCED_AT,
+  META_SERVICE_NOTES_SYNCED_AT,
+  writeBookMeta,
+} from "./book-meta";
+import { carrierKeyFromName } from "../carrier-filter";
 import { SEED_TICKETS } from "../tickets/tickets-seed";
 import { buildTicketTitle, deriveTicketStatus } from "../tickets/tickets";
 import { buildReplySteps, buildSendSteps } from "../threads/trace";
@@ -209,13 +217,15 @@ export function syncAccountsAndPolicies(db: Database.Database) {
       id, account_id, harper_order_id, created_at, ordered_at, event_at,
       bind_status, revenue_cents, revenue_micros, rich_json,
       policy_numbers_json, inconsistency, source,
-      iq_stage_tag, broker_gate, broker_gate_at
+      iq_stage_tag, broker_gate, broker_gate_at,
+      producer_id, producer_name
     )
     VALUES (
       @id, @accountId, @harperOrderId, @createdAt, @orderedAt, @eventAt,
       @bindStatus, @revenueCents, @revenueMicros, @richJson,
       @policyNumbersJson, @inconsistency, @source,
-      @iqStageTag, @brokerGate, @brokerGateAt
+      @iqStageTag, @brokerGate, @brokerGateAt,
+      @producerId, @producerName
     )
     ON CONFLICT(id) DO UPDATE SET
       account_id = excluded.account_id,
@@ -235,8 +245,24 @@ export function syncAccountsAndPolicies(db: Database.Database) {
       source = excluded.source,
       iq_stage_tag = excluded.iq_stage_tag,
       broker_gate = excluded.broker_gate,
-      broker_gate_at = excluded.broker_gate_at
+      broker_gate_at = excluded.broker_gate_at,
+      producer_id = excluded.producer_id,
+      producer_name = excluded.producer_name
   `);
+  const insertSearchKey = db.prepare(`
+    INSERT OR IGNORE INTO account_search_keys (account_id, kind, value)
+    VALUES (@accountId, @kind, @value)
+  `);
+  // Carrier read-model rows travel with their order: replaced wholesale on
+  // every upsert so a deal's carrier change (or removal) lands on the same
+  // sync tick as the order payload it belongs to.
+  const deleteOrderCarriers = db.prepare(
+    `DELETE FROM book_order_carriers WHERE order_id = ?`,
+  );
+  const insertOrderCarrier = db.prepare(
+    `INSERT OR IGNORE INTO book_order_carriers (order_id, carrier_key, carrier_name)
+     VALUES (?, ?, ?)`,
+  );
 
   // Real-book overlay: when data/supabase-book.local.json exists, the boot
   // upsert carries the real Harper slice instead of the fictional seed.
@@ -246,6 +272,7 @@ export function syncAccountsAndPolicies(db: Database.Database) {
   const accounts = book ? book.accounts : SEED_ACCOUNTS;
   const policies = book ? book.policies : SEED_POLICIES;
   const orders: BookOrder[] = book ? book.orders : [];
+  const contactKeys: BookContactKey[] = book ? book.contactKeys : [];
 
   const tx = db.transaction(() => {
     for (const uw of SEED_UNDERWRITERS) insertUw.run(uw);
@@ -300,9 +327,138 @@ export function syncAccountsAndPolicies(db: Database.Database) {
         iqStageTag: o.iqStageTag,
         brokerGate: o.brokerGate,
         brokerGateAt: o.brokerGateAt,
+        producerId: o.producerId,
+        producerName: o.producerName,
       });
+      deleteOrderCarriers.run(o.id);
+      for (const deal of o.rich.deals) {
+        const key = carrierKeyFromName(deal.carrierName);
+        if (!key) continue;
+        // First spelling per key wins within an order (deals arrive in
+        // stable deal-id order); the facet elects the book-wide label.
+        insertOrderCarrier.run(o.id, key, deal.carrierName!.trim());
+      }
     }
-    if (book) pruneStaleBookRows(db, book.accounts, book.policies, orders);
+    if (book) {
+      // Contacts are replaced wholesale rather than upserted: a customer who
+      // changes their email must stop matching the old one immediately, and
+      // the whole set arrives in every snapshot. Cleared before the prune so
+      // a search key can never be the reference that keeps a dropped account
+      // alive, and refilled after it so every row points at a surviving one.
+      db.prepare(`DELETE FROM account_search_keys`).run();
+      pruneStaleBookRows(db, book.accounts, book.policies, orders);
+      // Carrier rows for orders the prune removed (per-order deletes above
+      // only cover orders still in the book).
+      db.prepare(
+        `DELETE FROM book_order_carriers
+         WHERE order_id NOT IN (SELECT id FROM book_orders)`,
+      ).run();
+      const knownAccounts = new Set(accounts.map((a) => a.id));
+      for (const key of contactKeys) {
+        if (!knownAccounts.has(key.accountId)) continue;
+        insertSearchKey.run(key);
+      }
+      // Service Note thread mirror — replaced wholesale like search keys: the
+      // snapshot carries the complete visible set (~4.6k rows book-wide), and
+      // a deleted note must stop being served immediately. Skipped entirely
+      // for snapshots from before the mirror shipped, so a boot from an old
+      // file keeps the previously synced notes instead of wiping them while
+      // the forced full refresh is still in flight.
+      if (book.noteThreadsPresent === true) {
+        db.prepare(`DELETE FROM book_service_notes`).run();
+        const insertNote = db.prepare(
+          `INSERT OR REPLACE INTO book_service_notes
+             (id, account_id, order_id, body, author, created_at)
+           VALUES (@id, @accountId, @orderId, @body, @author, @createdAt)`,
+        );
+        for (const entry of book.serviceNoteEntries ?? []) {
+          if (!knownAccounts.has(entry.accountId)) continue;
+          insertNote.run(entry);
+        }
+        writeBookMeta(
+          db,
+          META_SERVICE_NOTES_SYNCED_AT,
+          book.fetchedAt || new Date().toISOString(),
+        );
+      }
+      // Company-page overview mirror — same lifecycle and same reasoning.
+      if (book.companyDetailsPresent === true) {
+        db.prepare(`DELETE FROM book_company_details`).run();
+        db.prepare(`DELETE FROM book_contacts`).run();
+        const insertDetail = db.prepare(
+          `INSERT OR REPLACE INTO book_company_details
+             (account_id, address1, address2, city, state, state_code,
+              postal_code, time_zone, producer_id, producer_name)
+           VALUES (@accountId, @address1, @address2, @city, @state,
+                   @stateCode, @postalCode, @timeZone, @producerId,
+                   @producerName)`,
+        );
+        const insertContact = db.prepare(
+          `INSERT OR REPLACE INTO book_contacts
+             (account_id, contact_id, name, email, phone, position)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        );
+        for (const detail of book.companyDetails ?? []) {
+          if (!knownAccounts.has(detail.accountId)) continue;
+          insertDetail.run({
+            accountId: detail.accountId,
+            address1: detail.address1,
+            address2: detail.address2,
+            city: detail.city,
+            state: detail.state,
+            stateCode: detail.stateCode,
+            postalCode: detail.postalCode,
+            timeZone: detail.timeZone,
+            producerId: detail.producerId,
+            producerName: detail.producerName,
+          });
+          detail.contacts.forEach((contact, index) => {
+            insertContact.run(
+              detail.accountId,
+              contact.id,
+              contact.name,
+              contact.email,
+              contact.phone,
+              index,
+            );
+          });
+        }
+        writeBookMeta(
+          db,
+          META_COMPANY_DETAILS_SYNCED_AT,
+          book.fetchedAt || new Date().toISOString(),
+        );
+      }
+    }
+  });
+  tx();
+}
+
+/**
+ * Replace one account's mirrored Service Note thread — the write-through the
+ * service-note POST uses so the author sees their note on the next read
+ * instead of the next refresh tick. One transaction: the thread is only ever
+ * observed whole.
+ */
+export function replaceAccountServiceNotes(
+  db: Database.Database,
+  accountId: string,
+  entries: readonly BookServiceNoteEntry[],
+): void {
+  const remove = db.prepare(
+    `DELETE FROM book_service_notes WHERE account_id = ?`,
+  );
+  const insert = db.prepare(
+    `INSERT OR REPLACE INTO book_service_notes
+       (id, account_id, order_id, body, author, created_at)
+     VALUES (@id, @accountId, @orderId, @body, @author, @createdAt)`,
+  );
+  const tx = db.transaction(() => {
+    remove.run(accountId);
+    for (const entry of entries) {
+      if (entry.accountId !== accountId) continue;
+      insert.run(entry);
+    }
   });
   tx();
 }

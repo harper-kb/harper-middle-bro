@@ -8,8 +8,8 @@ Live lanes require server env credentials. Until they are set **and** each lane'
 |----------|---------|
 | `BIGBROTHER_BASE_URL` | Live lane reads (`/api/service-workbench/*`) |
 | `BIGBROTHER_API_TOKEN` | Bearer for BigBrother internal APIs |
-| `HARPER_AGENT_TOOLS_BASE_URL` | Mutation doors (`POST /execute`) |
-| `HARPER_AGENT_TOOLS_TOKEN` | Bearer for Agent Tools |
+| `HARPER_AGENT_TOOLS_BASE_URL` | Agent Tools gateway origin (`POST {base}/api/v1/commands/...`) |
+| `HARPER_AGENT_TOOLS_TOKEN` | API key for Agent Tools (sent as bearer) |
 
 ## Optional
 

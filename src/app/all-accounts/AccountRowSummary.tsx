@@ -2,111 +2,17 @@
 
 import { useId } from "react";
 import {
-  ORDER_SOURCE_LABELS,
-  type OrderSource,
+  sourceLabel as formatSourceLabel,
+  sourceTone,
 } from "@/lib/account-source";
-import type { BookOrderListItem } from "@/lib/db";
+import { SourceIcon } from "@/components/SourceIdentity";
 import {
-  dealAgeDays,
-  dealAgeLabel,
-  dealAgeNeedsAttention,
-} from "@/lib/order-age";
-
-export interface AccountOrderSummary {
-  source: OrderSource | null;
-  revenueMicros: number | null;
-  ageDays: number | null;
-  carrierNames: string[];
-  orderCount: number;
-}
-
-/**
- * Summarize only the orders already attached to this account row. That keeps
- * the collapsed preview in the same successful snapshot and selected
- * lifecycle/range as the expanded order cards.
- *
- * For multiple orders:
- * - source is only IQ/Broker when every order agrees; otherwise it is Mixed
- * - revenue is the exact sum at order grain, or unavailable when any value is
- *   missing (never present a partial total as complete)
- * - age is the oldest displayed order, so newer work cannot hide stale work
- * - carriers are deduplicated from the authoritative deal payload
- */
-export function summarizeAccountOrders(
-  orders: readonly BookOrderListItem[],
-  todayDay: string,
-): AccountOrderSummary {
-  const sources = new Set(orders.map((order) => order.source));
-  const source =
-    sources.size === 0
-      ? null
-      : sources.size === 1
-      ? (orders[0]?.source ?? null)
-      : sources.has(null)
-        ? null
-        : "mixed";
-
-  let revenueMicros: number | null = 0;
-  for (const order of orders) {
-    if (order.revenueMicros === null) {
-      revenueMicros = null;
-      break;
-    }
-    revenueMicros += order.revenueMicros;
-  }
-  if (revenueMicros !== null && !Number.isSafeInteger(revenueMicros)) {
-    revenueMicros = null;
-  }
-
-  const ages = orders.map((order) => dealAgeDays(order.createdAt, todayDay));
-  const ageDays = ages.some((age) => age === null)
-    ? null
-    : Math.max(...(ages as number[]));
-
-  const carrierNames = [
-    ...new Set(
-      orders.flatMap((order) =>
-        order.rich.deals
-          .map((deal) => deal.carrierName?.trim())
-          .filter((name): name is string => Boolean(name)),
-      ),
-    ),
-  ].sort((a, b) => a.localeCompare(b));
-
-  return {
-    source,
-    revenueMicros,
-    ageDays: Number.isFinite(ageDays) ? ageDays : null,
-    carrierNames,
-    orderCount: orders.length,
-  };
-}
-
-function SourceIcon({ source }: { source: OrderSource | null }) {
-  if (source === "iq") {
-    return (
-      <svg viewBox="0 0 12 12" aria-hidden="true" className="account-summary-icon">
-        <path d="M7 1 2.5 6.75h2.25L4.75 11 9.5 5h-2.4z" fill="currentColor" />
-      </svg>
-    );
-  }
-  return (
-    <svg
-      viewBox="0 0 12 12"
-      fill="none"
-      aria-hidden="true"
-      className="account-summary-icon"
-    >
-      <circle cx="6" cy="4" r="2" stroke="currentColor" strokeWidth="1.3" />
-      <path
-        d="M2 10.5c0-1.9 1.8-3 4-3s4 1.1 4 3"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
+  ACCOUNT_STATE_LABELS,
+  stageText,
+  type AccountRowModel,
+  type AccountRowState,
+} from "@/lib/account-row-model";
+import { dealAgeLabel, harperTimestampLabel } from "@/lib/order-age";
 
 function CarrierIcon() {
   return (
@@ -188,7 +94,7 @@ function SummaryItem({
   icon: React.ReactNode;
   children: React.ReactNode;
   tip: string;
-  tone?: "iq" | "attention";
+  tone?: "iq" | "broker" | "attention";
 }) {
   const tipId = useId();
   return (
@@ -216,35 +122,75 @@ function formatRevenue(revenueMicros: number): string {
   }).format(cents / 100);
 }
 
-export function AccountRowSummary({
-  orders,
-  todayDay,
-}: {
-  orders: readonly BookOrderListItem[];
-  todayDay: string;
-}) {
-  const summary = summarizeAccountOrders(orders, todayDay);
-  const sourceLabel = summary.source
-    ? ORDER_SOURCE_LABELS[summary.source]
-    : "Source unavailable";
+/**
+ * Compact state badge beside the account name. Colours are the same tokens the
+ * expanded order card uses, so a row and the card it opens never disagree.
+ */
+export function AccountStateBadge({ state }: { state: AccountRowState }) {
+  return (
+    <span className={`account-state-badge account-state-badge--${state}`}>
+      {ACCOUNT_STATE_LABELS[state]}
+    </span>
+  );
+}
+
+/**
+ * Stage and order-count line. The stage is omitted entirely — not faked — when
+ * the representative order is mixed-source or unclassified.
+ */
+export function AccountRowStageLine({ model }: { model: AccountRowModel }) {
+  return (
+    <p className="account-stage-line">
+      {model.stage ? (
+        <>
+          <span className="account-stage-prefix">{model.stage.prefix}:</span>
+          {model.stage.code ? (
+            <span className="account-stage-code">{model.stage.code}</span>
+          ) : null}
+          <span
+            className={`account-stage-value${
+              model.stage.set ? "" : " account-stage-value--unset"
+            }`}
+            title={stageText(model.stage)}
+          >
+            {model.stage.value}
+          </span>
+          <span className="account-stage-dot" aria-hidden="true" />
+        </>
+      ) : null}
+      <span className="account-stage-count">{model.countLabel}</span>
+    </p>
+  );
+}
+
+export function AccountRowSummary({ model }: { model: AccountRowModel }) {
+  const summary = model;
+  const sourceLabel = formatSourceLabel(summary.source);
+  // Only the two authoritative books carry a source tint; mixed and
+  // unavailable stay in the row's neutral metadata voice.
+  const tone = sourceTone(summary.source);
+  const sourceTint = tone === "iq" || tone === "broker" ? tone : undefined;
   const carrierLabel =
     summary.carrierNames.length === 0
       ? "Carrier unavailable"
       : summary.carrierNames.length === 1
         ? summary.carrierNames[0]
         : `${summary.carrierNames.length} carriers`;
-  const ageAttention =
-    summary.ageDays !== null && dealAgeNeedsAttention(summary.ageDays);
+  const ageAttention = summary.ageAttention;
   const ageLabel =
-    summary.ageDays === null
-      ? "Age unavailable"
-      : `${dealAgeLabel(summary.ageDays)} ago`;
+    summary.ageDays === null ? null : `${dealAgeLabel(summary.ageDays)} ago`;
+  const stamp = harperTimestampLabel(summary.representative?.createdAt ?? null);
 
   return (
     <span className="account-summary" aria-label="Account order summary">
       <SummaryItem
-        icon={<SourceIcon source={summary.source} />}
-        tone={summary.source === "iq" ? "iq" : undefined}
+        icon={
+          <SourceIcon
+            source={summary.source}
+            className="account-summary-icon"
+          />
+        }
+        tone={sourceTint}
         tip={
           summary.source
             ? `${sourceLabel} source across ${summary.orderCount.toLocaleString()} ${
@@ -256,24 +202,28 @@ export function AccountRowSummary({
         {sourceLabel}
       </SummaryItem>
 
-      <SummaryItem
-        icon={<ClockIcon attention={ageAttention} />}
-        tone={ageAttention ? "attention" : undefined}
-        tip={
-          summary.ageDays === null
-            ? "Age unavailable because a displayed order has no creation timestamp"
-            : `${summary.orderCount === 1 ? "Order" : "Oldest displayed order"} created ${ageLabel}`
-        }
-      >
-        {ageLabel}
-      </SummaryItem>
+      {/* Pending work only. A bound or lost row renders no age element at all,
+          so there is never an orphan divider where a date used to be. */}
+      {ageLabel !== null ? (
+        <SummaryItem
+          icon={<ClockIcon attention={ageAttention} />}
+          tone={ageAttention ? "attention" : undefined}
+          tip={
+            ageAttention
+              ? `Needs attention — pending order created ${ageLabel}${stamp ? ` (${stamp})` : ""}`
+              : `Pending order created ${ageLabel}${stamp ? ` (${stamp})` : ""}`
+          }
+        >
+          {ageLabel}
+        </SummaryItem>
+      ) : null}
 
       <SummaryItem
         icon={<CarrierIcon />}
         tip={
           summary.carrierNames.length > 0
-            ? `Carrier${summary.carrierNames.length === 1 ? "" : "s"}: ${summary.carrierNames.join(", ")}`
-            : "Carrier unavailable on the displayed orders"
+            ? `Carrier${summary.carrierNames.length === 1 ? "" : "s"} on ${summary.representative?.label ?? "this order"}: ${summary.carrierNames.join(", ")}`
+            : "No carrier named on the representative order"
         }
       >
         {carrierLabel}

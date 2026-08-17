@@ -1,10 +1,32 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import {
+  orderDrawerKey,
+  useOrderDetailDrawer,
+} from "@/components/orders/OrderDetailDrawer";
 import type { BookOrderListItem } from "@/lib/db";
 import { BrokerGateRail } from "./BrokerGateRail";
 import { OrderMetaChips } from "./OrderMetaChips";
-import { OrderNoteThreads } from "./OrderNoteThreads";
+import {
+  OrderNoteThreads,
+  type ProducerNotePreview,
+} from "./OrderNoteThreads";
 import { OrderActions } from "./order-actions/OrderActions";
+
+const CARD_INTERACTIVE =
+  'a,button,input,textarea,select,summary,[role="button"],[data-order-drawer-ignore]';
+
+export function shouldOpenOrderFromCard(
+  target: EventTarget | null,
+  card: HTMLElement,
+): boolean {
+  if (!(target instanceof Node) || !card.contains(target)) return false;
+  const element = target as { closest?: (selector: string) => Element | null };
+  if (typeof element?.closest !== "function") return false;
+  const interactive = element.closest(CARD_INTERACTIVE);
+  return !interactive;
+}
 
 function formatDate(value: string | null): string {
   if (!value) return "—";
@@ -80,6 +102,76 @@ function MoneyCell({
   );
 }
 
+function DeferredOrderNoteThreads({
+  defer,
+  accountId,
+  accountName,
+  orderId,
+  orderLabel,
+  canEditProducer,
+  producerEditHref,
+  producerNotePreview,
+  accountServiceNotesEmpty,
+}: {
+  defer: boolean;
+  accountId: string;
+  accountName: string;
+  orderId: number;
+  orderLabel: string;
+  canEditProducer: boolean;
+  producerEditHref: string;
+  producerNotePreview: ProducerNotePreview;
+  accountServiceNotesEmpty?: boolean;
+}) {
+  const [ready, setReady] = useState(!defer);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (ready || !defer) return;
+    const node = sentinelRef.current;
+    if (!node || !("IntersectionObserver" in window)) {
+      const timer = window.setTimeout(() => setReady(true), 0);
+      return () => window.clearTimeout(timer);
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setReady(true);
+        observer.disconnect();
+      },
+      { rootMargin: "240px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [defer, ready]);
+
+  if (ready) {
+    return (
+      <OrderNoteThreads
+        accountId={accountId}
+        accountName={accountName}
+        orderId={orderId}
+        orderLabel={orderLabel}
+        canEditProducer={canEditProducer}
+        producerEditHref={producerEditHref}
+        producerNotePreview={producerNotePreview}
+        accountServiceNotesEmpty={accountServiceNotesEmpty}
+      />
+    );
+  }
+
+  return (
+    <div
+      ref={sentinelRef}
+      className="order-note-threads mt-3 grid gap-2 sm:grid-cols-2"
+      aria-label={`Notes for ${orderLabel} load when visible`}
+    >
+      <div className="h-28 animate-pulse rounded-xl border border-[var(--rule)] bg-[var(--sand)]/25 motion-reduce:animate-none" />
+      <div className="h-28 animate-pulse rounded-xl border border-[var(--rule)] bg-[var(--sand)]/25 motion-reduce:animate-none" />
+    </div>
+  );
+}
+
 export function RichOrderCard({
   order,
   accountId,
@@ -87,6 +179,8 @@ export function RichOrderCard({
   canEditOrders,
   bigBrotherBaseUrl,
   todayDay,
+  deferNotes = false,
+  accountServiceNotesEmpty,
 }: {
   order: BookOrderListItem;
   accountId: string;
@@ -94,8 +188,34 @@ export function RichOrderCard({
   canEditOrders: boolean;
   bigBrotherBaseUrl: string;
   todayDay: string;
+  /** Company lists defer note API work until the shared card nears view. */
+  deferNotes?: boolean;
+  /** Account-level verified "no Service Notes" — seeds the empty card instantly. */
+  accountServiceNotesEmpty?: boolean;
 }) {
   const { rich } = order;
+  const drawer = useOrderDetailDrawer();
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
+  const companyId = Number(accountId.replace(/^co-/, ""));
+  const selection =
+    Number.isSafeInteger(companyId) && companyId > 0
+      ? {
+          companyId,
+          accountId,
+          accountName,
+          orderId: order.harperOrderId,
+          orderLabel: order.label,
+          status: order.bindStatus,
+        }
+      : null;
+  const selected =
+    selection !== null &&
+    drawer.selectedKey === orderDrawerKey(selection);
+
+  function openOrder(trigger: HTMLElement | null) {
+    if (selection) drawer.openOrder(selection, trigger);
+  }
+
   const carrierNames = [
     ...new Set(
       rich.deals
@@ -125,13 +245,36 @@ export function RichOrderCard({
   const commission = rich.commissionRevenueCents;
 
   return (
-    <li className="rounded-xl border border-[var(--rule)] bg-[var(--surface-raised)] px-3 py-3 shadow-[0_1px_0_color-mix(in_srgb,var(--ink)_5%,transparent)]">
+    <li
+      data-component="step-bro-order-card"
+      data-order-id={order.harperOrderId}
+      data-order-active={selected ? "true" : undefined}
+      className={`step-bro-order-card rounded-xl border border-[var(--rule)] bg-[var(--surface-raised)] px-3 py-3 shadow-[0_1px_0_color-mix(in_srgb,var(--ink)_5%,transparent)] ${
+        selected ? "step-bro-order-card--active" : ""
+      }`}
+      onClick={(event) => {
+        if (!shouldOpenOrderFromCard(event.target, event.currentTarget)) return;
+        openOrder(titleButtonRef.current);
+      }}
+    >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <div className="flex flex-wrap items-center gap-1.5">
-              <h3 className="text-sm font-semibold text-[var(--ink)]">
-                {order.label}
+              <h3 className="text-sm font-semibold">
+                <button
+                  ref={titleButtonRef}
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-label={`View details for ${order.label}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openOrder(event.currentTarget);
+                  }}
+                  className="order-detail-trigger rounded-sm text-left text-[var(--ink)] underline-offset-4 hover:text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                >
+                  {order.label}
+                </button>
               </h3>
               <Chip tone={statusTone}>
                 {order.bindStatus[0].toUpperCase() + order.bindStatus.slice(1)}
@@ -140,6 +283,7 @@ export function RichOrderCard({
             </div>
             <OrderMetaChips
               source={order.source}
+              bindStatus={order.bindStatus}
               revenueMicros={order.revenueMicros}
               createdAt={order.createdAt}
               todayDay={todayDay}
@@ -179,13 +323,15 @@ export function RichOrderCard({
           </div>
         </div>
 
-        <OrderActions
-          order={order}
-          accountId={accountId}
-          accountName={accountName}
-          canEditOrders={canEditOrders}
-          bigBrotherBaseUrl={bigBrotherBaseUrl}
-        />
+        <div data-order-drawer-ignore>
+          <OrderActions
+            order={order}
+            accountId={accountId}
+            accountName={accountName}
+            canEditOrders={canEditOrders}
+            bigBrotherBaseUrl={bigBrotherBaseUrl}
+          />
+        </div>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-[var(--rule)] pt-2.5 sm:grid-cols-5">
@@ -212,14 +358,23 @@ export function RichOrderCard({
         />
       </div>
 
-      <OrderNoteThreads
-        accountId={accountId}
-        accountName={accountName}
-        orderId={order.harperOrderId}
-        orderLabel={order.label}
-        canEditProducer={canEditOrders}
-        producerEditHref={`${bigBrotherBaseUrl}/company/${accountId.replace(/^co-/, "")}/transaction?tab=orders`}
-      />
+      <div data-order-drawer-ignore>
+        <DeferredOrderNoteThreads
+          defer={deferNotes}
+          accountId={accountId}
+          accountName={accountName}
+          orderId={order.harperOrderId}
+          orderLabel={order.label}
+          canEditProducer={canEditOrders}
+          producerEditHref={`${bigBrotherBaseUrl}/company/${accountId.replace(/^co-/, "")}/transaction?tab=orders`}
+          producerNotePreview={{
+            body: rich.producerNote,
+            updatedAt: rich.producerNoteUpdatedAt,
+            authorName: rich.producerNoteUpdatedByName,
+          }}
+          accountServiceNotesEmpty={accountServiceNotesEmpty}
+        />
+      </div>
 
       {rich.deals.length > 1 ? (
         <ul className="mt-2 space-y-1 border-t border-[var(--rule)] pt-2">

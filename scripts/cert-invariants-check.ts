@@ -490,10 +490,10 @@ console.log("━━━ 9. Structural — single send path, specimen watermark, l
     studio: read("src/app/accounts/[id]/CertificateStudio.tsx"),
     verifier: read("src/components/CoiVerifier.tsx"),
     core: read("src/lib/cert-issuance-core.ts"),
-    ledger: read("src/lib/cert-ledger.ts"),
+    ledger: read("src/lib/certificates/cert-ledger.ts"),
     css: read("src/app/globals.css"),
-    corrections: read("src/lib/cert-corrections.ts"),
-    studioActions: read("src/lib/cert-studio-actions.ts"),
+    corrections: read("src/lib/certificates/cert-corrections.ts"),
+    studioActions: read("src/lib/certificates/cert-studio-actions.ts"),
   };
 
   // Single send path: only the ledger writes cert_issued, only the core

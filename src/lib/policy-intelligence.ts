@@ -26,7 +26,7 @@ import {
   type PolicyLimit,
   type CoveragePart,
 } from "./forms";
-import type { IscParseResult } from "./isc-intake";
+import type { IscParseResult } from "./intake/isc-intake";
 import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs";

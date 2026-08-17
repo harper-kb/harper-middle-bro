@@ -1,6 +1,7 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
 
@@ -14,6 +15,29 @@ function currentTheme(): Theme {
 function applyDocumentTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.colorScheme = theme;
+}
+
+function preferredTheme(): Theme {
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // Storage unavailable means system preference remains authoritative.
+  }
+  if (stored === "light" || stored === "dark") return stored;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+function restorePreferredTheme(): void {
+  const preferred = preferredTheme();
+  if (
+    currentTheme() !== preferred ||
+    document.documentElement.style.colorScheme !== preferred
+  ) {
+    applyDocumentTheme(preferred);
+  }
 }
 
 function subscribe(onChange: () => void): () => void {
@@ -47,6 +71,34 @@ function subscribe(onChange: () => void): () => void {
     window.removeEventListener("storage", handleStorage);
     media.removeEventListener("change", handleSystemChange);
   };
+}
+
+/**
+ * Keep the imperative theme attribute stable when React reconciles the root
+ * document during navigation, hydration, or a back/forward cache restore.
+ */
+export function ThemePersistence() {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    restorePreferredTheme();
+  }, [pathname]);
+
+  useEffect(() => {
+    const restore = () => restorePreferredTheme();
+    const observer = new MutationObserver(restore);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme", "style"],
+    });
+    window.addEventListener("pageshow", restore);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("pageshow", restore);
+    };
+  }, []);
+
+  return null;
 }
 
 function setTheme(theme: Theme): void {

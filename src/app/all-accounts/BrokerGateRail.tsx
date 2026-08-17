@@ -5,12 +5,25 @@ import {
   BROKER_GATE_IDS,
   brokerGateView,
 } from "@/lib/broker-gate";
+import { AccountSourceIdentity } from "@/components/SourceIdentity";
 
 /**
  * Compact G1–G6 rail for an expanded Broker order. Highlights only the current
  * gate — earlier gates are not marked completed because the workflow is not
  * strictly monotonic and we do not ship full history events in this pass.
+ *
+ * Broker purple names the rail and outlines the current gate. Upcoming gates
+ * stay neutral: tinting the whole track would erase the only progress signal
+ * the rail has.
  */
+function RailHeading() {
+  return (
+    <p className="broker-gate-heading">
+      <AccountSourceIdentity source="broker" size="md" />
+      <span className="broker-gate-heading-label">Gate</span>
+    </p>
+  );
+}
 export function BrokerGateRail({
   brokerGate,
   brokerGateAt,
@@ -23,6 +36,7 @@ export function BrokerGateRail({
   if (!view) {
     return (
       <div className="broker-gate-rail" aria-label="Broker gate">
+        <RailHeading />
         <p className="text-xs text-[var(--muted)]">Gate unavailable</p>
       </div>
     );
@@ -41,6 +55,7 @@ export function BrokerGateRail({
 
   return (
     <div className="broker-gate-rail" aria-label="Broker gate">
+      <RailHeading />
       <div className="broker-gate-rail-track" role="list">
         {BROKER_GATE_IDS.map((gate, index) => (
           <span key={gate} className="broker-gate-node" role="listitem">

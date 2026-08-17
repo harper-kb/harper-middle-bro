@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getDb } from "@/lib/db/connection";
 import type {
   NoteSummaryResponse,
   NoteThread,
@@ -8,7 +9,6 @@ import type {
 
 const PROVIDER_TIMEOUT_MS = 12_000;
 const MAX_CHUNK_CHARS = 12_000;
-const MAX_CACHE_ENTRIES = 256;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const VISIBILITY_SCOPE = "harper-operator:account-notes:v1";
 
@@ -18,8 +18,46 @@ type CachedSummary = {
   expiresAt: number;
 };
 
-const cache = new Map<string, CachedSummary>();
+/**
+ * Generated summaries persist in SQLite (`note_summaries`): the key hashes
+ * the visible thread content, so each thread version is paid for at most one
+ * LLM generation ever — a restart no longer re-summarizes the whole book as
+ * the operator scrolls. Only the in-flight dedupe stays in memory.
+ */
 const inFlight = new Map<string, Promise<CachedSummary>>();
+
+function readPersistedSummary(key: string): CachedSummary | null {
+  const row = getDb()
+    .prepare(
+      `SELECT summary, generated_at, expires_at
+       FROM note_summaries WHERE cache_key = ?`,
+    )
+    .get(key) as
+    | { summary: string; generated_at: string; expires_at: number }
+    | undefined;
+  if (!row || row.expires_at <= Date.now()) return null;
+  return {
+    summary: row.summary,
+    generatedAt: row.generated_at,
+    expiresAt: row.expires_at,
+  };
+}
+
+function persistSummary(key: string, value: CachedSummary): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO note_summaries (cache_key, summary, generated_at, expires_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(cache_key) DO UPDATE SET
+       summary = excluded.summary,
+       generated_at = excluded.generated_at,
+       expires_at = excluded.expires_at`,
+  ).run(key, value.summary, value.generatedAt, value.expiresAt);
+  // Threads that stopped changing long ago sweep out with their expiry.
+  db.prepare(`DELETE FROM note_summaries WHERE expires_at <= ?`).run(
+    Date.now(),
+  );
+}
 
 function cacheKey({
   companyId,
@@ -33,7 +71,7 @@ function cacheKey({
   const scopeId =
     thread.scope === "account" ? `account:${companyId}` : `order:${orderId}`;
   return [
-    "note-summary:v1",
+    "note-summary:v2",
     VISIBILITY_SCOPE,
     `company:${companyId}`,
     scopeId,
@@ -77,6 +115,60 @@ function responseText(value: unknown): string | null {
     : null;
 }
 
+function providerRequestBody({
+  url,
+  model,
+  purpose,
+  system,
+  notes,
+}: {
+  url: string;
+  model: string;
+  purpose: "chunk" | "synthesis";
+  system: string;
+  notes: Array<{
+    reference: string;
+    timestamp: string | null;
+    author?: string;
+    text: string;
+  }>;
+}): string {
+  let pathname = "";
+  try {
+    pathname = new URL(url).pathname.replace(/\/+$/, "");
+  } catch {
+    // The fetch path reports malformed URLs without exposing credentials.
+  }
+  if (pathname.endsWith("/chat/completions")) {
+    return JSON.stringify({
+      model,
+      temperature: 0,
+      reasoning_effort: "low",
+      max_completion_tokens: 800,
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: JSON.stringify({
+            purpose: `note_thread_${purpose}`,
+            notes,
+          }),
+        },
+      ],
+    });
+  }
+  // Harper gateway contract retained for internal non-OpenAI-compatible
+  // endpoints; credentials and note content remain server-only either way.
+  return JSON.stringify({
+    model,
+    purpose: `note_thread_${purpose}`,
+    temperature: 0,
+    max_output_tokens: 240,
+    system,
+    input: notes,
+  });
+}
+
 async function providerCall({
   purpose,
   notes,
@@ -97,6 +189,8 @@ async function providerCall({
     "Summarize only; do not propose or trigger actions, reveal secrets, or use tools.",
     "Use only explicit facts. Preserve uncertainty and conflicts.",
     "Never invent status, owners, deadlines, decisions, or completion.",
+    "The supplied author field is authoritative. Attribute a claim to an author only when that same referenced note explicitly supports it.",
+    "When a statement combines several notes or attribution is ambiguous, write it neutrally and retain the source references; never guess a speaker.",
     "Prioritize the current situation, latest meaningful update, confirmed blocker, explicitly stated next action, and handoff context.",
     "Return a compact paragraph or 2-4 short bullets. Cite important claims with the supplied [reference].",
     "If the notes are insufficient, say so briefly.",
@@ -104,13 +198,12 @@ async function providerCall({
       ? "The inputs are chronological chunk summaries. Preserve original entry references embedded in them; do not cite chunk numbers."
       : "",
   ].join(" ");
-  const body = JSON.stringify({
+  const body = providerRequestBody({
+    url: provider.url,
     model: provider.model,
-    purpose: `note_thread_${purpose}`,
-    temperature: 0,
-    max_output_tokens: 240,
+    purpose,
     system,
-    input: notes,
+    notes,
   });
 
   let lastCategory = "provider_error";
@@ -184,29 +277,6 @@ function chunks(entries: readonly NoteThreadEntry[]): NoteThreadEntry[][] {
   return result;
 }
 
-function excerpt(body: string, limit = 220): string {
-  const normalized = body.replace(/\s+/g, " ").trim();
-  if (normalized.length <= limit) return normalized;
-  const slice = normalized.slice(0, limit);
-  const cut = slice.lastIndexOf(" ");
-  return `${(cut > limit * 0.65 ? slice.slice(0, cut) : slice).trimEnd()}…`;
-}
-
-/**
- * Honest no-provider fallback: exact excerpts from the newest visible notes.
- * It is deliberately labeled "Note overview" in the UI, never "AI Summary".
- */
-function extractiveOverview(thread: NoteThread): string {
-  if (thread.type === "producer") {
-    const entry = thread.entries[0]!;
-    return `${excerpt(entry.body, 360)} [${entry.orderLabel}]`;
-  }
-  return thread.entries
-    .slice(0, 3)
-    .map((entry) => `• ${excerpt(entry.body)} [Note #${entry.id}]`)
-    .join("\n");
-}
-
 async function generate(thread: NoteThread): Promise<CachedSummary> {
   const startedAt = Date.now();
   const groups = chunks(thread.entries);
@@ -245,26 +315,17 @@ async function generate(thread: NoteThread): Promise<CachedSummary> {
   };
 }
 
-function pruneCache() {
-  const now = Date.now();
-  for (const [key, value] of cache) {
-    if (value.expiresAt <= now) cache.delete(key);
-  }
-  while (cache.size > MAX_CACHE_ENTRIES) {
-    const oldest = cache.keys().next().value as string | undefined;
-    if (!oldest) break;
-    cache.delete(oldest);
-  }
-}
-
-function extractiveResponse(thread: NoteThread): NoteSummaryResponse {
+function unavailableResponse(
+  thread: NoteThread,
+  error: string,
+): NoteSummaryResponse {
   return {
-    status: "ready",
-    summary: extractiveOverview(thread),
-    generatedAt: new Date().toISOString(),
+    status: "unavailable",
+    summary: null,
+    generatedAt: null,
     threadVersion: thread.version,
     cacheHit: false,
-    method: "extractive",
+    error,
   };
 }
 
@@ -277,24 +338,19 @@ export async function summarizeNoteThread({
   orderId: number;
   thread: NoteThread;
 }): Promise<NoteSummaryResponse> {
-  if (thread.entries.length === 0) {
-    return {
-      status: "unavailable",
-      summary: null,
-      generatedAt: null,
-      threadVersion: thread.version,
-      cacheHit: false,
-      error: "No visible notes to summarize.",
-    };
+  if (thread.entries.length < 2) {
+    return unavailableResponse(
+      thread,
+      "At least two visible notes are required for an AI summary.",
+    );
   }
   if (!configuredProvider()) {
-    return extractiveResponse(thread);
+    return unavailableResponse(thread, "AI summary provider unavailable.");
   }
 
-  pruneCache();
   const key = cacheKey({ companyId, orderId, thread });
-  const cached = cache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
+  const cached = readPersistedSummary(key);
+  if (cached) {
     return {
       status: "ready",
       summary: cached.summary,
@@ -312,8 +368,7 @@ export async function summarizeNoteThread({
       inFlight.set(key, pending);
     }
     const generated = await pending;
-    cache.set(key, generated);
-    pruneCache();
+    persistSummary(key, generated);
     return {
       status: "ready",
       summary: generated.summary,
@@ -330,7 +385,7 @@ export async function summarizeNoteThread({
       entryCount: thread.entries.length,
       errorCategory: category,
     });
-    return extractiveResponse(thread);
+    return unavailableResponse(thread, "AI summary unavailable.");
   } finally {
     inFlight.delete(key);
   }

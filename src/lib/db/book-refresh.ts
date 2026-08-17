@@ -40,6 +40,7 @@ import {
 } from "./book-digest";
 import {
   isRateLimited,
+  rateLimitResetMs,
   runSupabaseManagementQuery,
 } from "../supabase-management.server";
 import {
@@ -83,9 +84,13 @@ import {
  *
  * Failure policy: never wipe. Any fetch/mapping/validation error keeps the
  * last good book in place and is retried on the next tick. A rate-limited tick
- * backs off rather than retrying into the same wall, and the stored digests are
- * only advanced after the book they describe is safely on disk, so an
- * interrupted cycle repeats itself instead of skipping rows.
+ * waits out the window the quota itself reports rather than retrying into the
+ * same wall, and is not recorded as a failed refresh: the Management API quota
+ * is shared account-wide, so being refused says nothing about this book, which
+ * is still whole and still being served. Starvation long enough to matter
+ * surfaces on its own, as a snapshot the desk shows as stale. The stored
+ * digests are only advanced after the book they describe is safely on disk, so
+ * an interrupted cycle repeats itself instead of skipping rows.
  *
  * Eligibility — every non-test company with at least one real, non-deleted
  * `orders_temp` row that carries a non-deleted deal in a recognized stage
@@ -1523,7 +1528,10 @@ function refreshState(): RefreshState {
   return g[STATE];
 }
 
-/** Doubling backoff, capped — long enough to let a shared quota recover. */
+/**
+ * Ceiling for the doubling fallback, used only when a refusal arrives without
+ * a reset window to wait out. Long enough to let a shared quota recover.
+ */
 const MAX_BACKOFF_MS = 16 * 60 * 1000;
 
 async function runRefreshSafely(
@@ -1566,20 +1574,17 @@ async function runRefreshSafely(
     }
     console.log(`[book-refresh] ${trigger}: ${summary}`);
   } catch (err) {
-    try {
-      recordBookRefreshFailure(new Date().toISOString());
-    } catch (statusError) {
-      console.error(
-        "[book-refresh] failure metadata could not be recorded:",
-        statusError instanceof Error ? statusError.message : statusError,
-      );
-    }
     if (isRateLimited(err)) {
       state.consecutiveRateLimits += 1;
-      const wait = Math.min(
-        REFRESH_INTERVAL_MS * 2 ** state.consecutiveRateLimits,
-        MAX_BACKOFF_MS,
-      );
+      // The quota refuses for the remainder of its minute and reports how much
+      // of that is left, so waiting past it buys nothing and costs freshness.
+      // Doubling is only for a refusal that arrived without a window.
+      const wait =
+        rateLimitResetMs(err) ??
+        Math.min(
+          REFRESH_INTERVAL_MS * 2 ** state.consecutiveRateLimits,
+          MAX_BACKOFF_MS,
+        );
       state.backoffUntil = Date.now() + wait;
       console.warn(
         `[book-refresh] ${trigger}: rate limited — backing off ${Math.round(
@@ -1587,6 +1592,14 @@ async function runRefreshSafely(
         )}s (keeping last good book)`,
       );
     } else {
+      try {
+        recordBookRefreshFailure(new Date().toISOString());
+      } catch (statusError) {
+        console.error(
+          "[book-refresh] failure metadata could not be recorded:",
+          statusError instanceof Error ? statusError.message : statusError,
+        );
+      }
       console.error(
         `[book-refresh] ${trigger} failed — keeping last good book:`,
         err instanceof Error ? err.message : err,

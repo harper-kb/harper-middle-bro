@@ -1,6 +1,35 @@
 import "server-only";
 
 /**
+ * The quota refusing a request, carrying the window it reported. The message
+ * is the same string a plain refusal always threw, so `isRateLimited` and the
+ * refresh log keep reading it the same way.
+ */
+export class SupabaseManagementRateLimitError extends Error {
+  /** Seconds until the quota resets, when the response reported it. */
+  readonly resetSeconds: number | null;
+
+  constructor(resetSeconds: number | null) {
+    super("supabase_management_http_429");
+    this.name = "SupabaseManagementRateLimitError";
+    this.resetSeconds = resetSeconds;
+  }
+}
+
+/**
+ * The quota window is a minute, so a reset further out than this is a header
+ * we do not understand and should not be stalled by.
+ */
+const MAX_RESET_SECONDS = 120;
+
+function parseResetSeconds(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header.trim());
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return Math.min(Math.ceil(seconds), MAX_RESET_SECONDS);
+}
+
+/**
  * Read-only SQL through the same Supabase Management API connection used by
  * the two-minute live-book refresh. Keep this server-only: the access token
  * must never reach browser code.
@@ -28,6 +57,11 @@ export async function runSupabaseManagementQuery<T>(
       signal: AbortSignal.timeout(timeoutMs),
     },
   );
+  if (response.status === 429) {
+    throw new SupabaseManagementRateLimitError(
+      parseResetSeconds(response.headers.get("x-ratelimit-reset")),
+    );
+  }
   if (!response.ok) {
     throw new Error(`supabase_management_http_${response.status}`);
   }
@@ -47,4 +81,14 @@ export function isRateLimited(error: unknown): boolean {
   return (
     error instanceof Error && error.message === "supabase_management_http_429"
   );
+}
+
+/**
+ * How long until the quota will accept us again, from its own
+ * `x-ratelimit-reset`. Null when the refusal carried no usable window — a
+ * caller on a timer then has to guess instead.
+ */
+export function rateLimitResetMs(error: unknown): number | null {
+  if (!(error instanceof SupabaseManagementRateLimitError)) return null;
+  return error.resetSeconds === null ? null : error.resetSeconds * 1000;
 }

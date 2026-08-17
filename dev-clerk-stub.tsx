@@ -9,6 +9,7 @@ export const ClerkProvider = ({ children }: { children?: ReactNode }) => <>{chil
 export const Show = ({ when, children }: { when?: string; children?: ReactNode }) =>
   when === "signed-out" ? null : <>{children}</>;
 export const SignInButton = ({ children }: { children?: ReactNode; mode?: string }) => <>{children}</>;
+export const SignOutButton = ({ children }: { children?: ReactNode; redirectUrl?: string }) => <>{children}</>;
 export const SignUpButton = ({ children }: { children?: ReactNode; mode?: string }) => <>{children}</>;
 export const UserButton = () => <div className="h-7 w-7 rounded-full bg-[#1b2a5e]" />;
 export const SignIn = () => <div />;

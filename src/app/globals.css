@@ -5554,6 +5554,35 @@ table:not(.acord-grid) tbody tr:hover {
   flex: 1 1 20rem;
 }
 
+.company-payment-summary-label-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+}
+
+.company-payment-data-state {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.32rem;
+  border-left: 1px solid var(--rule);
+  padding-left: 0.6rem;
+  color: color-mix(in srgb, var(--ink) 78%, var(--muted));
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1rem;
+}
+
+.company-payment-data-state-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: none;
+  color: var(--info);
+}
+
 .company-payment-summary-label,
 .company-payment-history-title {
   color: var(--muted);

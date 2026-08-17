@@ -296,14 +296,32 @@ export function PaymentHistory({
           </p>
         ) : (
           <>
-            {page.stale ? (
-              <p className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-900 dark:text-amber-200">
-                Showing the last available payment data.
-              </p>
-            ) : null}
             <div className="company-payment-summary">
               <div className="min-w-0">
-                <p className="company-payment-summary-label">Total settled</p>
+                <div className="company-payment-summary-label-row">
+                  <p className="company-payment-summary-label">Total settled</p>
+                  {page.stale ? (
+                    <p
+                      role="status"
+                      className="company-payment-data-state"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="company-payment-data-state-icon"
+                      >
+                        <circle cx="8" cy="8" r="5.75" />
+                        <path d="M8 4.75v3.5l2.35 1.4" />
+                      </svg>
+                      Showing the last available payment data.
+                    </p>
+                  ) : null}
+                </div>
                 <div className="company-payment-summary-value-row">
                   <p className="company-payment-summary-value">
                     {settledAmount}

@@ -193,7 +193,7 @@ describe("priority payment summary", () => {
     expect(html).toContain("Retry");
   });
 
-  it("banners stale pages instead of presenting them as live", () => {
+  it("embeds a neutral stale-data status in the payment summary", () => {
     const page: PaymentHistoryPage = {
       companyId: 925148,
       total: 1,
@@ -224,6 +224,11 @@ describe("priority payment summary", () => {
       <PaymentHistory companyId={925148} initial={page} />,
     );
     expect(html).toContain("Showing the last available payment data.");
+    expect(html).toContain("company-payment-data-state");
+    expect(html.indexOf("company-payment-data-state")).toBeGreaterThan(
+      html.indexOf("company-payment-summary"),
+    );
+    expect(html).not.toContain("amber");
     expect(html).toContain("$565.07");
   });
 

@@ -1522,11 +1522,17 @@ textarea {
   column-gap: 1rem;
   row-gap: 0.75rem;
   padding: 0.75rem 1rem;
-  transition: background-color 0.16s ease,
+  transition: background-color 0.16s ease, box-shadow 0.16s ease,
     grid-template-columns var(--acct-note-geometry-dur) var(--acct-ease)
       var(--acct-note-geometry-delay),
     row-gap var(--acct-note-geometry-dur) var(--acct-ease)
       var(--acct-note-geometry-delay);
+}
+
+/* The whole row opens the account, so it has to read as pressable. Children
+   that mean something else carry their own cursor. */
+.account-list-row-header--clickable {
+  cursor: pointer;
 }
 
 .account-list-row-header .account-expand-button {
@@ -1840,8 +1846,43 @@ textarea {
   }
 }
 
+/* Rows that cannot open still track the pointer, but only faintly: nothing is
+   going to happen, so the row must not promise otherwise. */
 .account-list-row-header:not(.account-list-row-header--open):hover {
   background: color-mix(in srgb, var(--sand) 25%, transparent);
+}
+
+/* ——— Hovering a row that opens ———
+   The whole row is the target now, so the answer has to be legible at row
+   scale rather than at chevron scale. Two signals, both borrowed from the open
+   state so that hovering reads as a preview of opening: the surface lifts to
+   the theme's own hover token, and the accent rail appears at the left edge.
+   Both are derived from tokens that flip with the theme, so the lift is a
+   darkening on paper and a lightening in the dark — visible either way without
+   a second rule. What keeps hover from being mistaken for open is everything
+   hover does not do: no eye mark, no Viewing label, no panel. */
+@media (hover: hover) {
+  .account-list-row-header--clickable:not(.account-list-row-header--open):hover {
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-hover));
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+
+  /* The chevron is the control the row now stands in for, so it lights with
+     the row instead of waiting for the pointer to finish crossing it. */
+  .account-list-row-header--clickable:not(.account-list-row-header--open):hover
+    .account-expand-button:not(:disabled) {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+    color: var(--foreground);
+  }
+}
+
+/* A tint is the first thing lost when the reader asks for more contrast; the
+   rail is a shape, so it carries the affordance on its own. */
+@media (prefers-contrast: more) {
+  .account-list-row-header--clickable:not(.account-list-row-header--open):hover {
+    box-shadow: inset 4px 0 0 var(--accent);
+  }
 }
 
 .account-list-row-header--open {

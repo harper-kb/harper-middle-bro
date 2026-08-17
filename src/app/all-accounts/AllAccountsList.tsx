@@ -23,6 +23,25 @@ import {
   type ExpandedAccountIds,
 } from "./use-account-expansion";
 
+const HEADER_INTERACTIVE =
+  'a,button,input,textarea,select,summary,[role="button"],[data-account-toggle-ignore]';
+
+/**
+ * Whether a click landed on the row's own surface rather than on something
+ * that already means something else — the account link, the chevron, or a
+ * note preview, each of which keeps its own behaviour. Mirrors the order
+ * card's `shouldOpenOrderFromCard` so both surfaces answer this the same way.
+ */
+export function shouldToggleAccountFromHeader(
+  target: EventTarget | null,
+  header: HTMLElement,
+): boolean {
+  if (!(target instanceof Node) || !header.contains(target)) return false;
+  const element = target as { closest?: (selector: string) => Element | null };
+  if (typeof element?.closest !== "function") return false;
+  return !element.closest(HEADER_INTERACTIVE);
+}
+
 /**
  * Memoized: with the open/closed state lifted to the list, an unmemoized row
  * would re-render every account on the page each time one chevron is pressed.
@@ -122,7 +141,16 @@ export const AccountRow = memo(function AccountRow({
       <div
         className={`account-list-row-header ${
           open ? "account-list-row-header--open" : ""
-        }`}
+        } ${canExpand ? "account-list-row-header--clickable" : ""}`}
+        // Pointer affordance only. The chevron below stays the labelled,
+        // focusable control that carries aria-expanded for the keyboard.
+        onClick={(event) => {
+          if (!canExpand) return;
+          if (!shouldToggleAccountFromHeader(event.target, event.currentTarget)) {
+            return;
+          }
+          toggle();
+        }}
       >
         <div className="account-list-row-main min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">

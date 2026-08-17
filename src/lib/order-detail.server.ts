@@ -75,6 +75,7 @@ interface RawOrderDetailRow {
   order_id: number | string;
   client_initial_payment: number | string | null;
   harper_service_fee: number | string | null;
+  payment_type: string | null;
   quote_candidates: unknown;
   payment_candidates: unknown;
   bound_policy_candidates: unknown;
@@ -454,6 +455,20 @@ export function paymentMethodLabel(
   return null;
 }
 
+/**
+ * The order's payment plan — whether the term was paid up front or financed.
+ * A different fact from the instrument the money arrived on, and the only one
+ * available for roughly a sixth of settled payments, which carry neither a
+ * stored payment method nor a normalized instrument to name. Unrecognized
+ * values return null: an empty card beats inventing a plan.
+ */
+export function paymentPlanLabel(value: unknown): string | null {
+  const plan = trim(value)?.toLowerCase().replace(/[\s-]+/g, "_");
+  if (plan === "full_pay" || plan === "full") return "Full pay";
+  if (plan === "financed" || plan === "financing") return "Financed";
+  return null;
+}
+
 export function isEligibleInitialPayment(
   candidate: InitialPaymentCandidate,
   orderId: number,
@@ -535,6 +550,7 @@ function buildOrderDetailQuery(companyId: number, orderId: number): string {
         ot.company_id,
         ot.client_initial_payment,
         ot.harper_service_fee,
+        ot.payment_type,
         ot.order_documents
       FROM public.orders_temp ot
       JOIN public.companies company ON company.id = ot.company_id
@@ -620,6 +636,25 @@ function buildOrderDetailQuery(companyId: number, orderId: number): string {
       SELECT invoice.*
       FROM insurance.invoice invoice
       JOIN target_order target ON target.id = invoice.legacy_order_id
+    ),
+    -- Payments reach their invoice by a wider path than quotes do. Three
+    -- quarters of invoices carry no legacy_order_id at all, so joining on it
+    -- alone loses a settled payment the order's own deal already points at.
+    -- Membership is tested by id rather than UNIONed, because the invoice row
+    -- carries JSON columns that have no equality operator to dedupe on.
+    -- Deliberately separate from order_invoices: widening that one would move
+    -- active_invoices and the quote seeds too, and quote selection is right.
+    payment_invoices AS (
+      SELECT invoice.*
+      FROM insurance.invoice invoice
+      WHERE invoice.legacy_order_id IN (SELECT id FROM target_order)
+         OR invoice.id IN (
+           SELECT line.invoice_id
+           FROM insurance.invoice_line_item line
+           JOIN order_deals deal
+             ON deal.invoice_line_item_id = line.id
+             OR (deal.quote_id IS NOT NULL AND deal.quote_id = line.quote_id)
+         )
     ),
     active_invoices AS (
       SELECT invoice.*
@@ -1020,7 +1055,7 @@ function buildOrderDetailQuery(companyId: number, orderId: number): string {
         instrument.card_type,
         stored_method.method_type AS payment_method
       FROM target_order target
-      JOIN order_invoices invoice ON true
+      JOIN payment_invoices invoice ON true
       JOIN cpq.payment payment ON payment.invoice_id = invoice.id
       LEFT JOIN cpq.payment_method stored_method
         ON stored_method.id = payment.payment_method_id
@@ -1102,6 +1137,7 @@ function buildOrderDetailQuery(companyId: number, orderId: number): string {
       target.id AS order_id,
       target.client_initial_payment,
       target.harper_service_fee,
+      target.payment_type,
       COALESCE((
         SELECT JSONB_AGG(JSONB_BUILD_OBJECT(
           'source', candidate.source,
@@ -1213,6 +1249,7 @@ function resolveOrderDetailRow(
     quote,
     quoteArtifactId: selectedQuote?.artifactId ?? null,
     initialPayment,
+    paymentPlan: paymentPlanLabel(row.payment_type),
     // Null stays unavailable; an explicit database zero stays $0.00.
     harperFeeCents: decimalToCents(row.harper_service_fee),
     boundPolicies: resolveBoundPolicies(row.bound_policy_candidates),
@@ -1245,7 +1282,10 @@ function assertIds(companyId: number, orderId: number): void {
 }
 
 function detailCacheKey(companyId: number, orderId: number): string {
-  return `order-detail:v1:${companyId}:${orderId}`;
+  // v2: payments now reach their invoice through the order's deals, and the
+  // payload carries the order's payment plan. Payloads written by the old
+  // query would otherwise keep serving a payment it could not see.
+  return `order-detail:v2:${companyId}:${orderId}`;
 }
 
 function readPersistedDetail(
@@ -1342,6 +1382,7 @@ export function publicOrderDetail(
     orderId: detail.orderId,
     quote: detail.quote,
     initialPayment: detail.initialPayment,
+    paymentPlan: detail.paymentPlan,
     harperFeeCents: detail.harperFeeCents,
     boundPolicies: detail.boundPolicies,
     fetchedAt: detail.fetchedAt,

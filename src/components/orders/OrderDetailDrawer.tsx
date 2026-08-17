@@ -544,10 +544,18 @@ function FinancialSummary({ data }: { data: OrderDetailResponse }) {
         <FinancialCard
           tone="method"
           label="Payment type"
-          value={initialPayment?.method ?? "Payment type unavailable"}
-          unavailable={!initialPayment?.method}
+          value={
+            initialPayment?.method ??
+            data.paymentPlan ??
+            "Payment type unavailable"
+          }
+          unavailable={!initialPayment?.method && !data.paymentPlan}
           supporting={
-            initialPayment?.method ? "Initial payment method" : undefined
+            initialPayment?.method
+              ? "Initial payment method"
+              : data.paymentPlan
+                ? "Order payment plan"
+                : undefined
           }
         />
         <FinancialCard

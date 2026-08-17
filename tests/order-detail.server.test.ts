@@ -43,6 +43,8 @@ import {
   loadOrderDetail,
   mintOrderQuoteUrl,
   paymentMethodLabel,
+  paymentPlanLabel,
+  publicOrderDetail,
   quoteFileType,
   resolveBoundPolicies,
   selectInitialPayment,
@@ -181,6 +183,7 @@ function responseRow({
   boundPolicyCandidates = [],
   clientInitialPayment = null,
   harperFee = null,
+  paymentType = null,
 }: {
   orderId?: number;
   quoteCandidates?: QuoteCandidate[];
@@ -188,11 +191,13 @@ function responseRow({
   boundPolicyCandidates?: Record<string, unknown>[];
   clientInitialPayment?: string | null;
   harperFee?: string | null;
+  paymentType?: string | null;
 } = {}) {
   return {
     order_id: orderId,
     client_initial_payment: clientInitialPayment,
     harper_service_fee: harperFee,
+    payment_type: paymentType,
     quote_candidates: quoteCandidates.map(rawQuote),
     payment_candidates: paymentCandidates.map(rawPayment),
     bound_policy_candidates: boundPolicyCandidates,
@@ -388,6 +393,28 @@ describe("initial order payment selection", () => {
   });
 });
 
+describe("order payment plan", () => {
+  it("names the two plans the book actually carries", () => {
+    expect(paymentPlanLabel("full_pay")).toBe("Full pay");
+    expect(paymentPlanLabel("full")).toBe("Full pay");
+    expect(paymentPlanLabel("financed")).toBe("Financed");
+  });
+
+  it("reads a plan regardless of casing or separator", () => {
+    expect(paymentPlanLabel("Full Pay")).toBe("Full pay");
+    expect(paymentPlanLabel("full-pay")).toBe("Full pay");
+  });
+
+  it("stays silent on anything it cannot name", () => {
+    // An empty card beats inventing a plan the order never stated.
+    expect(paymentPlanLabel(null)).toBeNull();
+    expect(paymentPlanLabel("")).toBeNull();
+    expect(paymentPlanLabel("   ")).toBeNull();
+    expect(paymentPlanLabel("quarterly")).toBeNull();
+    expect(paymentPlanLabel(7)).toBeNull();
+  });
+});
+
 describe("bound policy composition", () => {
   it("keeps every active bound deal and prefers canonical policy values", () => {
     expect(
@@ -506,8 +533,33 @@ describe("live order-detail composition", () => {
     });
     expect(detail.quote).toBeNull();
     expect(detail.initialPayment).toBeNull();
+    expect(detail.paymentPlan).toBeNull();
     expect(detail.harperFeeCents).toBeNull();
     expect(detail.boundPolicies).toEqual([]);
+  });
+
+  it("carries the order's payment plan through the payload", async () => {
+    query.mockResolvedValue([responseRow({ paymentType: "full_pay" })]);
+    const detail = await loadOrderDetail({
+      companyId: 917669,
+      orderId: 10617,
+    });
+    expect(detail.paymentPlan).toBe("Full pay");
+    expect(publicOrderDetail(detail).paymentPlan).toBe("Full pay");
+  });
+
+  it("reaches a payment through the order's deals, not only a stamped invoice", async () => {
+    // Three quarters of invoices carry no legacy_order_id, so the deal's own
+    // line item and quote have to be able to admit a payment candidate.
+    query.mockResolvedValue([responseRow({ orderId: 13062 })]);
+    await loadOrderDetail({ companyId: 927725, orderId: 13062 });
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("payment_invoices AS (");
+    expect(sql).toContain("JOIN payment_invoices invoice ON true");
+    expect(sql).toContain("deal.invoice_line_item_id = line.id");
+    expect(sql).toContain("deal.quote_id = line.quote_id");
+    // Quote selection keeps reading the stamped-invoice CTE untouched.
+    expect(sql).toContain("FROM order_invoices invoice");
   });
 
   it("deduplicates concurrent detail fetches", async () => {
@@ -537,7 +589,7 @@ describe("live order-detail composition", () => {
     const row = db
       .prepare(
         `SELECT payload FROM remote_cache
-         WHERE cache_key = 'order-detail:v1:917669:10617'`,
+         WHERE cache_key = 'order-detail:v2:917669:10617'`,
       )
       .get() as { payload: string };
     expect(JSON.parse(row.payload).digest).toBe("digest-aaa");

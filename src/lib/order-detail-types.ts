@@ -34,6 +34,8 @@ export interface OrderDetailResponse {
   orderId: number;
   quote: OrderDetailQuote | null;
   initialPayment: OrderDetailInitialPayment | null;
+  /** Order-level plan (Full pay / Financed), shown when no instrument resolves. */
+  paymentPlan: string | null;
   harperFeeCents: number | null;
   boundPolicies: OrderDetailBoundPolicy[];
   fetchedAt: string;

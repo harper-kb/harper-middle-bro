@@ -74,6 +74,8 @@ function detail(
       status: "settled",
       statusLabel: "Settled",
     },
+    // Null by default so a case that wants the plan fallback has to ask for it.
+    paymentPlan: null,
     harperFeeCents: 50_000,
     fetchedAt: `2026-08-16T21:00:${orderId % 60}.000Z`,
     ...overrides,
@@ -582,6 +584,58 @@ describe("minimal order detail states", () => {
         '[data-order-detail-card="fee"][data-value-state="available"]',
       ),
     ).toBeTruthy();
+  });
+
+  it("names the order's payment plan when no instrument resolves", async () => {
+    // A settled payment whose processor never reported an instrument: the
+    // plan is the only payment fact left, and it beats an empty card.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        json(
+          detail(FIRST.orderId, {
+            initialPayment: {
+              paymentId: 52_970,
+              amountCents: 144_500,
+              currency: "USD",
+              method: null,
+              status: "settled",
+              statusLabel: "Settled",
+            },
+            paymentPlan: "Full pay",
+          }),
+        ),
+      ),
+    );
+    renderHarness();
+    fireEvent.click(screen.getByRole("button", { name: "Open first" }));
+
+    expect(await screen.findByText("$1,445.00")).toBeTruthy();
+    expect(screen.getByText("Full pay")).toBeTruthy();
+    expect(screen.getByText("Order payment plan")).toBeTruthy();
+    expect(screen.queryByText("Payment type unavailable")).toBeNull();
+    expect(
+      document.querySelector(
+        '[data-order-detail-card="method"][data-value-state="available"]',
+      ),
+    ).toBeTruthy();
+  });
+
+  it("prefers the resolved instrument over the order's plan", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          json(detail(FIRST.orderId, { paymentPlan: "Financed" })),
+        ),
+    );
+    renderHarness();
+    fireEvent.click(screen.getByRole("button", { name: "Open first" }));
+
+    expect(await screen.findByText("ACH")).toBeTruthy();
+    expect(screen.getByText("Initial payment method")).toBeTruthy();
+    expect(screen.queryByText("Financed")).toBeNull();
   });
 
   it("renders a loading skeleton and a compact retryable error", async () => {

@@ -1,7 +1,15 @@
+// @vitest-environment jsdom
+
 import { renderToStaticMarkup } from "react-dom/server";
 import fs from "fs";
 import path from "path";
-import { describe, expect, it } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render as renderDom,
+  screen,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CompanySearchResults,
   type CompanySearchVariant,
@@ -10,6 +18,7 @@ import {
   calculateSearchPreviewGeometry,
   inlineSearchPreviewOpen,
 } from "@/components/CompanySearch";
+import { openCompanySearchResultInNewTab } from "@/components/company-search/use-company-search";
 import type {
   CompanySearchController,
   CompanySearchView,
@@ -74,6 +83,8 @@ const readyView: CompanySearchView = {
   lastSuccessfulSyncAt: "2026-08-16T23:05:00.000Z",
 };
 
+afterEach(cleanup);
+
 function render(view: CompanySearchView, variant: CompanySearchVariant) {
   return renderToStaticMarkup(
     <CompanySearchResults controller={controllerFor(view)} variant={variant} />,
@@ -92,11 +103,51 @@ describe("company search presentations", () => {
     }
   });
 
-  it("navigates to the same stable account ids from both", () => {
+  it("opens the same stable account ids in secure new tabs from both", () => {
     for (const markup of [inline, modal]) {
       expect(markup).toContain('href="/accounts/co-13204"');
       expect(markup).toContain('href="/accounts/co-900319"');
+      expect(markup).toContain('target="_blank"');
+      expect(markup).toContain('rel="noopener noreferrer"');
+      expect(markup).toContain(
+        'aria-label="Open Azure International, LLC in a new tab"',
+      );
     }
+  });
+
+  it("opens keyboard results in a new tab and dismisses search", () => {
+    const child = { opener: {} } as unknown as Window;
+    const openWindow = vi.fn(() => child);
+    const onDismiss = vi.fn();
+
+    openCompanySearchResultInNewTab(
+      "co-13204",
+      onDismiss,
+      openWindow,
+    );
+
+    expect(openWindow).toHaveBeenCalledWith(
+      "/accounts/co-13204",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(child.opener).toBeNull();
+    expect(onDismiss).toHaveBeenCalledWith("navigate");
+  });
+
+  it("closes the current search surface after a pointer result click", () => {
+    const controller = controllerFor(readyView);
+    controller.handleResultClick = vi.fn();
+    renderDom(
+      <CompanySearchResults controller={controller} variant="modal" />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("link", {
+        name: "Open Azure International, LLC in a new tab",
+      }),
+    );
+    expect(controller.handleResultClick).toHaveBeenCalledOnce();
   });
 
   it("summarizes producer, channel, carrier and status identically", () => {

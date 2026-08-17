@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -52,6 +51,28 @@ const NO_RESULTS: readonly CompanySearchResult[] = [];
 /** Why the surface is going away — the caller decides where focus lands. */
 export type CompanySearchDismissal = "escape" | "navigate";
 
+type OpenWindow = (
+  url?: string | URL,
+  target?: string,
+  features?: string,
+) => Window | null;
+
+/** Keyboard activation mirrors the result links and always dismisses search. */
+export function openCompanySearchResultInNewTab(
+  accountId: string,
+  onDismiss: (reason: CompanySearchDismissal) => void,
+  openWindow: OpenWindow = (url, target, features) =>
+    window.open(url, target, features),
+): void {
+  const opened = openWindow(
+    `/accounts/${accountId}`,
+    "_blank",
+    "noopener,noreferrer",
+  );
+  if (opened) opened.opener = null;
+  onDismiss("navigate");
+}
+
 export interface CompanySearchController {
   query: string;
   setQuery: (value: string) => void;
@@ -66,7 +87,7 @@ export interface CompanySearchController {
   activeDescendant: string | undefined;
   /** Arrow / Enter / Escape, identical in both presentations. */
   handleKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
-  /** Called by a result row once its link has taken the navigation. */
+  /** Called by a result row once its new-tab link has activated. */
   handleResultClick: () => void;
   lastSuccessfulSyncAt: string | null;
 }
@@ -76,7 +97,6 @@ export function useCompanySearch({
 }: {
   onDismiss: (reason: CompanySearchDismissal) => void;
 }): CompanySearchController {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [state, setState] = useState<SettledState>({ status: "idle" });
   const [highlighted, setHighlighted] = useState(-1);
@@ -185,13 +205,12 @@ export function useCompanySearch({
         const result = results[activeIndex];
         if (!result) return;
         event.preventDefault();
-        // The same stable-id destination the row's link points at, so keyboard
-        // and pointer land on exactly one account route.
-        router.push(`/accounts/${result.id}`);
-        onDismiss("navigate");
+        // Match pointer activation: open the stable account route in a new tab
+        // and close the palette/dropdown in the current tab.
+        openCompanySearchResultInNewTab(result.id, onDismiss);
       }
     },
-    [activeIndex, onDismiss, results, router],
+    [activeIndex, onDismiss, results],
   );
 
   const handleResultClick = useCallback(

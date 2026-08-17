@@ -193,6 +193,9 @@ function ResultRow({
       <Link
         tabIndex={-1}
         href={`/accounts/${result.id}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Open ${result.name} in a new tab`}
         onClick={onNavigate}
         onMouseMove={onHover}
         className={`flex flex-col ${modal ? "gap-1.5 px-4 py-2.5" : "gap-1 px-3 py-2"}`}
@@ -383,7 +386,7 @@ export function CompanySearchFooter({
       {variant === "modal" ? (
         <span className="flex items-center gap-3">
           <Hint keys="↑↓" label="Navigate" />
-          <Hint keys="↵" label="Open" />
+          <Hint keys="↵" label="Open new tab" />
           <Hint keys="Esc" label="Close" />
         </span>
       ) : (

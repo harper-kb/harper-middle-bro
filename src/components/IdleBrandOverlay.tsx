@@ -117,6 +117,13 @@ export function IdleBrandOverlay() {
   const beginOpen = useCallback(
     (manualTrigger: HTMLElement | null) => {
       if (openRef.current || document.hidden) return;
+      // A focused task dialog owns the modal layer. The next interaction after
+      // it closes re-arms this idle timer, avoiding two dialogs and competing
+      // focus traps while still keeping the brand screen globally available.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        clearIdleTimer();
+        return;
+      }
 
       clearIdleTimer();
       const active =

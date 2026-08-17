@@ -1,42 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
   readBookRefreshStatus,
-  type BookRefreshStatus,
 } from "@/lib/db/book-refresh-status";
 import {
   BIND_SENT_TIME_ZONE,
   readOperationsMetricsSnapshot,
-  type OperationsBindDay,
   type OperationsMetricsSnapshot,
-  type OperationsZone,
 } from "@/lib/db/operations-metrics";
+import type { OperationsStatsResponse } from "@/lib/operations-stats";
 import { getSessionOperator } from "@/lib/session";
 
-export const dynamic = "force-dynamic";
+export type { OperationsStatsResponse } from "@/lib/operations-stats";
 
-/**
- * One consistent stats-bar payload: the selected business day's metrics plus
- * the same `lastSuccessfulSyncAt` instant the sidebar's Latest Database Sync
- * card shows — both read the timestamp recorded by the book refresh cycle
- * that also published this metrics snapshot.
- */
-export interface OperationsStatsResponse {
-  selectedBusinessDate: string;
-  /** Zone the activity counters resolve in — the viewer's own business day. */
-  businessTimezone: OperationsZone;
-  /** Bind Sent alone resolves on the Eastern business day, per BigBrother. */
-  bindSentTimezone: typeof BIND_SENT_TIME_ZONE;
-  lastSuccessfulSyncAt: string | null;
-  /** Selectable business dates in the matched zone, newest (today) first. */
-  availableDates: string[];
-  metrics: {
-    bindSent: Pick<OperationsBindDay, "total" | "sameDay" | "backlog">;
-    newOrders: number;
-    bound: number;
-    coisSent: number;
-  };
-  refresh: BookRefreshStatus;
-}
+export const dynamic = "force-dynamic";
 
 /**
  * BigBrother resolves the activity counters on the viewer's local day, so the
@@ -95,8 +71,11 @@ export async function GET(request: NextRequest) {
     selectedBusinessDate: day.businessDate,
     businessTimezone: zone.timeZone,
     bindSentTimezone: BIND_SENT_TIME_ZONE,
+    metricsCalculatedAt: snapshot.calculatedAt,
     lastSuccessfulSyncAt: refresh.lastSuccessfulAt,
     availableDates: zone.days.map((candidate) => candidate.businessDate),
+    businessWindow: day.window,
+    bindSentWindow: bind.window,
     metrics: {
       bindSent: {
         total: bind.total,

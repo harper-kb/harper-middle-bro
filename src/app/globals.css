@@ -6139,3 +6139,86 @@ html.idle-brand-overlay-open {
     display: none !important;
   }
 }
+
+/* ——— Daily stats snapshot ———
+   One portal owns the full-screen blur and interaction lock. The exported card
+   is a fixed-theme PNG; only this dialog chrome follows the app theme. */
+.daily-stats-snapshot-backdrop {
+  overscroll-behavior: contain;
+  background: color-mix(in srgb, var(--overlay) 78%, transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(0.82);
+  backdrop-filter: blur(8px) saturate(0.82);
+  animation: daily-stats-snapshot-backdrop-in 220ms ease-out both;
+}
+
+.daily-stats-snapshot-panel {
+  animation: daily-stats-snapshot-panel-in 240ms
+    cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.daily-stats-snapshot-preview {
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 9%, transparent) inset,
+    0 18px 45px color-mix(in srgb, var(--shadow-color) 34%, transparent);
+}
+
+.daily-stats-snapshot-image {
+  animation: daily-stats-snapshot-image-in 180ms ease-out both;
+}
+
+@keyframes daily-stats-snapshot-backdrop-in {
+  from {
+    opacity: 0;
+    -webkit-backdrop-filter: blur(0) saturate(1);
+    backdrop-filter: blur(0) saturate(1);
+  }
+  to {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(8px) saturate(0.82);
+    backdrop-filter: blur(8px) saturate(0.82);
+  }
+}
+
+@keyframes daily-stats-snapshot-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(0.988);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes daily-stats-snapshot-image-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .daily-stats-snapshot-backdrop {
+    background: color-mix(in srgb, var(--overlay) 97%, var(--background));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .daily-stats-snapshot-backdrop,
+  .daily-stats-snapshot-panel,
+  .daily-stats-snapshot-image {
+    animation-name: daily-stats-snapshot-image-in;
+    animation-duration: 70ms;
+    animation-timing-function: linear;
+  }
+}
+
+@media print {
+  .daily-stats-snapshot-backdrop {
+    display: none !important;
+  }
+}

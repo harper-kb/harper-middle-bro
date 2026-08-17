@@ -4,11 +4,16 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   Suspense,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import type { OperationsStatsResponse } from "@/app/api/operations-metrics/route";
+import { DailyStatsSnapshotButton } from "@/components/daily-stats-snapshot/DailyStatsSnapshotButton";
+import {
+  createDailyOperationsStats,
+  type OperationsStatsResponse,
+} from "@/lib/operations-stats";
 import { CompanySearch } from "./CompanySearch";
 
 const POLL_INTERVAL_MS = 30_000;
@@ -164,7 +169,7 @@ function DatePopover({
   onSelect,
   onClose,
 }: {
-  availableDates: string[];
+  availableDates: readonly string[];
   selectedDate: string;
   onSelect: (date: string) => void;
   onClose: () => void;
@@ -280,6 +285,10 @@ function StatsBarContent() {
   const [unreachable, setUnreachable] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const stats = useMemo(
+    () => (data ? createDailyOperationsStats(data) : null),
+    [data],
+  );
 
   useEffect(() => {
     let active = true;
@@ -321,9 +330,9 @@ function StatsBarContent() {
   }, [urlDate]);
 
   const selectDate = (date: string) => {
-    if (!data) return;
+    if (!stats) return;
     const params = new URLSearchParams(searchParams.toString());
-    if (date === data.availableDates[0]) params.delete("statsDate");
+    if (date === stats.availableDates[0]) params.delete("statsDate");
     else params.set("statsDate", date);
     const query = params.toString();
     // Native history keeps Back/Forward and shared links working without a
@@ -336,29 +345,29 @@ function StatsBarContent() {
     triggerRef.current?.focus();
   };
 
-  const availableDates = data?.availableDates ?? [];
-  const selectedDate = data?.selectedBusinessDate ?? null;
+  const availableDates = stats?.availableDates ?? [];
+  const selectedDate = stats?.selectedBusinessDate ?? null;
   const selectedIndex = selectedDate
     ? availableDates.indexOf(selectedDate)
     : -1;
-  const metrics = data?.metrics ?? null;
-  const syncedAt = data?.lastSuccessfulSyncAt ?? null;
+  const metrics = stats?.metrics ?? null;
+  const syncedAt = stats?.dataRevision.lastSuccessfulSyncAt ?? null;
 
   const refreshFailed =
-    data != null &&
-    data.refresh.lastAttemptStatus === "failed" &&
-    data.refresh.lastAttemptAt != null &&
+    stats != null &&
+    stats.refresh.lastAttemptStatus === "failed" &&
+    stats.refresh.lastAttemptAt != null &&
     (syncedAt == null ||
-      Date.parse(data.refresh.lastAttemptAt) > Date.parse(syncedAt));
+      Date.parse(stats.refresh.lastAttemptAt) > Date.parse(syncedAt));
   const stale =
-    data != null &&
+    stats != null &&
     syncedAt != null &&
     observedAt - Date.parse(syncedAt) > STALE_AFTER_MS;
 
   let tone: Tone = "ok";
   let statusLead = "Updated";
   let statusTime = updatedLabel(syncedAt);
-  if (data == null) {
+  if (stats == null) {
     tone = "idle";
     statusLead = unreachable ? "Metrics unavailable" : "Loading";
     statusTime = "";
@@ -370,17 +379,33 @@ function StatsBarContent() {
     statusLead = "Stale";
   }
   const statusTitle = `${statusLead}. ${syncTooltip(syncedAt)}`;
+  const compactStatus =
+    tone === "ok"
+      ? statusTime
+      : tone === "warn"
+        ? "Stale"
+        : tone === "bad"
+          ? "Issue"
+          : unreachable
+            ? "Off"
+            : "…";
 
-  const initialLoading = data == null && !unreachable;
+  const initialLoading = stats == null && !unreachable;
   const dateName =
     selectedDate != null && selectedIndex >= 0
       ? `${relativeName(selectedIndex, selectedDate)} · ${shortDate(selectedDate)}`
       : "Today";
+  const compactDateName =
+    selectedDate == null
+      ? "Today"
+      : selectedIndex === 0
+        ? "Today"
+        : shortDate(selectedDate);
   const dayTitle = selectedDate
-    ? `${selectedDate} (${data?.businessTimezone ?? "local"} business day)`
+    ? `${selectedDate} (${stats?.businessTimezone ?? "local"} business day)`
     : "the selected business day";
   const bindTitle = selectedDate
-    ? `${selectedDate} (${data?.bindSentTimezone ?? "Eastern"} business day)`
+    ? `${selectedDate} (${stats?.bindSentTimezone ?? "Eastern"} business day)`
     : "the selected business day";
 
   const arrowButtonClass =
@@ -391,12 +416,12 @@ function StatsBarContent() {
       aria-label="Operational stats"
       className="bg-[var(--paper)]/95 backdrop-blur"
     >
-      <div className="ops-bar-row grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 px-3 py-1.5 sm:gap-2 sm:px-4 xl:gap-3">
+      <div className="ops-bar-row grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-1.5 px-3 py-1.5 sm:gap-2 sm:px-4 xl:gap-3">
         <CompanySearch />
 
         <div
           className={`ops-metrics-scroll grid min-w-0 grid-cols-[minmax(14rem,1.7fr)_repeat(3,minmax(5.75rem,1fr))] items-center overflow-x-auto transition-opacity duration-150 xl:overflow-visible ${
-            switching && data != null ? "opacity-55" : "opacity-100"
+            switching && stats != null ? "opacity-55" : "opacity-100"
           }`}
         >
           <div className="flex min-w-0 justify-center pr-2 sm:pr-3">
@@ -442,13 +467,15 @@ function StatsBarContent() {
           </div>
         </div>
 
-        <div className="relative flex w-[15.5rem] shrink-0 items-stretch rounded-lg border border-[var(--rule)] bg-[var(--surface-raised)] sm:w-[18rem]">
+        <DailyStatsSnapshotButton stats={stats} disabled={switching} />
+
+        <div className="relative flex w-[10rem] shrink-0 items-stretch rounded-lg border border-[var(--rule)] bg-[var(--surface-raised)] min-[480px]:w-[15.5rem] sm:w-[18rem]">
           <div className="flex items-center">
             <button
               type="button"
               aria-label="Previous day"
               disabled={
-                data == null ||
+                stats == null ||
                 selectedIndex < 0 ||
                 selectedIndex >= availableDates.length - 1
               }
@@ -463,11 +490,14 @@ function StatsBarContent() {
               aria-haspopup="listbox"
               aria-expanded={pickerOpen}
               aria-label={`Change stats date, currently ${dateName}`}
-              disabled={data == null}
+              disabled={stats == null}
               onClick={() => setPickerOpen((open) => !open)}
               className="flex h-8 items-center gap-1.5 border-x border-[var(--rule)] px-2 transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] disabled:pointer-events-none sm:px-2.5"
             >
-              <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-[var(--ink)]">
+              <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-[var(--ink)] min-[480px]:hidden">
+                {compactDateName}
+              </span>
+              <span className="hidden whitespace-nowrap text-[11px] font-semibold tabular-nums text-[var(--ink)] min-[480px]:inline">
                 {dateName}
               </span>
               <svg
@@ -488,7 +518,7 @@ function StatsBarContent() {
             <button
               type="button"
               aria-label="Next day"
-              disabled={data == null || selectedIndex <= 0}
+              disabled={stats == null || selectedIndex <= 0}
               onClick={() => selectDate(availableDates[selectedIndex - 1])}
               className={`${arrowButtonClass} h-8`}
             >
@@ -499,26 +529,35 @@ function StatsBarContent() {
             role="status"
             aria-live="polite"
             title={statusTitle}
-            className="flex h-8 items-center gap-1.5 border-l border-[var(--rule)] px-2 sm:px-2.5"
+            className="flex h-8 items-center gap-1.5 border-l border-[var(--rule)] px-1.5 min-[480px]:px-2 sm:px-2.5"
           >
             <span
               aria-hidden="true"
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[tone]}`}
             />
-            <span className="sr-only sm:hidden">{statusLead}</span>
+            <span className="sr-only max-[479px]:hidden sm:hidden">
+              {statusLead}
+            </span>
             <span
               className={`hidden whitespace-nowrap text-[10px] font-medium sm:inline ${TONE_TEXT[tone]}`}
             >
               {statusLead}
             </span>
+            {compactStatus ? (
+              <span
+                className={`whitespace-nowrap text-[10px] font-semibold tabular-nums min-[480px]:hidden ${TONE_TEXT[tone]}`}
+              >
+                {compactStatus}
+              </span>
+            ) : null}
             {statusTime ? (
-              <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-[var(--ink)]">
+              <span className="hidden whitespace-nowrap text-[11px] font-semibold tabular-nums text-[var(--ink)] min-[480px]:inline">
                 {statusTime}
               </span>
             ) : null}
           </span>
 
-          {pickerOpen && data != null && selectedDate != null ? (
+          {pickerOpen && stats != null && selectedDate != null ? (
             <DatePopover
               availableDates={availableDates}
               selectedDate={selectedDate}

@@ -232,6 +232,30 @@ describe("priority payment summary", () => {
     expect(html).toContain("$565.07");
   });
 
+  it("does not present a stale empty payment page as definitive", () => {
+    const html = renderToStaticMarkup(
+      <PaymentHistory
+        companyId={925148}
+        initial={{
+          companyId: 925148,
+          total: 0,
+          settledAmountCents: 0,
+          settledCurrency: "USD",
+          settledCount: 0,
+          offset: 0,
+          limit: 20,
+          fetchedAt: "2026-08-16T20:00:00.000Z",
+          stale: true,
+          items: [],
+        }}
+      />,
+    );
+
+    expect(html).toContain("No payment history in the last available data.");
+    expect(html).toContain("Showing the last available payment data.");
+    expect(html).not.toContain(">No payment history.<");
+  });
+
   it("never claims there are no loaded records while an error is showing", () => {
     expect(showNoLoadedPaymentRecords(0, null)).toBe(true);
     expect(

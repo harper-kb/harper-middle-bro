@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { RecordsTestProvider } from "./records-filter-test-utils";
 import {
   sourceLabel,
   sourceTone,
@@ -214,13 +215,15 @@ describe("collapsed account rows", () => {
 
 describe("account source filter", () => {
   const html = renderToStaticMarkup(
-    <AccountFilterToolbar
-      basePath="/all-accounts"
-      currentParams={{}}
-      source="broker"
-      range={undefined}
-      rangeWindowLabel={undefined}
-    />,
+    <RecordsTestProvider view="all" patch={{ source: "broker" }}>
+      <AccountFilterToolbar
+        basePath="/all-accounts"
+        currentParams={{}}
+        source="broker"
+        range={undefined}
+        rangeWindowLabel={undefined}
+      />
+    </RecordsTestProvider>,
   );
 
   it("marks the Broker segment with its own variant and an icon", () => {

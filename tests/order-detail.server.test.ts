@@ -595,7 +595,7 @@ describe("live order-detail composition", () => {
     expect(JSON.parse(row.payload).digest).toBe("digest-aaa");
   });
 
-  it("refetches when the order's book digest has moved", async () => {
+  it("serves stale immediately and refetches when the order digest moves", async () => {
     const db = mem.db as InstanceType<typeof Database>;
     db.prepare(
       `INSERT OR REPLACE INTO book_sync_digests (kind, id, digest)
@@ -612,9 +612,15 @@ describe("live order-detail composition", () => {
     ).run();
     query.mockResolvedValue([responseRow({ harperFee: "700.00" })]);
 
-    const updated = await loadOrderDetail({ companyId: 917669, orderId: 10617 });
+    const stale = await loadOrderDetail({ companyId: 917669, orderId: 10617 });
     expect(query).toHaveBeenCalledTimes(2);
+    expect(stale.harperFeeCents).toBe(50_000);
+    expect(stale.stale).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const updated = await loadOrderDetail({ companyId: 917669, orderId: 10617 });
     expect(updated.harperFeeCents).toBe(70_000);
+    expect(updated.stale).toBe(false);
   });
 
   it("mints quote access only through the server-side Agent Tools door", async () => {
@@ -653,6 +659,143 @@ describe("live order-detail composition", () => {
       include_classification: true,
       include_entities: false,
     });
+  });
+
+  it("revalidates a digest-mismatched quote before signing it", async () => {
+    const db = mem.db as InstanceType<typeof Database>;
+    db.prepare(
+      `INSERT OR REPLACE INTO book_sync_digests (kind, id, digest)
+       VALUES ('order', '10617', 'digest-old')`,
+    ).run();
+    query
+      .mockResolvedValueOnce([
+        responseRow({
+          quoteCandidates: [
+            quote({
+              artifactId: "harper:artifact:old",
+              legacyDocumentId: null,
+            }),
+          ],
+        }),
+      ])
+      .mockResolvedValueOnce([
+        responseRow({
+          quoteCandidates: [
+            quote({
+              artifactId: "harper:artifact:current",
+              legacyDocumentId: null,
+            }),
+          ],
+        }),
+      ]);
+    await loadOrderDetail({ companyId: 917669, orderId: 10617 });
+    db.prepare(
+      `UPDATE book_sync_digests SET digest = 'digest-current'
+       WHERE kind = 'order' AND id = '10617'`,
+    ).run();
+    execute.mockResolvedValue({
+      ok: true,
+      status: 200,
+      error: null,
+      sourceApi: "harper-agent-tools://execute",
+      data: {
+        artifact_id: "harper:artifact:current",
+        classification_type: "QUOTE",
+        signed_url: "https://example-bucket.s3.amazonaws.com/current?signed=1",
+      },
+    });
+
+    await expect(
+      mintOrderQuoteUrl({ companyId: 917669, orderId: 10617 }),
+    ).resolves.toContain("/current?signed=1");
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenCalledWith(
+      "documents document get",
+      expect.objectContaining({
+        artifact_id: "harper:artifact:current",
+      }),
+    );
+  });
+
+  it("promotes cache warming when an operator requests the quote", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const db = mem.db as InstanceType<typeof Database>;
+    db.prepare(
+      `INSERT OR REPLACE INTO book_sync_digests (kind, id, digest)
+       VALUES ('order', '10617', 'digest-old')`,
+    ).run();
+    let backgroundAborted = false;
+    query
+      .mockResolvedValueOnce([
+        responseRow({
+          quoteCandidates: [
+            quote({
+              artifactId: "harper:artifact:old",
+              legacyDocumentId: null,
+            }),
+          ],
+        }),
+      ])
+      .mockImplementationOnce(
+        async (
+          _sql: string,
+          _timeout?: number,
+          options?: { signal?: AbortSignal },
+        ) =>
+          new Promise((_, reject) => {
+            options?.signal?.addEventListener(
+              "abort",
+              () => {
+                backgroundAborted = true;
+                reject(options?.signal?.reason);
+              },
+              { once: true },
+            );
+          }),
+      )
+      .mockResolvedValueOnce([
+        responseRow({
+          quoteCandidates: [
+            quote({
+              artifactId: "harper:artifact:current",
+              legacyDocumentId: null,
+            }),
+          ],
+        }),
+      ]);
+    await loadOrderDetail({ companyId: 917669, orderId: 10617 });
+    db.prepare(
+      `UPDATE book_sync_digests SET digest = 'digest-current'
+       WHERE kind = 'order' AND id = '10617'`,
+    ).run();
+    const stale = await loadOrderDetail({
+      companyId: 917669,
+      orderId: 10617,
+    });
+    expect(stale.stale).toBe(true);
+    execute.mockResolvedValue({
+      ok: true,
+      status: 200,
+      error: null,
+      sourceApi: "harper-agent-tools://execute",
+      data: {
+        artifact_id: "harper:artifact:current",
+        classification_type: "QUOTE",
+        signed_url: "https://example-bucket.s3.amazonaws.com/current?signed=1",
+      },
+    });
+
+    await expect(
+      mintOrderQuoteUrl({ companyId: 917669, orderId: 10617 }),
+    ).resolves.toContain("/current?signed=1");
+    expect(backgroundAborted).toBe(true);
+    expect(query.mock.calls[1]?.[2]).toMatchObject({
+      priority: "background",
+    });
+    expect(query.mock.calls[2]?.[2]).toMatchObject({
+      priority: "interactive",
+    });
+    warn.mockRestore();
   });
 
   it("rejects a signed response for a different artifact", async () => {

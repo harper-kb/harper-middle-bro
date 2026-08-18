@@ -5,6 +5,7 @@ import {
   publicOrderDetail,
 } from "@/lib/order-detail.server";
 import { getSessionOperator } from "@/lib/session";
+import { supabaseManagementRetryAfterSeconds } from "@/lib/supabase-management.server";
 
 export const dynamic = "force-dynamic";
 
@@ -36,11 +37,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const detail = await loadOrderDetail({ companyId, orderId });
+    const detail = await loadOrderDetail({
+      companyId,
+      orderId,
+      signal: request.signal,
+    });
     return NextResponse.json(publicOrderDetail(detail), {
       headers: NO_STORE,
     });
   } catch (cause) {
+    const retryAfter = supabaseManagementRetryAfterSeconds(cause);
     const category =
       cause instanceof Error ? cause.message : "order_detail_unknown_error";
     console.warn("order_detail_load_failed", {
@@ -56,8 +62,16 @@ export async function GET(request: NextRequest) {
             : "Order detail is temporarily unavailable.",
       },
       {
-        status: category === "order_detail_not_found" ? 404 : 502,
-        headers: NO_STORE,
+        status:
+          category === "order_detail_not_found"
+            ? 404
+            : retryAfter === null
+              ? 502
+              : 503,
+        headers:
+          retryAfter === null
+            ? NO_STORE
+            : { ...NO_STORE, "Retry-After": String(retryAfter) },
       },
     );
   }

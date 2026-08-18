@@ -1,19 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import {
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
-  useTransition,
   type KeyboardEvent,
 } from "react";
 import {
-  LOCATION_STATE_FILTER_PARAM,
   locationStateLabel,
-  serializeLocationStates,
   sortLocationStates,
   type LocationStateFilterId,
 } from "@/lib/location-state";
@@ -22,58 +18,27 @@ import {
   ACCOUNT_DATE_ORDER_LABELS,
   ACCOUNT_REVENUE_ORDER_IDS,
   ACCOUNT_REVENUE_ORDER_LABELS,
-  ACCOUNT_SORT_PARAM,
   accountSortSummary,
   DEFAULT_ACCOUNT_SORT,
   isDefaultAccountSort,
-  serializeAccountSort,
   type AccountSort,
 } from "@/lib/account-sort";
 import type { BookLocationStateFacetOption } from "@/lib/db";
 import { RecordsFilterFocusBackdrop } from "./RecordsFilterFocusBackdrop";
+import { useRecordsFilters } from "./RecordsFilterProvider";
+import { recordsFilterHrefFromParams } from "./records-filter-state";
 
-/**
- * The Accounts State & Sort control — the second compact popover beside the
- * Carrier filter on every record view.
- *
- * Inside the popover the U.S. location state picker is a dropdown selection:
- * a select-style field summarizing the current choice that drops down the
- * searchable multi-select menu, so the two sort groups below stay in view.
- * Sorting composes two single-select choices: a date order (Oldest first is
- * the page default) and an optional revenue order that, when active, leads
- * the ordering while the date order arranges equal-revenue runs and the
- * unavailable-revenue tail.
- *
- * Same interaction contract as the Carrier control: immediate application
- * through the URL, popover stays open across the server round-trip, and
- * every change resets the page to 1.
- */
-
+/** Pure adapter retained for component-level URL contract tests. */
 export function stateSortHref(
   basePath: string,
   currentParams: Record<string, string | undefined>,
   states: readonly LocationStateFilterId[],
   sort: AccountSort,
 ): string {
-  const params = new URLSearchParams();
-  // Every active param except this control's own two and the page — a new
-  // selection or ordering is a new result sequence, so it starts at page 1.
-  for (const [key, value] of Object.entries(currentParams)) {
-    if (
-      value !== undefined &&
-      key !== LOCATION_STATE_FILTER_PARAM &&
-      key !== ACCOUNT_SORT_PARAM &&
-      key !== "page"
-    ) {
-      params.set(key, value);
-    }
-  }
-  const serializedStates = serializeLocationStates(states);
-  if (serializedStates) params.set(LOCATION_STATE_FILTER_PARAM, serializedStates);
-  const serializedSort = serializeAccountSort(sort);
-  if (serializedSort) params.set(ACCOUNT_SORT_PARAM, serializedSort);
-  const query = params.toString();
-  return `${basePath}${query ? `?${query}` : ""}`;
+  return recordsFilterHrefFromParams(basePath, currentParams, {
+    locationStates: states,
+    sort,
+  });
 }
 
 /** Summary of the state selection alone ("All states", "CA", "3 states"). */
@@ -170,17 +135,16 @@ interface StateEntry {
 }
 
 export function StateSortSelect({
-  basePath,
-  currentParams,
   selectedStates,
   sort,
   options,
   unavailableSelected,
   resultTotal,
 }: {
-  basePath: string;
-  /** Every active URL param, so a selection never drops the view's filters. */
-  currentParams: Record<string, string | undefined>;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  basePath?: string;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  currentParams?: Record<string, string | undefined>;
   /** Canonical selected location-state ids (page-parsed, sorted). */
   selectedStates: readonly LocationStateFilterId[];
   /** Applied list ordering. */
@@ -195,8 +159,7 @@ export function StateSortSelect({
   /** Accounts matching all filters, for the polite announcement. */
   resultTotal: number;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { latest, update, isPending: pending } = useRecordsFilters();
   const [open, setOpen] = useState(false);
   // The state picker is a dropdown inside the popover — collapsed by
   // default so the sort groups below always start in view.
@@ -293,20 +256,26 @@ export function StateSortSelect({
   function apply(
     nextStates: readonly LocationStateFilterId[],
     nextSort: AccountSort,
+    trigger: string,
   ) {
-    startTransition(() => {
-      router.push(stateSortHref(basePath, currentParams, nextStates, nextSort), {
-        scroll: false,
-      });
-    });
+    update(
+      { locationStates: nextStates, sort: nextSort },
+      {
+        reason: trigger.startsWith("sort-") ? "sort" : "filter",
+        trigger,
+      },
+    );
   }
 
   function toggleState(id: LocationStateFilterId) {
+    const current = latest();
+    const currentSet = new Set(current.locationStates);
     apply(
-      selectedSet.has(id)
-        ? selectedStates.filter((s) => s !== id)
-        : [...selectedStates, id],
-      sort,
+      currentSet.has(id)
+        ? current.locationStates.filter((stateId) => stateId !== id)
+        : [...current.locationStates, id],
+      current.sort,
+      "location-state",
     );
   }
 
@@ -504,7 +473,7 @@ export function StateSortSelect({
               type="button"
               className="filter-clear"
               disabled={!active}
-              onClick={() => apply([], DEFAULT_ACCOUNT_SORT)}
+              onClick={() => apply([], DEFAULT_ACCOUNT_SORT, "state-sort-clear")}
             >
               Clear
             </button>
@@ -608,11 +577,23 @@ export function StateSortSelect({
                     type="radio"
                     name={dateName}
                     checked={sort.date === id}
-                    onChange={() => apply(selectedStates, { ...sort, date: id })}
+                    onChange={() => {
+                      const current = latest();
+                      apply(
+                        current.locationStates,
+                        { ...current.sort, date: id },
+                        "sort-date",
+                      );
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
                         event.preventDefault();
-                        apply(selectedStates, { ...sort, date: id });
+                        const current = latest();
+                        apply(
+                          current.locationStates,
+                          { ...current.sort, date: id },
+                          "sort-date-keyboard",
+                        );
                       }
                     }}
                   />
@@ -634,13 +615,23 @@ export function StateSortSelect({
                     type="radio"
                     name={revenueName}
                     checked={sort.revenue === id}
-                    onChange={() =>
-                      apply(selectedStates, { ...sort, revenue: id })
-                    }
+                    onChange={() => {
+                      const current = latest();
+                      apply(
+                        current.locationStates,
+                        { ...current.sort, revenue: id },
+                        "sort-revenue",
+                      );
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
                         event.preventDefault();
-                        apply(selectedStates, { ...sort, revenue: id });
+                        const current = latest();
+                        apply(
+                          current.locationStates,
+                          { ...current.sort, revenue: id },
+                          "sort-revenue-keyboard",
+                        );
                       }
                     }}
                   />

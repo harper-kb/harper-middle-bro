@@ -11,7 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-export const IDLE_BRAND_TIMEOUT_MS = 30_000;
+export const IDLE_BRAND_TIMEOUT_MS = 60_000;
 export const IDLE_BRAND_EXIT_MS = 220;
 export const IDLE_BRAND_CONTINUOUS_THROTTLE_MS = 1_000;
 export const IDLE_BRAND_POINTER_DISTANCE_PX = 8;

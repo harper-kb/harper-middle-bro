@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { RecordsTestProvider } from "./records-filter-test-utils";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: () => {} }),
@@ -22,8 +23,14 @@ const GLOBALS = readFileSync("src/app/globals.css", "utf8");
 describe("accountsHref", () => {
   it("keeps every active filter", () => {
     expect(
-      accountsHref("/pending-orders", "range=mtd&source=iq&iqStage=quoted", "acme"),
-    ).toBe("/pending-orders?range=mtd&source=iq&iqStage=quoted&q=acme");
+      accountsHref(
+        "/pending-orders",
+        "range=this-week&source=iq&iqStage=bind_requested",
+        "acme",
+      ),
+    ).toBe(
+      "/pending-orders?source=iq&iqStage=bind_requested&range=this-week&q=acme",
+    );
   });
 
   it("drops the query rather than writing an empty one", () => {
@@ -36,17 +43,16 @@ describe("accountsHref", () => {
 
 describe("AccountSearchField", () => {
   const markup = renderToStaticMarkup(
-    <AccountSearchField
-      basePath="/pending-orders"
-      currentParams={{
+    <RecordsTestProvider
+      params={{
         q: "acme",
         page: "4",
-        range: "mtd",
+        range: "this-week",
         source: "iq",
       }}
-      committedQuery="acme"
-      resultCount={12}
-    />,
+    >
+      <AccountSearchField committedQuery="acme" resultCount={12} />
+    </RecordsTestProvider>,
   );
 
   it("shows the committed query in the field", () => {
@@ -54,7 +60,7 @@ describe("AccountSearchField", () => {
   });
 
   it("carries the active filters, but never the stale page", () => {
-    expect(markup).toContain('name="range" value="mtd"');
+    expect(markup).toContain('name="range" value="this-week"');
     expect(markup).toContain('name="source" value="iq"');
     expect(markup).not.toContain('name="page"');
   });

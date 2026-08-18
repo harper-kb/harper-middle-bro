@@ -191,7 +191,7 @@ export async function fetchBookDigests(): Promise<BookDigestRow[]> {
     kind: unknown;
     id: unknown;
     digest: unknown;
-  }>(BOOK_SWEEP_SQL);
+  }>(BOOK_SWEEP_SQL, 120_000, { priority: "refresh" });
   return rows.flatMap((row) => {
     const kind = row.kind === "order" || row.kind === "company" ? row.kind : null;
     const id = String(row.id ?? "").trim();

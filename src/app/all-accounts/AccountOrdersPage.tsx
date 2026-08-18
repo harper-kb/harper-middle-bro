@@ -7,36 +7,11 @@ import {
   type BookOrdersViewMode,
 } from "@/lib/db";
 import { loadSupabaseBook } from "@/lib/supabase-book.server";
-import { parseOrderReportingRange } from "@/lib/order-reporting";
 import { harperCalendarDay } from "@/lib/order-age";
 import {
   ACCOUNT_SOURCE_LABELS,
-  parseAccountSource,
   type AccountSourceId,
 } from "@/lib/account-source";
-import {
-  parseIqStages,
-  serializeIqStages,
-} from "@/lib/iq-stage";
-import {
-  parseBrokerGates,
-  serializeBrokerGates,
-} from "@/lib/broker-gate";
-import {
-  CARRIER_FILTER_PARAM,
-  parseCarrierFilter,
-  serializeCarrierFilter,
-} from "@/lib/carrier-filter";
-import {
-  LOCATION_STATE_FILTER_PARAM,
-  parseLocationStates,
-  serializeLocationStates,
-} from "@/lib/location-state";
-import {
-  ACCOUNT_SORT_PARAM,
-  parseAccountSort,
-  serializeAccountSort,
-} from "@/lib/account-sort";
 import {
   bigBrotherBaseUrl,
   canEditOrders,
@@ -48,18 +23,48 @@ import { AccountViewTitle } from "./AccountViewTitle";
 import { CarrierMultiSelect } from "./CarrierMultiSelect";
 import { StateSortSelect } from "./StateSortSelect";
 import { AccountResultsPanel } from "./AccountResultsPanel";
+import { RecordsFilterProvider } from "./RecordsFilterProvider";
 import { RecordsLiveRefresh } from "./RecordsLiveRefresh";
+import { RecordsScrollRestoration } from "./RecordsScrollRestoration";
 import { KpiStrip, type KpiStat } from "./KpiStrip";
 import { PaginationControls } from "./PaginationControls";
 import {
   getAccountOrdersView,
-  SOURCE_PIPELINE_FILTER_PARAMS,
   supportsSourcePipelineFilters,
 } from "./view-config";
+import {
+  clampRecordsPage,
+  isCanonicalRecordsQuery,
+  parseRecordsFilterState,
+  readRecordsParam,
+  recordsFilterHref,
+  RECORDS_FILTER_PARAM_ORDER,
+  serializeRecordsFilterState,
+  withRecordsView,
+  type RecordsFilterState,
+  type RecordsSearchParams,
+} from "./records-filter-state";
+import {
+  reportRecordsInitialized,
+  reportRecordsPageClamped,
+  reportRecordsUrlNormalized,
+} from "./records-telemetry";
 
 const PAGE_SIZE = 100;
 
-type SearchParams = Record<string, string | undefined>;
+type SearchParams = RecordsSearchParams;
+
+/** Which owned params the request spelled in a way the state could not keep. */
+function droppedRecordsParams(
+  state: RecordsFilterState,
+  params: RecordsSearchParams,
+): string[] {
+  const canonical = serializeRecordsFilterState(state);
+  return RECORDS_FILTER_PARAM_ORDER.filter((key) => {
+    const raw = readRecordsParam(params, key);
+    return raw !== undefined && raw !== canonical.get(key);
+  });
+}
 
 /**
  * Mode-scoped stats. All Accounts gets the full strip with "Deals" labels and
@@ -77,6 +82,7 @@ function kpiStats({
   lostOrderCount,
   revenueMicros,
   missingRevenueOrderCount,
+  state,
 }: {
   mode: BookOrdersViewMode;
   total: number;
@@ -88,6 +94,8 @@ function kpiStats({
   lostOrderCount: number;
   revenueMicros: number | null;
   missingRevenueOrderCount: number;
+  /** Canonical state, so a drill-down keeps every compatible filter. */
+  state: RecordsFilterState;
 }): KpiStat[] {
   const revenueStat: KpiStat = {
     label: "Revenue",
@@ -138,21 +146,24 @@ function kpiStats({
       value: boundOrderCount,
       tone: "bound",
       tooltipAccountCount: withBoundOrders,
-      href: "/bound-orders",
+      href: recordsFilterHref(withRecordsView(state, "bound")),
+      recordsView: "bound",
     },
     {
       label: "Pending Deals",
       value: pendingOrderCount,
       tone: "pending",
       tooltipAccountCount: withPendingOrders,
-      href: "/pending-orders",
+      href: recordsFilterHref(withRecordsView(state, "pending")),
+      recordsView: "pending",
     },
     {
       label: "Lost Deals",
       value: lostOrderCount,
       tone: "lost",
       tooltipAccountCount: withLostOrders,
-      href: "/lost-orders",
+      href: recordsFilterHref(withRecordsView(state, "lost")),
+      recordsView: "lost",
     },
   ];
 }
@@ -214,77 +225,38 @@ export async function AccountOrdersPage({
   searchParams: Promise<SearchParams>;
 }) {
   const params = await searchParams;
-  const q = (params.q ?? "").trim();
-  const source = parseAccountSource(params.source);
-  const requestedPage = Math.max(
-    1,
-    Number.parseInt(params.page ?? "1", 10) || 1,
-  );
   const view = getAccountOrdersView(mode);
-  const range = parseOrderReportingRange(params.range);
-  // Source-scoped pipeline filters, both gated to All Accounts / Pending
-  // Orders by the shared view config: IQ Stage under IQ, Broker Gate under
-  // Broker. An unsupported param never reaches the query — the normalizing
-  // redirect below strips it first.
-  const pipelineModeSupported = supportsSourcePipelineFilters(mode);
-  const iqStageSupported = source === "iq" && pipelineModeSupported;
-  const iqStages = iqStageSupported ? parseIqStages(params.iqStage) : [];
-  const serializedStages = serializeIqStages(iqStages);
-  const brokerGateSupported = source === "broker" && pipelineModeSupported;
-  const brokerGates = brokerGateSupported
-    ? parseBrokerGates(params.brokerGate)
-    : [];
-  const serializedGates = serializeBrokerGates(brokerGates);
-  // Carrier, Location State and Sort — apply to every record view and source.
-  const carriers = parseCarrierFilter(params[CARRIER_FILTER_PARAM]);
-  const serializedCarriers = serializeCarrierFilter(carriers);
-  const locationStates = parseLocationStates(
-    params[LOCATION_STATE_FILTER_PARAM],
-  );
-  const serializedLocationStates = serializeLocationStates(locationStates);
-  const sort = parseAccountSort(params[ACCOUNT_SORT_PARAM]);
-  const serializedSort = serializeAccountSort(sort);
-  if (
-    (range && params.range !== range) ||
-    (!range && params.range !== undefined) ||
-    (source === "all" && params.source !== undefined) ||
-    (source !== "all" && params.source !== source) ||
-    (!iqStageSupported && params.iqStage !== undefined) ||
-    (iqStageSupported && (params.iqStage ?? undefined) !== serializedStages) ||
-    (!brokerGateSupported && params.brokerGate !== undefined) ||
-    (brokerGateSupported &&
-      (params.brokerGate ?? undefined) !== serializedGates) ||
-    (params[CARRIER_FILTER_PARAM] ?? undefined) !== serializedCarriers ||
-    (params[LOCATION_STATE_FILTER_PARAM] ?? undefined) !==
-      serializedLocationStates ||
-    (params[ACCOUNT_SORT_PARAM] ?? undefined) !== serializedSort
-  ) {
-    const normalized = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      if (
-        value !== undefined &&
-        key !== "range" &&
-        key !== "source" &&
-        key !== CARRIER_FILTER_PARAM &&
-        key !== LOCATION_STATE_FILTER_PARAM &&
-        key !== ACCOUNT_SORT_PARAM &&
-        !SOURCE_PIPELINE_FILTER_PARAMS.includes(key)
-      ) {
-        normalized.set(key, value);
-      }
-    }
-    if (range) normalized.set("range", range);
-    if (source !== "all") normalized.set("source", source);
-    if (serializedStages) normalized.set("iqStage", serializedStages);
-    if (serializedGates) normalized.set("brokerGate", serializedGates);
-    if (serializedCarriers)
-      normalized.set(CARRIER_FILTER_PARAM, serializedCarriers);
-    if (serializedLocationStates)
-      normalized.set(LOCATION_STATE_FILTER_PARAM, serializedLocationStates);
-    if (serializedSort) normalized.set(ACCOUNT_SORT_PARAM, serializedSort);
-    const query = normalized.toString();
-    redirect(`${view.href}${query ? `?${query}` : ""}`);
+  // One parse for the whole page: rows, metrics, facets, controls, the sticky
+  // summary and every outbound link all read this one state.
+  const requested = parseRecordsFilterState(mode, params);
+  reportRecordsInitialized(requested);
+  if (!isCanonicalRecordsQuery(requested, params)) {
+    // The request spelled its own state some other way — a stale param, a
+    // repeated key, an incompatible dependent filter, a value this view
+    // cannot apply. Each of those was already dropped on its own field, so
+    // this only rewrites the URL to match the state that survived.
+    reportRecordsUrlNormalized({
+      state: requested,
+      droppedParams: droppedRecordsParams(requested, params),
+    });
+    redirect(recordsFilterHref(requested));
   }
+
+  const {
+    source,
+    iqStages,
+    brokerGates,
+    range,
+    carriers,
+    locationStates,
+    sort,
+    query: q,
+  } = requested;
+  const requestedPage = requested.page;
+  const iqStageSupported =
+    source === "iq" && supportsSourcePipelineFilters(mode);
+  const brokerGateSupported =
+    source === "broker" && supportsSourcePipelineFilters(mode);
   const reportingWindow = range && range !== "all-time"
     ? loadSupabaseBook()?.reportingWindows?.ranges[range]
     : undefined;
@@ -297,7 +269,7 @@ export async function AccountOrdersPage({
           )} PT`
         : "Reporting window refreshing";
 
-  let result = listBookAccountsPage({
+  const result = listBookAccountsPage({
     query: q,
     mode,
     range,
@@ -311,21 +283,14 @@ export async function AccountOrdersPage({
     limit: PAGE_SIZE,
   });
   const pageCount = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
-  const page = Math.min(requestedPage, pageCount);
+  // Live data can shrink the book under a page the operator is holding. Only
+  // the page moves: every filter that produced this count is preserved, and
+  // the list stays where they left it rather than resetting to All Accounts.
+  const state = clampRecordsPage(requested, pageCount);
+  const page = state.page;
   if (page !== requestedPage) {
-    result = listBookAccountsPage({
-      query: q,
-      mode,
-      range,
-      source,
-      iqStages,
-      brokerGates,
-      carriers,
-      locationStates,
-      sort,
-      offset: (page - 1) * PAGE_SIZE,
-      limit: PAGE_SIZE,
-    });
+    reportRecordsPageClamped({ state, requestedPage, pageCount });
+    redirect(recordsFilterHref(state));
   }
   // Contextual options under every active filter except each facet's own
   // selection (facet self-exclusion) — same request, same data revision as
@@ -382,123 +347,112 @@ export async function AccountOrdersPage({
   const todayDay = harperCalendarDay(new Date())!;
 
   return (
-    <>
+    <RecordsFilterProvider state={state}>
+      {/* One store for the whole route: sidebar, title, controls and pagination
+          all merge into the same latest canonical state. */}
       <Nav active={view.href} operator={operator} />
       <RecordsLiveRefresh />
-      <main className="mx-auto max-w-6xl px-4 py-8">
-        <div className="mb-6">
-          <p className="eyebrow">Records</p>
-          <AccountViewTitle mode={mode} currentParams={params} />
-          <div className="mt-3">
-            <AccountFilterToolbar
-              basePath={view.href}
-              currentParams={params}
-              source={source}
-              range={range}
-              rangeWindowLabel={boundaryLabel}
-              showIqStage={iqStageSupported}
-              iqStages={iqStages}
-              showBrokerGate={brokerGateSupported}
-              brokerGates={brokerGates}
-              carriers={carriers}
-              locationStates={locationStates}
-              sort={sort}
-            />
+      <RecordsScrollRestoration state={state} />
+        <main className="mx-auto max-w-6xl px-4 py-8">
+          <div className="mb-6">
+            <p className="eyebrow">Records</p>
+            <AccountViewTitle mode={mode} />
+            <div className="mt-3">
+              <AccountFilterToolbar
+                source={source}
+                range={range}
+                rangeWindowLabel={boundaryLabel}
+                showIqStage={iqStageSupported}
+                iqStages={iqStages}
+                showBrokerGate={brokerGateSupported}
+                brokerGates={brokerGates}
+                carriers={carriers}
+                locationStates={locationStates}
+                sort={sort}
+              />
+            </div>
+            <div className="mt-4">
+              <KpiStrip
+                stats={kpiStats({
+                  mode,
+                  total,
+                  withBoundOrders,
+                  withPendingOrders,
+                  withLostOrders,
+                  boundOrderCount,
+                  pendingOrderCount,
+                  lostOrderCount,
+                  revenueMicros,
+                  missingRevenueOrderCount,
+                  state,
+                })}
+              />
+            </div>
+            <p className="mt-3 text-sm text-[var(--muted)]">
+              Expand an account to view its orders.
+            </p>
           </div>
-          <div className="mt-4">
-            <KpiStrip
-              stats={kpiStats({
-                mode,
-                total,
-                withBoundOrders,
-                withPendingOrders,
-                withLostOrders,
-                boundOrderCount,
-                pendingOrderCount,
-                lostOrderCount,
-                revenueMicros,
-                missingRevenueOrderCount,
-              })}
-            />
-          </div>
-          <p className="mt-3 text-sm text-[var(--muted)]">
-            Expand an account to view its orders.
-          </p>
-        </div>
 
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-          <AccountSearchField
-            basePath={view.href}
-            currentParams={params}
-            committedQuery={q}
-            resultCount={total}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+            <AccountSearchField committedQuery={q} resultCount={total} />
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <CarrierMultiSelect
+                selected={carriers}
+                options={carrierFacet.options}
+                unavailableSelected={carrierFacet.unavailableSelected}
+                resultTotal={total}
+              />
+              <StateSortSelect
+                selectedStates={locationStates}
+                sort={sort}
+                options={locationStateFacet.options}
+                unavailableSelected={locationStateFacet.unavailableSelected}
+                resultTotal={total}
+              />
+            </div>
+          </div>
+
+          <AccountResultsPanel
+            rows={rows}
+            emptyMessage={emptyMessage(
+              mode,
+              q,
+              source,
+              carriers.length + locationStates.length,
+            )}
+            canEditOrders={canEditOrders(operator)}
+            bigBrotherBaseUrl={bigBrotherBaseUrl()}
+            todayDay={todayDay}
+            total={total}
+            view={{ id: view.id, title: view.title }}
+            filterState={{
+              source,
+              iqStages,
+              brokerGates,
+              range,
+              carriers: selectedCarrierSummaries,
+              locationStates,
+              sort,
+              search: q,
+            }}
+            pagination={{ currentPage: page, totalPages: pageCount }}
+            // The clamped state, so an account opened from the last page
+            // returns to a page that still exists.
+            recordsHref={recordsFilterHref(state)}
           />
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            <CarrierMultiSelect
-              basePath={view.href}
-              currentParams={params}
-              selected={carriers}
-              options={carrierFacet.options}
-              unavailableSelected={carrierFacet.unavailableSelected}
-              resultTotal={total}
-            />
-            <StateSortSelect
-              basePath={view.href}
-              currentParams={params}
-              selectedStates={locationStates}
-              sort={sort}
-              options={locationStateFacet.options}
-              unavailableSelected={locationStateFacet.unavailableSelected}
-              resultTotal={total}
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[var(--muted)]">
+            <span>
+              Showing {from.toLocaleString()}–{to.toLocaleString()} of{" "}
+              {total.toLocaleString()}
+            </span>
+            <PaginationControls
+              currentPage={page}
+              totalPages={pageCount}
+              placement="bottom"
             />
           </div>
-        </div>
-
-        <AccountResultsPanel
-          rows={rows}
-          emptyMessage={emptyMessage(
-            mode,
-            q,
-            source,
-            carriers.length + locationStates.length,
-          )}
-          canEditOrders={canEditOrders(operator)}
-          bigBrotherBaseUrl={bigBrotherBaseUrl()}
-          todayDay={todayDay}
-          total={total}
-          view={{ id: view.id, title: view.title }}
-          filterState={{
-            source,
-            iqStages,
-            brokerGates,
-            range,
-            carriers: selectedCarrierSummaries,
-            locationStates,
-            sort,
-            search: q,
-          }}
-          pagination={{
-            currentPage: page,
-            totalPages: pageCount,
-            currentParams: params,
-            basePath: view.href,
-          }}
-        />
-
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[var(--muted)]">
-          <span>
-            Showing {from.toLocaleString()}–{to.toLocaleString()} of{" "}
-            {total.toLocaleString()}
-          </span>
-          <PaginationControls
-            currentPage={page}
-            totalPages={pageCount}
-            currentParams={params}
-            basePath={view.href}
-            placement="bottom"
-          />
-        </div>
-      </main>
-    </>
+        </main>
+    </RecordsFilterProvider>
   );
 }

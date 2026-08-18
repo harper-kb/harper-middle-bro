@@ -6,7 +6,14 @@ import {
   readBookMeta,
 } from "./db/book-meta";
 import { getDb } from "./db/connection";
-import { runSupabaseManagementQuery } from "./supabase-management.server";
+import {
+  runSupabaseManagementQuery,
+  type SupabaseManagementQueryPriority,
+} from "./supabase-management.server";
+import {
+  subscribeToSharedInFlight,
+  type SharedInFlight,
+} from "./shared-inflight.server";
 import type {
   CompanyContact,
   CompanyOverview,
@@ -19,18 +26,6 @@ const OVERVIEW_TTL_MS = 5 * 60_000;
 const OVERVIEW_STALE_TTL_MS = 30 * 60_000;
 /** Age under which a persisted payment page is served as-is, no refetch. */
 const PAYMENT_TTL_MS = 60_000;
-/**
- * Age under which a persisted page is served instantly (flagged
- * `stale: true`, which the UI banners) while a background refetch replaces
- * it for the next read — the open is never blocked on the shared,
- * rate-limited Management API for data this recent.
- */
-const PAYMENT_SWR_TTL_MS = 30 * 60_000;
-/**
- * Last-resort window: how old a persisted page may be and still answer a
- * *failed* live fetch. Beyond it the error surfaces.
- */
-const PAYMENT_ERROR_STALE_TTL_MS = 24 * 60 * 60_000;
 /** Sweep horizon for persisted payment/detail payloads. */
 const REMOTE_CACHE_PRUNE_MS = 7 * 24 * 60 * 60_000;
 const MAX_CACHE_ENTRIES = 200;
@@ -44,7 +39,11 @@ type CacheEntry<T> = { value: T; freshUntil: number; staleUntil: number };
 // so a page the operator saw before a restart answers instantly after one.
 const overviewCache = new Map<number, CacheEntry<CompanyOverview>>();
 const overviewInFlight = new Map<number, Promise<CompanyOverview>>();
-const paymentInFlight = new Map<string, Promise<PaymentHistoryPage>>();
+type InFlightPaymentHistory = SharedInFlight<PaymentHistoryPage> & {
+  requestId: symbol;
+};
+
+const paymentInFlight = new Map<string, InFlightPaymentHistory>();
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -53,7 +52,16 @@ function delay(ms: number): Promise<void> {
 async function fetchWithRetry<T>(fetcher: () => Promise<T>): Promise<T> {
   try {
     return await fetcher();
-  } catch {
+  } catch (cause) {
+    // Retrying inside a known quota window only doubles the wait. Let the
+    // caller return Retry-After while the shared gate protects the window.
+    if (
+      cause instanceof Error &&
+      (cause.message === "supabase_management_http_429" ||
+        cause.name === "AbortError")
+    ) {
+      throw cause;
+    }
     await delay(RETRY_DELAY_MS);
     return await fetcher();
   }
@@ -484,6 +492,8 @@ async function fetchPaymentHistory(
   companyId: number,
   offset: number,
   limit: number,
+  priority: SupabaseManagementQueryPriority,
+  signal?: AbortSignal,
 ): Promise<PaymentHistoryPage> {
   const sql = `
     WITH company_accounts AS (
@@ -824,7 +834,10 @@ async function fetchPaymentHistory(
     LIMIT ${limit} OFFSET ${offset}
   `;
 
-  const rows = await runSupabaseManagementQuery<PaymentRow>(sql, 20_000);
+  const rows = await runSupabaseManagementQuery<PaymentRow>(sql, 20_000, {
+    priority,
+    signal,
+  });
   const items: PaymentHistoryItem[] = rows.flatMap((row) => {
     const rawStatus = trim(row.raw_status)?.toLowerCase() ?? "unknown";
     const occurredAt = trim(row.occurred_at) ?? trim(row.created_at);
@@ -946,37 +959,85 @@ function revalidatePaymentHistory(
   offset: number,
   limit: number,
   key: string,
+  priority: SupabaseManagementQueryPriority = "interactive",
+  signal?: AbortSignal,
 ): Promise<PaymentHistoryPage> {
   const existing = paymentInFlight.get(key);
-  if (existing) return existing;
+  if (existing) {
+    if (priority === "background") existing.keepAlive = true;
+    return subscribeToSharedInFlight(existing, signal);
+  }
+  const controller = new AbortController();
+  const requestId = Symbol();
   const request = fetchWithRetry(() =>
-    fetchPaymentHistory(companyId, offset, limit),
+    fetchPaymentHistory(
+      companyId,
+      offset,
+      limit,
+      priority,
+      controller.signal,
+    ),
   )
     .then((value) => {
       persistPaymentPage(key, value);
       return value;
     })
-    .finally(() => paymentInFlight.delete(key));
-  paymentInFlight.set(key, request);
-  return request;
+    .finally(() => {
+      if (paymentInFlight.get(key)?.requestId === requestId) {
+        paymentInFlight.delete(key);
+      }
+    });
+  const entry: InFlightPaymentHistory = {
+    promise: request,
+    controller,
+    requestId,
+    subscribers: 0,
+    keepAlive: priority === "background",
+  };
+  paymentInFlight.set(key, entry);
+  return subscribeToSharedInFlight(entry, signal);
+}
+
+/** Refresh one previously viewed payment page without blocking a UI request. */
+export async function revalidateCachedPaymentHistory({
+  companyId,
+  offset,
+  limit,
+}: {
+  companyId: number;
+  offset: number;
+  limit: number;
+}): Promise<boolean> {
+  assertCompanyId(companyId);
+  const safeOffset = Math.max(0, Math.floor(offset));
+  const safeLimit = Math.min(50, Math.max(1, Math.floor(limit)));
+  const key = paymentCacheKey(companyId, safeOffset, safeLimit);
+  if (!readPersistedPaymentPage(key)) return false;
+  await revalidatePaymentHistory(
+    companyId,
+    safeOffset,
+    safeLimit,
+    key,
+    "background",
+  );
+  return true;
 }
 
 /**
- * Stale-while-revalidate over the durable cache: a fresh page returns as-is;
- * a recent one returns instantly (flagged stale, which the UI banners) while
- * a background refetch replaces it; only a page nobody has fetched for half
- * an hour blocks on the live query. Persisting in SQLite is what makes the
- * open instant across process restarts — where the old in-memory map always
- * started cold.
+ * Local-always after first view: a fresh page returns as-is and any older
+ * persisted page returns instantly, honestly flagged stale, while a background
+ * refresh replaces it. Only a key this desk has never seen blocks on live SQL.
  */
 export async function loadPaymentHistory({
   companyId,
   offset = 0,
   limit = 20,
+  signal,
 }: {
   companyId: number;
   offset?: number;
   limit?: number;
+  signal?: AbortSignal;
 }): Promise<PaymentHistoryPage> {
   assertCompanyId(companyId);
   const safeOffset = Math.max(0, Math.floor(offset));
@@ -984,8 +1045,14 @@ export async function loadPaymentHistory({
   const key = paymentCacheKey(companyId, safeOffset, safeLimit);
   const cached = readPersistedPaymentPage(key);
   if (cached && cached.ageMs < PAYMENT_TTL_MS) return cached.page;
-  if (cached && cached.ageMs < PAYMENT_SWR_TTL_MS) {
-    void revalidatePaymentHistory(companyId, safeOffset, safeLimit, key).catch(
+  if (cached) {
+    void revalidatePaymentHistory(
+      companyId,
+      safeOffset,
+      safeLimit,
+      key,
+      "background",
+    ).catch(
       (cause) => {
         console.warn("payment_history_revalidate_failed", {
           companyId,
@@ -996,13 +1063,12 @@ export async function loadPaymentHistory({
     );
     return { ...cached.page, stale: true };
   }
-
-  try {
-    return await revalidatePaymentHistory(companyId, safeOffset, safeLimit, key);
-  } catch (cause) {
-    if (cached && cached.ageMs < PAYMENT_ERROR_STALE_TTL_MS) {
-      return { ...cached.page, stale: true };
-    }
-    throw cause;
-  }
+  return revalidatePaymentHistory(
+    companyId,
+    safeOffset,
+    safeLimit,
+    key,
+    "interactive",
+    signal,
+  );
 }

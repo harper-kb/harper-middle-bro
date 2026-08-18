@@ -225,6 +225,7 @@ export function CompanyDetailOverview({
   totalRevenueCents,
   totalCommissionCents,
   totalHarperFeeCents,
+  recordsReturnHref,
 }: {
   companyId: number;
   fallbackCompanyName: string;
@@ -241,6 +242,7 @@ export function CompanyDetailOverview({
   totalRevenueCents: number | null;
   totalCommissionCents: number | null;
   totalHarperFeeCents: number | null;
+  recordsReturnHref?: string | null;
 }) {
   const initialKey = `${companyId}:${initialOverview?.fetchedAt ?? "missing"}`;
   const headerRef = useRef<HTMLDivElement>(null);
@@ -318,7 +320,7 @@ export function CompanyDetailOverview({
         className="company-page-sticky-region"
       >
         <div className="company-page-back-row">
-          <BackToAccounts />
+          <BackToAccounts returnHref={recordsReturnHref} />
         </div>
         <header
           className={`company-page-header company-page-header--${headerTone}${

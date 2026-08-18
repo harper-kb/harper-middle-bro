@@ -1,10 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import {
   useId,
   useRef,
-  useTransition,
   type KeyboardEvent,
 } from "react";
 import {
@@ -15,12 +13,10 @@ import {
 import { SourceIcon } from "@/components/SourceIdentity";
 import {
   IQ_STAGE_FILTER_OPTIONS,
-  serializeIqStages,
   type IqStageFilterId,
 } from "@/lib/iq-stage";
 import {
   BROKER_GATE_FILTER_OPTIONS,
-  serializeBrokerGates,
   type BrokerGateFilterId,
 } from "@/lib/broker-gate";
 import {
@@ -28,24 +24,18 @@ import {
   ORDER_REPORTING_RANGE_LABELS,
   type OrderReportingRangeId,
 } from "@/lib/order-reporting";
+import type { LocationStateFilterId } from "@/lib/location-state";
 import {
-  CARRIER_FILTER_PARAM,
-  serializeCarrierFilter,
-} from "@/lib/carrier-filter";
-import {
-  LOCATION_STATE_FILTER_PARAM,
-  serializeLocationStates,
-  type LocationStateFilterId,
-} from "@/lib/location-state";
-import {
-  ACCOUNT_SORT_PARAM,
   DEFAULT_ACCOUNT_SORT,
   isDefaultAccountSort,
-  serializeAccountSort,
   type AccountSort,
 } from "@/lib/account-sort";
-import { SOURCE_PIPELINE_FILTER_PARAMS } from "./view-config";
 import { PipelineMultiSelect } from "./PipelineMultiSelect";
+import { useRecordsFilters } from "./RecordsFilterProvider";
+import {
+  recordsFilterHrefFromParams,
+  type RecordsFilterPatch,
+} from "./records-filter-state";
 
 const SOURCE_TOOLTIP =
   "Instant-quote flag on the order's deals. An account with both IQ and broker orders in this view appears only under All.";
@@ -56,17 +46,7 @@ const SOURCE_VARIANTS: Record<AccountSourceId, string> = {
   broker: "seg-option--broker",
 };
 
-/**
- * Same URL contract the previous two controls had: every other param survives,
- * `page` resets, `source=all` drops out, and `range` is always written on the
- * views that have a reporting window (matching the page's normalizing redirect).
- * The source-scoped pipeline params are the single cleanup point: `iqStage` is
- * written only when source is IQ, `brokerGate` only when source is Broker, and
- * both fall out of the URL under any other source. The carrier, location
- * state and sort selections are source-free and are carried through
- * explicitly (so Clear filters can drop them); callers that are not changing
- * them pass the current values.
- */
+/** Pure adapter retained for component-level URL contract tests. */
 export function accountFilterHref({
   basePath,
   currentParams,
@@ -88,37 +68,15 @@ export function accountFilterHref({
   locationStates?: readonly LocationStateFilterId[];
   sort?: AccountSort;
 }): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(currentParams)) {
-    if (
-      value !== undefined &&
-      key !== "page" &&
-      key !== "source" &&
-      key !== "range" &&
-      key !== CARRIER_FILTER_PARAM &&
-      key !== LOCATION_STATE_FILTER_PARAM &&
-      key !== ACCOUNT_SORT_PARAM &&
-      !SOURCE_PIPELINE_FILTER_PARAMS.includes(key)
-    ) {
-      params.set(key, value);
-    }
-  }
-  if (source !== "all") params.set("source", source);
-  if (range) params.set("range", range);
-  const stageParam =
-    source === "iq" ? serializeIqStages(iqStages) : undefined;
-  if (stageParam) params.set("iqStage", stageParam);
-  const gateParam =
-    source === "broker" ? serializeBrokerGates(brokerGates) : undefined;
-  if (gateParam) params.set("brokerGate", gateParam);
-  const carrierParam = serializeCarrierFilter(carriers);
-  if (carrierParam) params.set(CARRIER_FILTER_PARAM, carrierParam);
-  const stateParam = serializeLocationStates(locationStates);
-  if (stateParam) params.set(LOCATION_STATE_FILTER_PARAM, stateParam);
-  const sortParam = serializeAccountSort(sort);
-  if (sortParam) params.set(ACCOUNT_SORT_PARAM, sortParam);
-  const query = params.toString();
-  return `${basePath}${query ? `?${query}` : ""}`;
+  return recordsFilterHrefFromParams(basePath, currentParams, {
+    source,
+    range,
+    iqStages,
+    brokerGates,
+    carriers,
+    locationStates,
+    sort,
+  });
 }
 
 function CheckIcon() {
@@ -222,8 +180,6 @@ function SegmentedControl<Id extends string>({
  * Broker Gate only when `showBrokerGate` is true (Broker + All/Pending).
  */
 export function AccountFilterToolbar({
-  basePath,
-  currentParams,
   source,
   range,
   rangeWindowLabel,
@@ -235,8 +191,10 @@ export function AccountFilterToolbar({
   locationStates = [],
   sort = DEFAULT_ACCOUNT_SORT,
 }: {
-  basePath: string;
-  currentParams: Record<string, string | undefined>;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  basePath?: string;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  currentParams?: Record<string, string | undefined>;
   source: AccountSourceId;
   range?: OrderReportingRangeId;
   rangeWindowLabel?: string;
@@ -251,8 +209,7 @@ export function AccountFilterToolbar({
   /** Applied sort — owned by State & Sort, restored to default here. */
   sort?: AccountSort;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { update, clear, isPending: pending } = useRecordsFilters();
   const sourceLabelId = useId();
   const rangeLabelId = useId();
   const stageLabelId = useId();
@@ -266,42 +223,14 @@ export function AccountFilterToolbar({
     locationStates.length > 0 ||
     !isDefaultAccountSort(sort);
 
-  function push(
-    nextSource: AccountSourceId,
-    nextRange: OrderReportingRangeId | undefined,
-    nextStages: readonly IqStageFilterId[],
-    nextGates: readonly BrokerGateFilterId[],
-    nextCarriers: readonly string[] = carriers,
-    nextLocationStates: readonly LocationStateFilterId[] = locationStates,
-    nextSort: AccountSort = sort,
-  ) {
-    if (
-      nextSource === source &&
-      nextRange === range &&
-      serializeIqStages(nextStages) === serializeIqStages(iqStages) &&
-      serializeBrokerGates(nextGates) === serializeBrokerGates(brokerGates) &&
-      serializeCarrierFilter(nextCarriers) ===
-        serializeCarrierFilter(carriers) &&
-      serializeLocationStates(nextLocationStates) ===
-        serializeLocationStates(locationStates) &&
-      serializeAccountSort(nextSort) === serializeAccountSort(sort)
-    ) {
-      return;
-    }
-    const href = accountFilterHref({
-      basePath,
-      currentParams,
-      source: nextSource,
-      range: nextRange,
-      iqStages: nextSource === "iq" ? nextStages : [],
-      brokerGates: nextSource === "broker" ? nextGates : [],
-      carriers: nextCarriers,
-      locationStates: nextLocationStates,
-      sort: nextSort,
-    });
-    startTransition(() => {
-      router.push(href, { scroll: false });
-    });
+  /**
+   * Every change is a partial merged into the newest requested state, so this
+   * control can never spell a URL that drops the search box, the carrier
+   * selection or the page a sibling control has just set. Normalization sorts
+   * out which dependent filter the new source can keep.
+   */
+  function push(patch: RecordsFilterPatch, trigger: string) {
+    update(patch, { reason: "filter", trigger });
   }
 
   return (
@@ -316,14 +245,7 @@ export function AccountFilterToolbar({
             label: ACCOUNT_SOURCE_LABELS[id],
           }))}
           selected={source}
-          onSelect={(next) =>
-            push(
-              next,
-              range,
-              next === "iq" ? iqStages : [],
-              next === "broker" ? brokerGates : [],
-            )
-          }
+          onSelect={(next) => push({ source: next }, "account-source")}
           labelledBy={sourceLabelId}
           display="inline-flex"
           variantFor={(id) => SOURCE_VARIANTS[id]}
@@ -344,7 +266,17 @@ export function AccountFilterToolbar({
           <PipelineMultiSelect
             options={IQ_STAGE_FILTER_OPTIONS}
             selected={iqStages}
-            onChange={(next) => push(source, range, next, brokerGates)}
+            onChange={(next) => push({ iqStages: next }, "iq-stage")}
+            onToggle={(id) =>
+              update(
+                (current) => ({
+                  iqStages: current.iqStages.includes(id)
+                    ? current.iqStages.filter((stage) => stage !== id)
+                    : [...current.iqStages, id],
+                }),
+                { reason: "filter", trigger: "iq-stage-toggle" },
+              )
+            }
             labelledBy={stageLabelId}
             accent="iq"
             noun="stage"
@@ -360,7 +292,17 @@ export function AccountFilterToolbar({
           <PipelineMultiSelect
             options={BROKER_GATE_FILTER_OPTIONS}
             selected={brokerGates}
-            onChange={(next) => push(source, range, iqStages, next)}
+            onChange={(next) => push({ brokerGates: next }, "broker-gate")}
+            onToggle={(id) =>
+              update(
+                (current) => ({
+                  brokerGates: current.brokerGates.includes(id)
+                    ? current.brokerGates.filter((gate) => gate !== id)
+                    : [...current.brokerGates, id],
+                }),
+                { reason: "filter", trigger: "broker-gate-toggle" },
+              )
+            }
             labelledBy={gateLabelId}
             accent="broker"
             noun="gate"
@@ -385,7 +327,7 @@ export function AccountFilterToolbar({
               label: ORDER_REPORTING_RANGE_LABELS[id],
             }))}
             selected={range}
-            onSelect={(next) => push(source, next, iqStages, brokerGates)}
+            onSelect={(next) => push({ range: next }, "date-range")}
             labelledBy={rangeLabelId}
             display="hidden sm:inline-flex"
             variantFor={() => "seg-option--accent"}
@@ -396,10 +338,8 @@ export function AccountFilterToolbar({
             value={range}
             onChange={(event) =>
               push(
-                source,
-                event.target.value as OrderReportingRangeId,
-                iqStages,
-                brokerGates,
+                { range: event.target.value as OrderReportingRangeId },
+                "date-range-mobile",
               )
             }
           >
@@ -423,17 +363,7 @@ export function AccountFilterToolbar({
             <button
               type="button"
               className="filter-clear"
-              onClick={() =>
-                push(
-                  "all",
-                  range ? "all-time" : undefined,
-                  [],
-                  [],
-                  [],
-                  [],
-                  DEFAULT_ACCOUNT_SORT,
-                )
-              }
+              onClick={() => clear("clear-filters")}
             >
               <svg
                 viewBox="0 0 12 12"

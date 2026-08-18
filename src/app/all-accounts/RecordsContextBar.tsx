@@ -239,8 +239,10 @@ function ActiveFilterSummary({
 export type RecordsContextPagination = {
   currentPage: number;
   totalPages: number;
-  currentParams: Record<string, string | undefined>;
-  basePath: string;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  currentParams?: Record<string, string | undefined>;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  basePath?: string;
 };
 
 export function RecordsContextBar({

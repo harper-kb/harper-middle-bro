@@ -16,5 +16,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    // Live-book integration tests share one SQLite snapshot across workers;
+    // cold schema sync can legitimately exceed Vitest's 5s default.
+    testTimeout: 10_000,
   },
 });

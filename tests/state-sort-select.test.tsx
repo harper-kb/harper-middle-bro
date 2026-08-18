@@ -17,6 +17,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOCATION_STATE_NONE } from "@/lib/location-state";
 import { DEFAULT_ACCOUNT_SORT } from "@/lib/account-sort";
+import { RecordsTestProvider } from "./records-filter-test-utils";
 
 const pushes: string[] = [];
 vi.mock("next/navigation", () => ({
@@ -46,17 +47,24 @@ const OPTIONS = [
 function renderControl(
   props: Partial<Parameters<typeof StateSortSelect>[0]> = {},
 ) {
+  const selectedStates = props.selectedStates ?? [];
+  const sort = props.sort ?? DEFAULT_ACCOUNT_SORT;
   return render(
-    <StateSortSelect
-      basePath="/pending-orders"
-      currentParams={{ range: "all-time", source: "iq", page: "3" }}
-      selectedStates={[]}
-      sort={DEFAULT_ACCOUNT_SORT}
-      options={OPTIONS}
-      unavailableSelected={[]}
-      resultTotal={42}
-      {...props}
-    />,
+    <RecordsTestProvider
+      params={{ source: "iq", page: "3" }}
+      patch={{ locationStates: selectedStates, sort }}
+    >
+      <StateSortSelect
+        basePath="/pending-orders"
+        currentParams={{ source: "iq", page: "3" }}
+        selectedStates={selectedStates}
+        sort={sort}
+        options={OPTIONS}
+        unavailableSelected={[]}
+        resultTotal={42}
+        {...props}
+      />
+    </RecordsTestProvider>,
   );
 }
 
@@ -83,7 +91,7 @@ describe("stateSortHref", () => {
         { date: "newest", revenue: "revenue-desc" },
       ),
     ).toBe(
-      "/pending-orders?q=acme&carrier=hiscox+ins+co&state=CA%2CNY&sort=revenue-desc%2Cnewest",
+      "/pending-orders?carrier=hiscox+ins+co&state=CA%2CNY&sort=revenue-desc%2Cnewest&q=acme",
     );
   });
 
@@ -247,7 +255,7 @@ describe("StateSortSelect", () => {
     await openStates(user);
     await user.click(screen.getByRole("checkbox", { name: /California/ }));
     expect(pushes).toEqual([
-      "/pending-orders?range=all-time&source=iq&state=CA",
+      "/pending-orders?source=iq&state=CA",
     ]);
   });
 
@@ -263,7 +271,7 @@ describe("StateSortSelect", () => {
     // Picking a revenue order keeps the date choice — revenue leads the URL.
     await user.click(screen.getByRole("radio", { name: "High to low" }));
     expect(pushes).toEqual([
-      "/pending-orders?range=all-time&source=iq&state=CA&sort=revenue-desc%2Cnewest",
+      "/pending-orders?source=iq&state=CA&sort=revenue-desc%2Cnewest",
     ]);
   });
 
@@ -275,7 +283,7 @@ describe("StateSortSelect", () => {
     );
     await user.click(screen.getByRole("radio", { name: "Oldest first" }));
     expect(pushes).toEqual([
-      "/pending-orders?range=all-time&source=iq&sort=revenue-asc",
+      "/pending-orders?source=iq&sort=revenue-asc",
     ]);
   });
 
@@ -319,7 +327,7 @@ describe("StateSortSelect", () => {
     expect(within(dialog).getByText("Unavailable")).toBeTruthy();
     await user.click(unavailable);
     expect(pushes).toEqual([
-      "/pending-orders?range=all-time&source=iq&state=NY",
+      "/pending-orders?source=iq&state=NY",
     ]);
   });
 
@@ -334,7 +342,7 @@ describe("StateSortSelect", () => {
     );
     await user.click(screen.getByRole("button", { name: "Clear" }));
     // Source, range and every other filter survive.
-    expect(pushes).toEqual(["/pending-orders?range=all-time&source=iq"]);
+    expect(pushes).toEqual(["/pending-orders?source=iq"]);
   });
 
   it("supports the keyboard path end to end", async () => {
@@ -360,14 +368,14 @@ describe("StateSortSelect", () => {
     expect(document.activeElement).toBe(boxes[0]);
     await user.keyboard("{Enter}");
     expect(pushes).toEqual([
-      "/pending-orders?range=all-time&source=iq&state=CA",
+      "/pending-orders?source=iq&state=CA",
     ]);
     // Enter on a focused radio applies that choice too.
     const radio = screen.getByRole("radio", { name: "Newest first" });
     radio.focus();
     await user.keyboard("{Enter}");
     expect(pushes[1]).toBe(
-      "/pending-orders?range=all-time&source=iq&sort=newest",
+      "/pending-orders?source=iq&state=CA&sort=newest",
     );
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();

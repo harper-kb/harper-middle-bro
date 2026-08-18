@@ -1200,7 +1200,9 @@ export function buildBook(
 
 /** Run one read-only SQL statement through the Supabase Management API. */
 async function runManagementQuery<T>(sql: string): Promise<T[]> {
-  return runSupabaseManagementQuery<T>(sql);
+  return runSupabaseManagementQuery<T>(sql, 120_000, {
+    priority: "refresh",
+  });
 }
 
 export function isRefreshConfigured(): boolean {
@@ -1505,6 +1507,117 @@ function bookSummary(book: SupabaseBook): string {
   );
 }
 
+export type RemoteCacheRevalidationTarget =
+  | {
+      kind: "order-detail";
+      companyId: number;
+      orderId: number;
+    }
+  | {
+      kind: "payment-history";
+      companyId: number;
+      offset: number;
+      limit: number;
+    };
+
+const MAX_REMOTE_CACHE_REVALIDATIONS_PER_TICK = 6;
+
+/**
+ * Previously viewed live-enrichment pages only. Oldest entries go first, and
+ * work is bounded so a delta tick cannot turn into another whole-book pull.
+ */
+export function selectChangedRemoteCacheTargets(
+  db: Database.Database,
+  delta: BookDelta,
+  limit = MAX_REMOTE_CACHE_REVALIDATIONS_PER_TICK,
+): RemoteCacheRevalidationTarget[] {
+  if (limit <= 0) return [];
+  const changedOrders = new Set(delta.changedOrderIds);
+  const affectedCompanies = new Set(delta.changedCompanyIds);
+  if (delta.changedOrderIds.length > 0) {
+    const placeholders = delta.changedOrderIds.map(() => "?").join(", ");
+    const owners = db
+      .prepare(
+        `SELECT account_id FROM book_orders
+         WHERE harper_order_id IN (${placeholders})`,
+      )
+      .all(...delta.changedOrderIds) as Array<{ account_id: string }>;
+    for (const owner of owners) {
+      const match = owner.account_id.match(/^co-(\d+)$/);
+      if (match) affectedCompanies.add(Number(match[1]));
+    }
+  }
+  const rows = db
+    .prepare(
+      `SELECT cache_key
+       FROM remote_cache
+       WHERE cache_key LIKE 'order-detail:v2:%'
+          OR cache_key LIKE 'payments:v1:%'
+       ORDER BY fetched_at ASC`,
+    )
+    .all() as Array<{ cache_key: string }>;
+  const parsed = rows.flatMap(
+    (row): Array<RemoteCacheRevalidationTarget> => {
+      const detail = row.cache_key.match(/^order-detail:v2:(\d+):(\d+)$/);
+      if (detail) {
+        const companyId = Number(detail[1]);
+        const orderId = Number(detail[2]);
+        if (!changedOrders.has(orderId)) return [];
+        affectedCompanies.add(companyId);
+        return [{ kind: "order-detail", companyId, orderId }];
+      }
+      const payment = row.cache_key.match(/^payments:v1:(\d+):(\d+):(\d+)$/);
+      if (!payment) return [];
+      return [
+        {
+          kind: "payment-history",
+          companyId: Number(payment[1]),
+          offset: Number(payment[2]),
+          limit: Number(payment[3]),
+        },
+      ];
+    },
+  );
+  return parsed
+    .filter(
+      (target) =>
+        target.kind === "order-detail" ||
+        affectedCompanies.has(target.companyId),
+    )
+    .slice(0, Math.max(0, Math.floor(limit)));
+}
+
+async function revalidateChangedRemoteCaches(
+  db: Database.Database,
+  delta: BookDelta,
+): Promise<void> {
+  const targets = selectChangedRemoteCacheTargets(db, delta);
+  if (targets.length === 0) return;
+  const [{ revalidateCachedOrderDetail }, { revalidateCachedPaymentHistory }] =
+    await Promise.all([
+      import("../order-detail.server"),
+      import("../company-detail.server"),
+    ]);
+
+  for (const target of targets) {
+    try {
+      if (target.kind === "order-detail") {
+        await revalidateCachedOrderDetail(target);
+      } else {
+        await revalidateCachedPaymentHistory(target);
+      }
+    } catch (cause) {
+      console.warn("remote_cache_revalidate_failed", {
+        kind: target.kind,
+        companyId: target.companyId,
+        errorCategory:
+          cause instanceof Error ? cause.message : "unknown_remote_cache_error",
+      });
+      if (isRateLimited(cause)) break;
+    }
+  }
+}
+
 /**
  * Refresh bookkeeping that has to outlive dev-mode module re-evaluation, so a
  * hot reload cannot start a second timer or lose the reconcile clock.
@@ -1551,11 +1664,13 @@ async function runRefreshSafely(
 
   try {
     let summary: string;
+    let revalidationDelta: BookDelta | null = null;
     if (mode === "full") {
       const book = await refreshBook(db);
       summary = `full — ${bookSummary(book)}`;
     } else {
       const { book, delta, requests } = await refreshBookDelta(db);
+      revalidationDelta = delta;
       summary = isEmptyDelta(delta)
         ? `no change (${requests} request(s))`
         : `${describeDelta(delta)} — ${bookSummary(book)} (${requests} request(s))`;
@@ -1573,6 +1688,9 @@ async function runRefreshSafely(
       );
     }
     console.log(`[book-refresh] ${trigger}: ${summary}`);
+    if (revalidationDelta && !isEmptyDelta(revalidationDelta)) {
+      void revalidateChangedRemoteCaches(db, revalidationDelta);
+    }
   } catch (err) {
     if (isRateLimited(err)) {
       state.consecutiveRateLimits += 1;

@@ -7,7 +7,10 @@ import {
   writeBookDigests,
   type BookDigestRow,
 } from "@/lib/db/book-digest";
-import { mergeBook } from "@/lib/db/book-refresh";
+import {
+  mergeBook,
+  selectChangedRemoteCacheTargets,
+} from "@/lib/db/book-refresh";
 import {
   emptyBookOrderRich,
   type BookOrder,
@@ -102,6 +105,82 @@ function book(partial: Partial<SupabaseBook> = {}): SupabaseBook {
     ...partial,
   };
 }
+
+describe("targeted remote-cache revalidation", () => {
+  it("selects only viewed entries affected by the delta, oldest first", () => {
+    const db = new Database(":memory:");
+    db.exec(
+      `CREATE TABLE remote_cache (
+         cache_key TEXT PRIMARY KEY,
+         payload TEXT NOT NULL,
+         fetched_at INTEGER NOT NULL
+       );
+       CREATE TABLE book_orders (
+         account_id TEXT NOT NULL,
+         harper_order_id INTEGER NOT NULL
+       );
+       INSERT INTO book_orders VALUES ('co-11', 101);`,
+    );
+    const insert = db.prepare(
+      `INSERT INTO remote_cache (cache_key, payload, fetched_at)
+       VALUES (?, '{}', ?)`,
+    );
+    insert.run("payments:v1:11:0:20", 1);
+    insert.run("order-detail:v2:11:101", 2);
+    insert.run("payments:v1:22:0:20", 3);
+    insert.run("order-detail:v2:99:999", 4);
+    insert.run("payments:v1:99:0:20", 5);
+
+    const targets = selectChangedRemoteCacheTargets(
+      db,
+      {
+        changedOrderIds: [101],
+        departedOrderIds: [],
+        changedCompanyIds: [22],
+        departedCompanyIds: [],
+      },
+      3,
+    );
+
+    expect(targets).toEqual([
+      { kind: "payment-history", companyId: 11, offset: 0, limit: 20 },
+      { kind: "order-detail", companyId: 11, orderId: 101 },
+      { kind: "payment-history", companyId: 22, offset: 0, limit: 20 },
+    ]);
+    db.close();
+  });
+
+  it("caps work per tick", () => {
+    const db = new Database(":memory:");
+    db.exec(
+      `CREATE TABLE remote_cache (
+         cache_key TEXT PRIMARY KEY,
+         payload TEXT NOT NULL,
+         fetched_at INTEGER NOT NULL
+       );
+       CREATE TABLE book_orders (
+         account_id TEXT NOT NULL,
+         harper_order_id INTEGER NOT NULL
+       );
+       INSERT INTO remote_cache VALUES ('payments:v1:22:0:20', '{}', 1);
+       INSERT INTO remote_cache VALUES ('payments:v1:22:20:20', '{}', 2);`,
+    );
+
+    expect(
+      selectChangedRemoteCacheTargets(
+        db,
+        {
+          changedOrderIds: [],
+          departedOrderIds: [],
+          changedCompanyIds: [22],
+          departedCompanyIds: [],
+        },
+        1,
+      ),
+    ).toHaveLength(1);
+    db.close();
+  });
+});
 
 describe("diffBookDigests", () => {
   it("reports nothing when every digest matches", () => {

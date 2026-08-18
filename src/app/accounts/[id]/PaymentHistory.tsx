@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CompanyCardIcon } from "./CompanySummaryCard";
 import { LocalDateTime } from "@/components/LocalDateTime";
 import {
@@ -9,14 +9,7 @@ import {
   type PaymentHistoryPage,
   type PaymentHistoryStatus,
 } from "@/lib/company-detail-types";
-
-/**
- * Silent retry schedule for payment fetches. The history rides the shared,
- * rate-limited Management API connection, so a single failed attempt is
- * retried quietly (the button keeps its loading state) before the error and
- * its Retry affordance ever show.
- */
-export const PAYMENT_AUTO_RETRY_DELAYS_MS: readonly number[] = [1_500, 4_000];
+import { parseRetryAfterMs } from "@/lib/http-retry";
 
 /**
  * An empty loaded list is only trustworthy when no request error is showing.
@@ -26,10 +19,6 @@ export function showNoLoadedPaymentRecords(
   error: string | null,
 ): boolean {
   return loadedCount === 0 && !error;
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const STATUS: Record<
@@ -163,6 +152,27 @@ function HistoryItemContent({ item }: { item: PaymentHistoryItem }) {
   );
 }
 
+function PaymentDataState() {
+  return (
+    <p role="status" className="company-payment-data-state">
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="company-payment-data-state-icon"
+      >
+        <circle cx="8" cy="8" r="5.75" />
+        <path d="M8 4.75v3.5l2.35 1.4" />
+      </svg>
+      Showing the last available payment data.
+    </p>
+  );
+}
+
 export function PaymentHistory({
   companyId,
   initial,
@@ -180,44 +190,77 @@ export function PaymentHistory({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failedOffset, setFailedOffset] = useState<number | null>(null);
+  const autoRetryTimerRef = useRef<number | null>(null);
+  const fetchPageRef = useRef<
+    (offset: number, allowAutoRetry?: boolean) => Promise<void>
+  >(async () => {});
   const listId = useId();
   const total = page?.total ?? 0;
 
   const fetchPage = useCallback(
-    async (offset: number) => {
+    async (offset: number, allowAutoRetry = true) => {
+      if (autoRetryTimerRef.current !== null) {
+        window.clearTimeout(autoRetryTimerRef.current);
+        autoRetryTimerRef.current = null;
+      }
       setLoading(true);
       setError(null);
       setFailedOffset(null);
-      for (let attempt = 0; ; attempt++) {
-        try {
-          const response = await fetch(
-            `/api/accounts/${companyId}/payment-history?offset=${offset}&limit=${PAYMENT_PAGE_SIZE}`,
-            { cache: "no-store" },
-          );
-          if (!response.ok) throw new Error("payment_history_request_failed");
-          const result = (await response.json()) as PaymentHistoryPage;
-          setPage(result);
-          setItems((current) => {
-            const next = offset === 0 ? [] : [...current];
-            const seen = new Set(next.map((item) => item.id));
-            for (const item of result.items) {
-              if (!seen.has(item.id)) next.push(item);
-            }
-            return next;
-          });
-          setLoading(false);
-          return;
-        } catch {
-          if (attempt >= PAYMENT_AUTO_RETRY_DELAYS_MS.length) break;
-          // Quiet retry: the loading state stays up between attempts.
-          await wait(PAYMENT_AUTO_RETRY_DELAYS_MS[attempt]);
+      try {
+        const response = await fetch(
+          `/api/accounts/${companyId}/payment-history?offset=${offset}&limit=${PAYMENT_PAGE_SIZE}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) {
+          const retryDelay = allowAutoRetry
+            ? parseRetryAfterMs(response.headers.get("Retry-After"))
+            : null;
+          if (retryDelay !== null) {
+            setFailedOffset(offset);
+            setError(
+              "Live payment data is busy. Retrying automatically.",
+            );
+            setLoading(false);
+            autoRetryTimerRef.current = window.setTimeout(() => {
+              autoRetryTimerRef.current = null;
+              void fetchPageRef.current(offset, false);
+            }, retryDelay);
+            return;
+          }
+          throw new Error("payment_history_request_failed");
         }
+        const result = (await response.json()) as PaymentHistoryPage;
+        setPage(result);
+        setItems((current) => {
+          const next = offset === 0 ? [] : [...current];
+          const seen = new Set(next.map((item) => item.id));
+          for (const item of result.items) {
+            if (!seen.has(item.id)) next.push(item);
+          }
+          return next;
+        });
+        setLoading(false);
+        return;
+      } catch {
+        setFailedOffset(offset);
+        setError("Payment history is temporarily unavailable.");
+        setLoading(false);
       }
-      setFailedOffset(offset);
-      setError("Payment history is temporarily unavailable.");
-      setLoading(false);
     },
     [companyId],
+  );
+
+  useEffect(() => {
+    fetchPageRef.current = fetchPage;
+  }, [fetchPage]);
+
+  useEffect(
+    () => () => {
+      if (autoRetryTimerRef.current !== null) {
+        window.clearTimeout(autoRetryTimerRef.current);
+      }
+    },
+    [],
   );
 
   // The server render could not load the preview: recover client-side instead
@@ -278,7 +321,7 @@ export function PaymentHistory({
             <p className="text-sm text-[var(--muted)]" aria-live="polite">
               {loading
                 ? "Loading payment history…"
-                : "Payment history is temporarily unavailable."}
+                : (error ?? "Payment history is temporarily unavailable.")}
             </p>
             {!loading ? (
               <button
@@ -291,36 +334,25 @@ export function PaymentHistory({
             ) : null}
           </div>
         ) : total === 0 ? (
-          <p className="px-4 py-4 text-sm text-[var(--muted)]">
-            No payment history.
-          </p>
+          <div className="px-4 py-4">
+            <p className="text-sm text-[var(--muted)]">
+              {page.stale
+                ? "No payment history in the last available data."
+                : "No payment history."}
+            </p>
+            {page.stale ? (
+              <div className="mt-2">
+                <PaymentDataState />
+              </div>
+            ) : null}
+          </div>
         ) : (
           <>
             <div className="company-payment-summary">
               <div className="min-w-0">
                 <div className="company-payment-summary-label-row">
                   <p className="company-payment-summary-label">Total settled</p>
-                  {page.stale ? (
-                    <p
-                      role="status"
-                      className="company-payment-data-state"
-                    >
-                      <svg
-                        aria-hidden="true"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="company-payment-data-state-icon"
-                      >
-                        <circle cx="8" cy="8" r="5.75" />
-                        <path d="M8 4.75v3.5l2.35 1.4" />
-                      </svg>
-                      Showing the last available payment data.
-                    </p>
-                  ) : null}
+                  {page.stale ? <PaymentDataState /> : null}
                 </div>
                 <div className="company-payment-summary-value-row">
                   <p className="company-payment-summary-value">

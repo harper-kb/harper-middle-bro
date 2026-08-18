@@ -39,3 +39,14 @@ export function supportsSourcePipelineFilters(
 ): boolean {
   return mode === "all" || mode === "pending";
 }
+
+export const DATE_RANGE_FILTER_PARAM = "range";
+
+/**
+ * Views with a reporting window. All Accounts spans the whole book and Lost
+ * Orders is always all-time, so neither offers a Date Range — the toolbar, the
+ * canonical parser and the view switcher all read this one predicate.
+ */
+export function supportsDateRange(mode: BookOrdersViewMode): boolean {
+  return mode === "pending" || mode === "bound";
+}

@@ -72,6 +72,10 @@ const GATE_FILTER_ID_SET = new Set<string>([
   ...BROKER_GATE_IDS,
   BROKER_GATE_NONE,
 ]);
+const BROKER_GATE_FILTER_ORDER: readonly BrokerGateFilterId[] = [
+  ...BROKER_GATE_IDS,
+  BROKER_GATE_NONE,
+];
 
 export function isBrokerGateFilterId(raw: string): raw is BrokerGateFilterId {
   return GATE_FILTER_ID_SET.has(raw);
@@ -85,24 +89,26 @@ export function isBrokerGateFilterId(raw: string): raw is BrokerGateFilterId {
 export function parseBrokerGates(
   raw: string | null | undefined,
 ): BrokerGateFilterId[] {
-  if (raw === undefined || raw === null || raw.trim() === "") return [];
+  // Runtime shapes the page types don't promise (e.g. a repeated ?brokerGate=
+  // param arriving as an array) parse as no selection rather than throwing.
+  if (typeof raw !== "string" || raw.trim() === "") return [];
   const seen = new Set<BrokerGateFilterId>();
-  const out: BrokerGateFilterId[] = [];
   for (const part of raw.split(",")) {
     const id = part.trim();
-    if (!isBrokerGateFilterId(id) || seen.has(id)) continue;
+    if (!isBrokerGateFilterId(id)) continue;
     seen.add(id);
-    out.push(id);
   }
-  return out;
+  return BROKER_GATE_FILTER_ORDER.filter((id) => seen.has(id));
 }
 
 /** Serialize selected gates for the URL. Empty → omit param. */
 export function serializeBrokerGates(
   gates: readonly BrokerGateFilterId[],
 ): string | undefined {
-  if (gates.length === 0) return undefined;
-  return gates.join(",");
+  const canonical = BROKER_GATE_FILTER_ORDER.filter((id) =>
+    gates.includes(id),
+  );
+  return canonical.length > 0 ? canonical.join(",") : undefined;
 }
 
 /**

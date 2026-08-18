@@ -15,6 +15,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { RecordsTestProvider } from "./records-filter-test-utils";
 
 const pushes: string[] = [];
 vi.mock("next/navigation", () => ({
@@ -37,16 +38,22 @@ const OPTIONS = [
 function renderControl(
   props: Partial<Parameters<typeof CarrierMultiSelect>[0]> = {},
 ) {
+  const selected = props.selected ?? [];
   return render(
-    <CarrierMultiSelect
-      basePath="/pending-orders"
-      currentParams={{ range: "all-time", source: "iq", page: "3" }}
-      selected={[]}
-      options={OPTIONS}
-      unavailableSelected={[]}
-      resultTotal={42}
-      {...props}
-    />,
+    <RecordsTestProvider
+      params={{ source: "iq", page: "3" }}
+      patch={{ carriers: selected }}
+    >
+      <CarrierMultiSelect
+        basePath="/pending-orders"
+        currentParams={{ source: "iq", page: "3" }}
+        selected={selected}
+        options={OPTIONS}
+        unavailableSelected={[]}
+        resultTotal={42}
+        {...props}
+      />
+    </RecordsTestProvider>,
   );
 }
 
@@ -64,7 +71,7 @@ describe("carrierFilterHref", () => {
         ["next insurance us inc", "hiscox ins co"],
       ),
     ).toBe(
-      "/pending-orders?q=acme&source=iq&iqStage=bind_requested&carrier=hiscox+ins+co%2Cnext+insurance+us+inc",
+      "/pending-orders?source=iq&iqStage=bind_requested&carrier=hiscox+ins+co%2Cnext+insurance+us+inc&q=acme",
     );
   });
 
@@ -150,7 +157,7 @@ describe("CarrierMultiSelect", () => {
       screen.getByRole("checkbox", { name: /Hiscox Ins Co/ }),
     );
     expect(pushes).toEqual([
-      "/pending-orders?range=all-time&source=iq&carrier=hiscox+ins+co",
+      "/pending-orders?source=iq&carrier=hiscox+ins+co",
     ]);
   });
 
@@ -223,7 +230,7 @@ describe("CarrierMultiSelect", () => {
     expect(screen.getByText("Unavailable")).toBeTruthy();
     await user.click(box);
     // Removing it drops the carrier param entirely.
-    expect(pushes).toEqual(["/pending-orders?range=all-time&source=iq"]);
+    expect(pushes).toEqual(["/pending-orders?source=iq"]);
   });
 
   it("clears only the carrier selection from the popover", async () => {
@@ -235,7 +242,7 @@ describe("CarrierMultiSelect", () => {
       }),
     );
     await user.click(screen.getByRole("button", { name: "Clear" }));
-    expect(pushes).toEqual(["/pending-orders?range=all-time&source=iq"]);
+    expect(pushes).toEqual(["/pending-orders?source=iq"]);
   });
 
   it("supports the keyboard path end to end", async () => {
@@ -260,7 +267,7 @@ describe("CarrierMultiSelect", () => {
     // Enter selects the focused option.
     await user.keyboard("{Enter}");
     expect(pushes).toEqual([
-      "/pending-orders?range=all-time&source=iq&carrier=coterie+insurance",
+      "/pending-orders?source=iq&carrier=coterie+insurance",
     ]);
     // Escape dismisses and restores focus to the trigger.
     await user.keyboard("{Escape}");

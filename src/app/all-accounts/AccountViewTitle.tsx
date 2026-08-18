@@ -11,42 +11,16 @@ import {
 import {
   ACCOUNT_ORDERS_VIEWS,
   getAccountOrdersView,
-  SOURCE_PIPELINE_FILTER_PARAMS,
-  supportsSourcePipelineFilters,
 } from "./view-config";
+import { useRecordsFilters } from "./RecordsFilterProvider";
+import {
+  recordsFilterHref,
+  withRecordsView,
+} from "./records-filter-state";
 import type { BookOrdersViewMode } from "@/lib/db";
 
-function viewHref(
-  view: (typeof ACCOUNT_ORDERS_VIEWS)[number],
-  currentParams: Record<string, string | undefined>,
-): string {
-  const params = new URLSearchParams();
-  const supportsRange =
-    view.href === "/all-accounts" ||
-    view.href === "/pending-orders" ||
-    view.href === "/bound-orders";
-  // IQ Stage / Broker Gate only apply on All Accounts / Pending — one shared
-  // scope rule with the page and the toolbar, so a source-scoped filter param
-  // never survives a jump to Bound or Lost.
-  const supportsPipelineFilters = supportsSourcePipelineFilters(view.id);
-  for (const [key, value] of Object.entries(currentParams)) {
-    if (value === undefined || key === "page") continue;
-    if (key === "range" && !supportsRange) continue;
-    if (SOURCE_PIPELINE_FILTER_PARAMS.includes(key) && !supportsPipelineFilters)
-      continue;
-    params.set(key, value);
-  }
-  const query = params.toString();
-  return `${view.href}${query ? `?${query}` : ""}`;
-}
-
-export function AccountViewTitle({
-  mode,
-  currentParams,
-}: {
-  mode: BookOrdersViewMode;
-  currentParams: Record<string, string | undefined>;
-}) {
+export function AccountViewTitle({ mode }: { mode: BookOrdersViewMode }) {
+  const { state, switchView } = useRecordsFilters();
   const [open, setOpen] = useState(false);
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -174,14 +148,31 @@ export function AccountViewTitle({
                 }}
                 role="menuitem"
                 tabIndex={-1}
-                href={viewHref(view, currentParams)}
+                // Server-rendered href so prefetch, middle-click and copy all
+                // see the real destination; a plain click re-derives it from
+                // the newest requested filters instead.
+                href={recordsFilterHref(withRecordsView(state, view.id))}
                 aria-current={selected ? "page" : undefined}
                 className={`flex items-center justify-between gap-4 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] ${
                   selected
                     ? "bg-[var(--accent-soft)] text-[var(--ink)]"
                     : "text-[var(--muted)] hover:bg-[var(--sand)] hover:text-[var(--ink)]"
                 }`}
-                onClick={() => setOpen(false)}
+                onClick={(event) => {
+                  setOpen(false);
+                  if (
+                    event.defaultPrevented ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey ||
+                    event.button !== 0
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  switchView(view.id, { trigger: "title-dropdown" });
+                }}
               >
                 {view.title}
                 <span

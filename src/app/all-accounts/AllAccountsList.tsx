@@ -22,6 +22,11 @@ import {
   isAccountDeemphasized,
   type ExpandedAccountIds,
 } from "./use-account-expansion";
+import { accountDetailHref } from "./records-navigation";
+import { useOptionalRecordsFilters } from "./RecordsFilterProvider";
+import { recordsFilterHref } from "./records-filter-state";
+import { reportRecordsNavigation } from "./records-telemetry";
+import { rememberRecordsScroll } from "./RecordsScrollRestoration";
 
 const HEADER_INTERACTIVE =
   'a,button,input,textarea,select,summary,[role="button"],[data-account-toggle-ignore]';
@@ -56,6 +61,7 @@ export const AccountRow = memo(function AccountRow({
   deemphasized = false,
   onToggle,
   registerToggle,
+  recordsHref,
 }: {
   account: BookAccountListItem;
   canEditOrders: boolean;
@@ -67,7 +73,10 @@ export const AccountRow = memo(function AccountRow({
   deemphasized?: boolean;
   onToggle?: (id: string) => void;
   registerToggle?: (id: string, node: HTMLButtonElement | null) => void;
+  /** Exact list URL used by the detail page's deterministic Back action. */
+  recordsHref?: string;
 }) {
+  const records = useOptionalRecordsFilters();
   const open = expanded;
   const phase = useAccountRowPhase(open);
   const panelId = useId();
@@ -169,7 +178,41 @@ export const AccountRow = memo(function AccountRow({
                 </span>
               ) : null}
               <Link
-                href={`/accounts/${account.id}`}
+                href={accountDetailHref(account.id, recordsHref)}
+                onClick={(event) => {
+                  if (records) {
+                    reportRecordsNavigation(
+                      "records-to-company",
+                      records.latest(),
+                      event.metaKey || event.ctrlKey
+                        ? "account-link-new-tab"
+                        : "account-link",
+                    );
+                  }
+                  if (
+                    !records ||
+                    event.defaultPrevented ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey ||
+                    event.button !== 0
+                  ) {
+                    return;
+                  }
+                  rememberRecordsScroll(records.latest());
+                  const latestHref = recordsFilterHref(records.latest());
+                  if (latestHref === recordsHref) return;
+                  // A filter/search request is still ahead of the server
+                  // render. Carry that newest canonical state onto the detail
+                  // route instead of encoding the older row props.
+                  event.preventDefault();
+                  window.history.pushState(
+                    null,
+                    "",
+                    accountDetailHref(account.id, latestHref),
+                  );
+                }}
                 className="account-row-name font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               >
                 {account.name}
@@ -285,6 +328,7 @@ export function AllAccountsList({
   expanded,
   onToggle,
   registerToggle,
+  recordsHref,
 }: {
   rows: BookAccountListItem[];
   emptyMessage: string;
@@ -295,6 +339,7 @@ export function AllAccountsList({
   expanded?: ExpandedAccountIds;
   onToggle?: (id: string) => void;
   registerToggle?: (id: string, node: HTMLButtonElement | null) => void;
+  recordsHref?: string;
 }) {
   if (rows.length === 0) {
     return (
@@ -319,6 +364,7 @@ export function AllAccountsList({
           }
           onToggle={onToggle}
           registerToggle={registerToggle}
+          recordsHref={recordsHref}
         />
       ))}
     </ul>

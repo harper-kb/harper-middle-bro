@@ -1,7 +1,14 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRecordsFilters } from "./RecordsFilterProvider";
+import {
+  ACCOUNT_PAGE_PARAM,
+  ACCOUNT_QUERY_PARAM,
+  recordsFilterHrefFromParams,
+  serializeRecordsFilterState,
+} from "./records-filter-state";
+import { getAccountOrdersView } from "./view-config";
 
 /**
  * The Accounts search field.
@@ -26,10 +33,11 @@ export function accountsHref(
   preservedQuery: string,
   search: string,
 ): string {
-  const params = new URLSearchParams(preservedQuery);
-  if (search) params.set("q", search);
-  const query = params.toString();
-  return `${basePath}${query ? `?${query}` : ""}`;
+  return recordsFilterHrefFromParams(
+    basePath,
+    Object.fromEntries(new URLSearchParams(preservedQuery)),
+    { query: search },
+  );
 }
 
 function SearchIcon() {
@@ -66,22 +74,20 @@ function ClearIcon() {
 }
 
 export function AccountSearchField({
-  basePath,
-  currentParams,
   committedQuery,
   resultCount,
 }: {
-  basePath: string;
-  /** Every active URL param, so filtering never drops the view's filters. */
-  currentParams: Record<string, string | undefined>;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  basePath?: string;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  currentParams?: Record<string, string | undefined>;
   /** The `q` currently applied to the list. */
   committedQuery: string;
   /** Accounts the current query and filters match, for the polite announcement. */
   resultCount: number;
 }) {
-  const router = useRouter();
+  const { state, latest, update, isPending: pending } = useRecordsFilters();
   const [draft, setDraft] = useState(committedQuery);
-  const [pending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // The last query this field asked the URL for. Distinguishing "our own commit
@@ -92,19 +98,13 @@ export function AccountSearchField({
 
   useEffect(() => {
     if (committedQuery === requested.current) return;
+    // An older server response can arrive after this field has already asked
+    // for a newer query. The provider still knows that newer intent; do not
+    // paint the old query back into the input while its request is in flight.
+    if (latest().query === requested.current) return;
     requested.current = committedQuery;
     setDraft(committedQuery);
-  }, [committedQuery]);
-
-  // Every active param except the query and the page — a new query is a new
-  // result set, so it always starts at page 1. Kept as a string so the debounce
-  // below re-arms when a filter changes mid-typing instead of committing against
-  // the filters that were active a moment ago.
-  const preservedParams = Object.entries(currentParams).filter(
-    (entry): entry is [string, string] =>
-      Boolean(entry[1]) && entry[0] !== "q" && entry[0] !== "page",
-  );
-  const preservedQuery = new URLSearchParams(preservedParams).toString();
+  }, [committedQuery, latest]);
 
   // Live, but not once per character.
   useEffect(() => {
@@ -112,20 +112,25 @@ export function AccountSearchField({
     if (next === requested.current) return;
     const timer = window.setTimeout(() => {
       requested.current = next;
-      startTransition(() => {
-        router.replace(accountsHref(basePath, preservedQuery, next), {
-          scroll: false,
-        });
-      });
+      // Only the query is captured by this timer. The provider merges it into
+      // the newest state at fire time, so a carrier/source/sort change made
+      // while the debounce was pending cannot be overwritten.
+      update(
+        { query: next },
+        { reason: "search", trigger: "accounts-search-debounce", history: "replace" },
+      );
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [draft, basePath, preservedQuery, router, startTransition]);
+  }, [draft, update]);
 
   const trimmed = draft.trim();
+  const preservedParams = serializeRecordsFilterState(state);
+  preservedParams.delete(ACCOUNT_QUERY_PARAM);
+  preservedParams.delete(ACCOUNT_PAGE_PARAM);
 
   return (
     <form
-      action={basePath}
+      action={getAccountOrdersView(state.view).href}
       method="get"
       className="flex min-w-0 flex-wrap items-center gap-2"
       onSubmit={(event) => {
@@ -133,15 +138,14 @@ export function AccountSearchField({
         event.preventDefault();
         if (trimmed === requested.current) return;
         requested.current = trimmed;
-        startTransition(() => {
-          router.replace(accountsHref(basePath, preservedQuery, trimmed), {
-            scroll: false,
-          });
-        });
+        update(
+          { query: trimmed },
+          { reason: "search", trigger: "accounts-search-submit", history: "replace" },
+        );
       }}
     >
-      {/* The filters ride along when the form is submitted without JavaScript. */}
-      {preservedParams.map(([key, value]) => (
+      {/* Graceful form submission carries the same canonical filters. */}
+      {[...preservedParams].map(([key, value]) => (
         <input key={key} type="hidden" name={key} value={value} />
       ))}
       <div

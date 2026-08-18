@@ -86,6 +86,7 @@ export function AccountResultsPanel({
   view,
   filterState,
   pagination,
+  recordsHref,
   initialExpandedIds,
 }: {
   rows: BookAccountListItem[];
@@ -101,6 +102,8 @@ export function AccountResultsPanel({
   };
   filterState: RecordsFilterSummaryState;
   pagination: RecordsContextPagination;
+  /** Exact URL to restore after visiting one of these account details. */
+  recordsHref?: string;
   /** Preview/test seam; production lists always start fully collapsed. */
   initialExpandedIds?: readonly string[];
 }) {
@@ -161,6 +164,7 @@ export function AccountResultsPanel({
           expanded={expanded}
           onToggle={handleToggle}
           registerToggle={registerToggle}
+          recordsHref={recordsHref}
         />
 
         <p role="status" aria-live="polite" className="sr-only">

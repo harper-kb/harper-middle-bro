@@ -2,36 +2,65 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
+import { useOptionalRecordsFilters } from "./RecordsFilterProvider";
+import {
+  recordsFilterHref,
+  recordsFilterHrefFromParams,
+  updateRecordsFilters,
+} from "./records-filter-state";
 
 const FOCUS_MARKER = "all-accounts-pagination-focus";
-
-function pageHref(
-  basePath: string,
-  currentParams: Record<string, string | undefined>,
-  page: number,
-): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(currentParams)) {
-    if (value !== undefined && key !== "page") params.set(key, value);
-  }
-  if (page > 1) params.set("page", String(page));
-  const query = params.toString();
-  return `${basePath}${query ? `?${query}` : ""}#account-results`;
-}
 
 export function PaginationControls({
   currentPage,
   totalPages,
-  currentParams,
-  basePath,
+  currentParams = {},
+  basePath = "/all-accounts",
   placement,
 }: {
   currentPage: number;
   totalPages: number;
-  currentParams: Record<string, string | undefined>;
-  basePath: string;
+  currentParams?: Record<string, string | undefined>;
+  basePath?: string;
   placement: "top" | "bottom";
 }) {
+  const records = useOptionalRecordsFilters();
+  const hrefForPage = (page: number) =>
+    records
+      ? recordsFilterHref(
+          updateRecordsFilters(records.state, { page }),
+          { hash: "account-results" },
+        )
+      : recordsFilterHrefFromParams(
+          basePath,
+          currentParams,
+          { page },
+          { hash: "account-results" },
+        );
+
+  function navigateToPage(
+    event: React.MouseEvent<HTMLAnchorElement>,
+    page: number,
+    trigger: string,
+  ) {
+    if (
+      !records ||
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0
+    ) {
+      return;
+    }
+    event.preventDefault();
+    records.update(
+      { page },
+      { reason: "page", trigger, hash: "account-results" },
+    );
+  }
+
   useEffect(() => {
     if (placement !== "top") return;
     if (window.sessionStorage.getItem(FOCUS_MARKER) !== "true") return;
@@ -70,10 +99,17 @@ export function PaginationControls({
         </span>
       ) : (
         <Link
-          href={pageHref(basePath, currentParams, currentPage - 1)}
+          href={hrefForPage(currentPage - 1)}
           className={buttonClass}
           aria-label={`Go to page ${currentPage - 1}`}
-          onClick={markBottomNavigation}
+          onClick={(event) => {
+            markBottomNavigation();
+            navigateToPage(
+              event,
+              currentPage - 1,
+              `${placement}-pagination-previous`,
+            );
+          }}
         >
           <span aria-hidden="true">←</span>
           <span className="account-pagination-word">Previous</span>
@@ -98,10 +134,17 @@ export function PaginationControls({
         </span>
       ) : (
         <Link
-          href={pageHref(basePath, currentParams, currentPage + 1)}
+          href={hrefForPage(currentPage + 1)}
           className={buttonClass}
           aria-label={`Go to page ${currentPage + 1}`}
-          onClick={markBottomNavigation}
+          onClick={(event) => {
+            markBottomNavigation();
+            navigateToPage(
+              event,
+              currentPage + 1,
+              `${placement}-pagination-next`,
+            );
+          }}
         >
           <span className="account-pagination-word">Next</span>
           <span aria-hidden="true">→</span>

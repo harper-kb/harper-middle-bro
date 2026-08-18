@@ -21,6 +21,11 @@ import {
   canEditOrders,
 } from "@/lib/order-action-gates";
 import { getSessionOperator } from "@/lib/session";
+import {
+  parseRecordsReturnHref,
+  RECORDS_RETURN_PARAM,
+  recordsNavigationHrefs,
+} from "@/app/all-accounts/records-navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -81,11 +86,14 @@ function PaymentHistoryFallback() {
 
 export default async function AccountDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [{ id }, operator] = await Promise.all([
+  const [{ id }, query, operator] = await Promise.all([
     params,
+    searchParams,
     getSessionOperator(),
   ]);
   if (!operator) notFound();
@@ -115,10 +123,18 @@ export default async function AccountDetailPage({
   const todayDay = harperCalendarDay(new Date())!;
   const editOrdersAllowed = canEditOrders(operator);
   const bigBrotherUrl = bigBrotherBaseUrl();
+  const recordsReturnHref = parseRecordsReturnHref(
+    query[RECORDS_RETURN_PARAM],
+  );
+  const recordsHrefs = recordsNavigationHrefs(recordsReturnHref);
 
   return (
     <>
-      <Nav active="/accounts" operator={operator} />
+      <Nav
+        active="/accounts"
+        operator={operator}
+        recordsHrefs={recordsHrefs}
+      />
       <main className="mx-auto max-w-6xl px-4 py-7 sm:px-6 sm:py-10">
         <CompanyDetailOverview
           companyId={companyId}
@@ -135,6 +151,7 @@ export default async function AccountDetailPage({
           totalRevenueCents={totalRevenueCents}
           totalCommissionCents={summary.totalCommissionCents}
           totalHarperFeeCents={summary.totalHarperFeeCents}
+          recordsReturnHref={recordsReturnHref}
         />
 
         <div className="mt-10">

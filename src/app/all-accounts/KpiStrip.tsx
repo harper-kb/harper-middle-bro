@@ -13,6 +13,8 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { useOptionalRecordsFilters } from "./RecordsFilterProvider";
+import type { RecordsView } from "./records-filter-state";
 
 export type KpiStat = {
   label: string;
@@ -23,6 +25,8 @@ export type KpiStat = {
   tooltipAccountCount?: number;
   /** When set, the whole stat becomes a link to the relevant view. */
   href?: Route;
+  /** Records view behind this KPI, for a latest-state-aware plain click. */
+  recordsView?: RecordsView;
   /** Concise native tooltip for definitions/coverage that need explanation. */
   tooltip?: string;
 };
@@ -126,6 +130,7 @@ function AccountCountTooltip({
 }
 
 function StatBlock({ stat, divided }: { stat: KpiStat; divided: boolean }) {
+  const records = useOptionalRecordsFilters();
   const [open, setOpen] = useState(false);
   const tooltipId = useId();
   const triggerRef = useRef<HTMLAnchorElement>(null);
@@ -174,6 +179,22 @@ function StatBlock({ stat, divided }: { stat: KpiStat; divided: boolean }) {
         }}
         onPointerDown={(event: PointerEvent<HTMLAnchorElement>) => {
           if (event.pointerType === "touch") setOpen(true);
+        }}
+        onClick={(event) => {
+          if (
+            !records ||
+            !stat.recordsView ||
+            event.defaultPrevented ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey ||
+            event.button !== 0
+          ) {
+            return;
+          }
+          event.preventDefault();
+          records.switchView(stat.recordsView, { trigger: "kpi" });
         }}
       >
         {content}

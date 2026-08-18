@@ -19,6 +19,7 @@ import type {
   OrderDetailBoundPolicy,
   OrderDetailResponse,
 } from "@/lib/order-detail-types";
+import { parseRetryAfterMs } from "@/lib/http-retry";
 
 export const ORDER_DETAIL_REFRESH_MS = 5 * 60_000;
 
@@ -80,6 +81,8 @@ type DetailViewState = {
 function useOrderDetailData(selection: OrderDrawerSelection) {
   const key = orderDrawerKey(selection);
   const [retry, setRetry] = useState(0);
+  const autoRetryKeyRef = useRef<string | null>(null);
+  const autoRetryTimerRef = useRef<number | null>(null);
   const [state, setState] = useState<DetailViewState>({
     key,
     data: null,
@@ -90,6 +93,11 @@ function useOrderDetailData(selection: OrderDrawerSelection) {
   useEffect(() => {
     let active = true;
     let controller: AbortController | null = null;
+    if (autoRetryTimerRef.current !== null) {
+      window.clearTimeout(autoRetryTimerRef.current);
+      autoRetryTimerRef.current = null;
+    }
+    if (autoRetryKeyRef.current !== key) autoRetryKeyRef.current = null;
 
     const load = async (showLoading: boolean) => {
       controller?.abort();
@@ -118,6 +126,20 @@ function useOrderDetailData(selection: OrderDrawerSelection) {
           OrderDetailResponse & { error: string }
         >;
         if (!response.ok) {
+          const retryDelay =
+            autoRetryKeyRef.current === key
+              ? null
+              : parseRetryAfterMs(response.headers.get("Retry-After"));
+          if (retryDelay !== null) {
+            autoRetryKeyRef.current = key;
+            autoRetryTimerRef.current = window.setTimeout(() => {
+              autoRetryTimerRef.current = null;
+              if (active) setRetry((value) => value + 1);
+            }, retryDelay);
+            throw new Error(
+              "Live order detail is busy. Retrying automatically.",
+            );
+          }
           throw new Error(
             typeof result.error === "string"
               ? result.error
@@ -128,6 +150,7 @@ function useOrderDetailData(selection: OrderDrawerSelection) {
           throw new Error("The order detail response did not match this order.");
         }
         if (!active) return;
+        autoRetryKeyRef.current = null;
         setState({
           key,
           data: result as OrderDetailResponse,
@@ -156,13 +179,24 @@ function useOrderDetailData(selection: OrderDrawerSelection) {
     return () => {
       active = false;
       controller?.abort();
+      if (autoRetryTimerRef.current !== null) {
+        window.clearTimeout(autoRetryTimerRef.current);
+        autoRetryTimerRef.current = null;
+      }
       window.clearInterval(interval);
     };
   }, [key, retry, selection.companyId, selection.orderId]);
 
   return {
     state,
-    retry: useCallback(() => setRetry((value) => value + 1), []),
+    retry: useCallback(() => {
+      if (autoRetryTimerRef.current !== null) {
+        window.clearTimeout(autoRetryTimerRef.current);
+        autoRetryTimerRef.current = null;
+      }
+      autoRetryKeyRef.current = null;
+      setRetry((value) => value + 1);
+    }, []),
   };
 }
 
@@ -778,6 +812,14 @@ export function OrderDetailContent({
       key={`${selection.accountId}:${data.orderId}`}
       className="order-detail-content px-4 py-4 sm:px-5 sm:py-5"
     >
+      {data.stale ? (
+        <div
+          role="status"
+          className="mb-3 flex items-center gap-2 border-l-2 border-[var(--info)] pl-2.5 text-xs font-medium text-[var(--muted)]"
+        >
+          Showing the last available order detail while live data refreshes.
+        </div>
+      ) : null}
       <div className="order-detail-summary-grid">
         <QuoteCard selection={selection} data={data} />
         <FinancialSummary data={data} />

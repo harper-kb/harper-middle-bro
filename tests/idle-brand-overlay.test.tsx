@@ -122,7 +122,7 @@ afterEach(() => {
 });
 
 describe("idle timing and lifecycle", () => {
-  it("opens once at 30 seconds and never before", async () => {
+  it("opens once at one minute and never before", async () => {
     render(<AppAndOverlay />);
 
     await advance(IDLE_BRAND_TIMEOUT_MS - 1);
@@ -178,7 +178,7 @@ describe("idle timing and lifecycle", () => {
 
     await advance(20_000);
     dispatchPointerMove(4, 3);
-    await advance(9_999);
+    await advance(IDLE_BRAND_TIMEOUT_MS - 20_000 - 1);
     expect(screen.queryByRole("dialog")).toBeNull();
     await advance(1);
     expect(screen.getByRole("dialog")).toBeTruthy();
@@ -239,7 +239,7 @@ describe("idle timing and lifecycle", () => {
         <RouteHarness route="Company detail" />
       </StrictMode>,
     );
-    await advance(9_999);
+    await advance(IDLE_BRAND_TIMEOUT_MS - 20_000 - 1);
     expect(screen.queryByRole("dialog")).toBeNull();
     await advance(1);
     expect(screen.getAllByRole("dialog")).toHaveLength(1);

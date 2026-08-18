@@ -1,53 +1,27 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import {
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
-  useTransition,
   type KeyboardEvent,
 } from "react";
-import {
-  CARRIER_FILTER_PARAM,
-  serializeCarrierFilter,
-} from "@/lib/carrier-filter";
 import type { BookCarrierFacetOption } from "@/lib/db";
 import { RecordsFilterFocusBackdrop } from "./RecordsFilterFocusBackdrop";
+import { useRecordsFilters } from "./RecordsFilterProvider";
+import { recordsFilterHrefFromParams } from "./records-filter-state";
 
-/**
- * The Accounts carrier filter — a compact multi-select popover shared by all
- * four record views (All / Pending / Bound / Lost), sitting at the far right
- * of the search row.
- *
- * Selection is applied immediately (the established Accounts filter UX —
- * IQ Stage and Broker Gate batch nothing), lands in the `carrier` URL param,
- * and re-runs the view's own server query, so rows, KPIs, pagination and the
- * option counts all describe the same filtered order set. The popover stays
- * open across those round-trips: options and counts refresh in place, and
- * the search box inside filters the already-derived option list client-side —
- * it never touches the Accounts search query.
- */
-
+/** Pure adapter retained for component-level URL contract tests. */
 export function carrierFilterHref(
   basePath: string,
   currentParams: Record<string, string | undefined>,
   keys: readonly string[],
 ): string {
-  const params = new URLSearchParams();
-  // Every active param except the carrier selection and the page — a new
-  // selection is a new result set, so it always starts at page 1.
-  for (const [key, value] of Object.entries(currentParams)) {
-    if (value !== undefined && key !== CARRIER_FILTER_PARAM && key !== "page") {
-      params.set(key, value);
-    }
-  }
-  const serialized = serializeCarrierFilter(keys);
-  if (serialized) params.set(CARRIER_FILTER_PARAM, serialized);
-  const query = params.toString();
-  return `${basePath}${query ? `?${query}` : ""}`;
+  return recordsFilterHrefFromParams(basePath, currentParams, {
+    carriers: keys,
+  });
 }
 
 /** Collapsed-trigger wording per the selection size. */
@@ -105,16 +79,15 @@ interface CarrierEntry {
 }
 
 export function CarrierMultiSelect({
-  basePath,
-  currentParams,
   selected,
   options,
   unavailableSelected,
   resultTotal,
 }: {
-  basePath: string;
-  /** Every active URL param, so a selection never drops the view's filters. */
-  currentParams: Record<string, string | undefined>;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  basePath?: string;
+  /** @deprecated URL ownership lives in RecordsFilterProvider. */
+  currentParams?: Record<string, string | undefined>;
   /** Canonical selected carrier keys (page-parsed, sorted). */
   selected: readonly string[];
   /** Available options under every current non-carrier filter. */
@@ -124,8 +97,7 @@ export function CarrierMultiSelect({
   /** Accounts matching all filters including carriers, for the announcement. */
   resultTotal: number;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { latest, update, isPending: pending } = useRecordsFilters();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   // The Selected group is frozen per popover session: entries do not jump
@@ -195,18 +167,21 @@ export function CarrierMultiSelect({
   }
 
   function apply(nextKeys: readonly string[]) {
-    startTransition(() => {
-      router.push(carrierFilterHref(basePath, currentParams, nextKeys), {
-        scroll: false,
-      });
-    });
+    update(
+      { carriers: nextKeys },
+      { reason: "filter", trigger: "carrier" },
+    );
   }
 
   function toggle(key: string) {
+    // Derive from the newest request, not the rendered selection. Two rapid
+    // toggles therefore compose even if neither server response has arrived.
+    const current = latest().carriers;
+    const currentSet = new Set(current);
     apply(
-      selectedSet.has(key)
-        ? selected.filter((k) => k !== key)
-        : [...selected, key],
+      currentSet.has(key)
+        ? current.filter((carrier) => carrier !== key)
+        : [...current, key],
     );
   }
 

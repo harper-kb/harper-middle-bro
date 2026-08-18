@@ -1,31 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { parseRecordsReturnState } from "@/app/all-accounts/records-navigation";
+import { reportRecordsNavigation } from "@/app/all-accounts/records-telemetry";
 
-const ACCOUNT_LIST_PATHS = [
-  "/all-accounts",
-  "/pending-orders",
-  "/bound-orders",
-  "/lost-orders",
-];
-
-export function BackToAccounts() {
+export function BackToAccounts({ returnHref }: { returnHref?: string | null }) {
   const router = useRouter();
 
   function goBack() {
-    try {
-      const previous = new URL(document.referrer);
-      if (
-        previous.origin === window.location.origin &&
-        ACCOUNT_LIST_PATHS.some((path) => previous.pathname.startsWith(path))
-      ) {
-        router.back();
-        return;
-      }
-    } catch {
-      // A missing or non-URL referrer falls through to the stable list route.
+    const state = parseRecordsReturnState(returnHref);
+    if (state) {
+      reportRecordsNavigation("return-to-records", state, "back-to-accounts");
     }
-    router.push("/all-accounts");
+    // Replace avoids creating a detail → list → detail loop in browser history.
+    router.replace(returnHref ?? "/all-accounts", { scroll: false });
   }
 
   return (

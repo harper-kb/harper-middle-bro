@@ -32,6 +32,7 @@ export function PipelineMultiSelect<Id extends string>({
   options,
   selected,
   onChange,
+  onToggle,
   labelledBy,
   accent,
   noun,
@@ -40,6 +41,8 @@ export function PipelineMultiSelect<Id extends string>({
   options: readonly PipelineMultiSelectOption<Id>[];
   selected: readonly Id[];
   onChange: (next: Id[]) => void;
+  /** Latest-state-aware toggle for URL-owned selections. */
+  onToggle?: (id: Id) => void;
   labelledBy: string;
   accent: PipelineAccent;
   /** Singular unit for the collapsed label: "stage" or "gate". */
@@ -82,6 +85,10 @@ export function PipelineMultiSelect<Id extends string>({
   }, [open]);
 
   function toggle(id: Id) {
+    if (onToggle) {
+      onToggle(id);
+      return;
+    }
     if (selectedSet.has(id)) {
       onChange(selected.filter((s) => s !== id));
     } else {

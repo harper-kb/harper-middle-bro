@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { loadPaymentHistory } from "@/lib/company-detail.server";
 import { getAccountDetail } from "@/lib/db";
 import { getSessionOperator } from "@/lib/session";
+import { supabaseManagementRetryAfterSeconds } from "@/lib/supabase-management.server";
 
 export const dynamic = "force-dynamic";
 
@@ -60,9 +61,11 @@ export async function GET(
       companyId,
       offset,
       limit,
+      signal: request.signal,
     });
     return NextResponse.json(history, { headers: NO_STORE });
   } catch (cause) {
+    const retryAfter = supabaseManagementRetryAfterSeconds(cause);
     console.warn("company_payment_history_failed", {
       companyId,
       errorCategory:
@@ -70,7 +73,13 @@ export async function GET(
     });
     return NextResponse.json(
       { error: "Payment history is temporarily unavailable." },
-      { status: 502, headers: NO_STORE },
+      {
+        status: retryAfter === null ? 502 : 503,
+        headers:
+          retryAfter === null
+            ? NO_STORE
+            : { ...NO_STORE, "Retry-After": String(retryAfter) },
+      },
     );
   }
 }

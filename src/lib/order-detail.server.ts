@@ -9,18 +9,17 @@ import type {
   OrderDetailQuote,
   OrderDetailResponse,
 } from "@/lib/order-detail-types";
-import { runSupabaseManagementQuery } from "@/lib/supabase-management.server";
+import {
+  subscribeToSharedInFlight,
+  type SharedInFlight,
+} from "@/lib/shared-inflight.server";
+import {
+  runSupabaseManagementQuery,
+  type SupabaseManagementQueryPriority,
+} from "@/lib/supabase-management.server";
 
 /** Age under which a digest-matching payload is served with no refetch. */
 const DETAIL_TTL_MS = 60_000;
-/**
- * Age under which a digest-matching payload is served instantly while a
- * background refetch replaces it. The digest proves the order's book-visible
- * content (deals, documents, gate, notes) is unchanged; the payment leg of
- * the payload lives outside the digest, which is why this window is bounded
- * instead of serving a matching digest forever.
- */
-const DETAIL_SWR_TTL_MS = 30 * 60_000;
 /** Sweep horizon for persisted detail payloads. */
 const REMOTE_CACHE_PRUNE_MS = 7 * 24 * 60 * 60_000;
 const QUOTE_URL_TTL_SECONDS = 5 * 60;
@@ -99,7 +98,12 @@ type PersistedOrderDetail = {
   detail: ResolvedOrderDetail;
 };
 
-const inFlight = new Map<string, Promise<ResolvedOrderDetail>>();
+type InFlightOrderDetail = SharedInFlight<ResolvedOrderDetail> & {
+  priority: SupabaseManagementQueryPriority;
+  requestId: symbol;
+};
+
+const inFlight = new Map<string, InFlightOrderDetail>();
 
 function trim(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -1254,16 +1258,20 @@ function resolveOrderDetailRow(
     harperFeeCents: decimalToCents(row.harper_service_fee),
     boundPolicies: resolveBoundPolicies(row.bound_policy_candidates),
     fetchedAt: new Date().toISOString(),
+    stale: false,
   };
 }
 
 async function fetchOrderDetail(
   companyId: number,
   orderId: number,
+  priority: SupabaseManagementQueryPriority,
+  signal?: AbortSignal,
 ): Promise<ResolvedOrderDetail> {
   const rows = await runSupabaseManagementQuery<RawOrderDetailRow>(
     buildOrderDetailQuery(companyId, orderId),
     25_000,
+    { priority, signal },
   );
   const row = rows[0];
   if (!row) throw new Error("order_detail_not_found");
@@ -1324,11 +1332,32 @@ function revalidateOrderDetail(
   companyId: number,
   orderId: number,
   digest: string | null,
+  priority: SupabaseManagementQueryPriority = "interactive",
+  signal?: AbortSignal,
 ): Promise<ResolvedOrderDetail> {
   const key = `${companyId}:${orderId}`;
   const existing = inFlight.get(key);
-  if (existing) return existing;
-  const request = fetchOrderDetail(companyId, orderId)
+  if (existing) {
+    if (priority === "interactive" && existing.priority === "background") {
+      existing.controller.abort(
+        new DOMException(
+          "Background order-detail refresh was promoted.",
+          "AbortError",
+        ),
+      );
+    } else {
+      if (priority === "background") existing.keepAlive = true;
+      return subscribeToSharedInFlight(existing, signal);
+    }
+  }
+  const controller = new AbortController();
+  const requestId = Symbol();
+  const request = fetchOrderDetail(
+    companyId,
+    orderId,
+    priority,
+    controller.signal,
+  )
     .then((value) => {
       persistDetail(detailCacheKey(companyId, orderId), {
         digest,
@@ -1336,17 +1365,46 @@ function revalidateOrderDetail(
       });
       return value;
     })
-    .finally(() => inFlight.delete(key));
-  inFlight.set(key, request);
-  return request;
+    .finally(() => {
+      if (inFlight.get(key)?.requestId === requestId) inFlight.delete(key);
+    });
+  const entry: InFlightOrderDetail = {
+    promise: request,
+    priority,
+    controller,
+    requestId,
+    subscribers: 0,
+    keepAlive: priority === "background",
+  };
+  inFlight.set(key, entry);
+  return subscribeToSharedInFlight(entry, signal);
 }
 
-export async function loadOrderDetail({
+/** Refresh one previously viewed drawer payload as low-priority background work. */
+export async function revalidateCachedOrderDetail({
   companyId,
   orderId,
 }: {
   companyId: number;
   orderId: number;
+}): Promise<boolean> {
+  assertIds(companyId, orderId);
+  if (!readPersistedDetail(detailCacheKey(companyId, orderId))) return false;
+  const digest = readOrderDigest(getDb(), orderId);
+  await revalidateOrderDetail(companyId, orderId, digest, "background");
+  return true;
+}
+
+export async function loadOrderDetail({
+  companyId,
+  orderId,
+  requireFresh = false,
+  signal,
+}: {
+  companyId: number;
+  orderId: number;
+  requireFresh?: boolean;
+  signal?: AbortSignal;
 }): Promise<ResolvedOrderDetail> {
   assertIds(companyId, orderId);
   // The digest read before the fetch is deliberately the one stored with the
@@ -1357,10 +1415,15 @@ export async function loadOrderDetail({
   const digestMatches =
     persisted !== null && persisted.entry.digest === currentDigest;
   if (persisted && digestMatches && persisted.ageMs < DETAIL_TTL_MS) {
-    return persisted.entry.detail;
+    return { ...persisted.entry.detail, stale: false };
   }
-  if (persisted && digestMatches && persisted.ageMs < DETAIL_SWR_TTL_MS) {
-    void revalidateOrderDetail(companyId, orderId, currentDigest).catch(
+  if (persisted && !requireFresh) {
+    void revalidateOrderDetail(
+      companyId,
+      orderId,
+      currentDigest,
+      "background",
+    ).catch(
       (cause) => {
         console.warn("order_detail_revalidate_failed", {
           companyId,
@@ -1370,9 +1433,15 @@ export async function loadOrderDetail({
         });
       },
     );
-    return persisted.entry.detail;
+    return { ...persisted.entry.detail, stale: true };
   }
-  return revalidateOrderDetail(companyId, orderId, currentDigest);
+  return revalidateOrderDetail(
+    companyId,
+    orderId,
+    currentDigest,
+    "interactive",
+    signal,
+  );
 }
 
 export function publicOrderDetail(
@@ -1386,6 +1455,7 @@ export function publicOrderDetail(
     harperFeeCents: detail.harperFeeCents,
     boundPolicies: detail.boundPolicies,
     fetchedAt: detail.fetchedAt,
+    stale: detail.stale === true,
   };
 }
 
@@ -1398,11 +1468,18 @@ function object(value: unknown): Record<string, unknown> | null {
 export async function mintOrderQuoteUrl({
   companyId,
   orderId,
+  signal,
 }: {
   companyId: number;
   orderId: number;
+  signal?: AbortSignal;
 }): Promise<string> {
-  const detail = await loadOrderDetail({ companyId, orderId });
+  const detail = await loadOrderDetail({
+    companyId,
+    orderId,
+    requireFresh: true,
+    signal,
+  });
   const artifactId = detail.quoteArtifactId;
   if (!artifactId) throw new Error("order_quote_unavailable");
 

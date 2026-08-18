@@ -7,6 +7,7 @@
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { RecordsTestProvider } from "./records-filter-test-utils";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => {} }),
@@ -17,7 +18,31 @@ const { AccountFilterToolbar, accountFilterHref } = await import(
 );
 
 function render(props: Parameters<typeof AccountFilterToolbar>[0]) {
-  return renderToStaticMarkup(<AccountFilterToolbar {...props} />);
+  const view =
+    props.basePath === "/all-accounts"
+      ? "all"
+      : props.basePath === "/bound-orders"
+        ? "bound"
+        : props.basePath === "/lost-orders"
+          ? "lost"
+          : "pending";
+  return renderToStaticMarkup(
+    <RecordsTestProvider
+      view={view}
+      params={props.currentParams}
+      patch={{
+        source: props.source,
+        range: props.range,
+        iqStages: props.iqStages,
+        brokerGates: props.brokerGates,
+        carriers: props.carriers,
+        locationStates: props.locationStates,
+        sort: props.sort,
+      }}
+    >
+      <AccountFilterToolbar {...props} />
+    </RecordsTestProvider>,
+  );
 }
 
 const pendingDefaults = {
@@ -40,7 +65,7 @@ describe("accountFilterHref", () => {
     ).toBe("/pending-orders?range=this-week");
   });
 
-  it("always writes range on the views that have a reporting window", () => {
+  it("omits the default range on views that have a reporting window", () => {
     expect(
       accountFilterHref({
         basePath: "/bound-orders",
@@ -48,7 +73,7 @@ describe("accountFilterHref", () => {
         source: "broker",
         range: "all-time",
       }),
-    ).toBe("/bound-orders?source=broker&range=all-time");
+    ).toBe("/bound-orders?source=broker");
   });
 
   it("omits range entirely for the views without one", () => {
@@ -70,7 +95,7 @@ describe("accountFilterHref", () => {
         source: "broker",
         range: undefined,
       }),
-    ).toBe("/lost-orders?q=acme+co&source=broker");
+    ).toBe("/lost-orders?source=broker&q=acme+co");
   });
 
   it("returns a bare path once every filter is cleared", () => {
@@ -93,7 +118,7 @@ describe("accountFilterHref", () => {
         range: "all-time",
         brokerGates: ["G3", "G4"],
       }),
-    ).toBe("/pending-orders?q=acme&source=broker&range=all-time&brokerGate=G3%2CG4");
+    ).toBe("/pending-orders?source=broker&brokerGate=G3%2CG4&q=acme");
     // Broker → IQ drops the stale brokerGate param entirely.
     expect(
       accountFilterHref({
@@ -107,7 +132,7 @@ describe("accountFilterHref", () => {
         range: "all-time",
         brokerGates: ["G3", "G4"],
       }),
-    ).toBe("/pending-orders?source=iq&range=all-time");
+    ).toBe("/pending-orders?source=iq");
     // Broker → All drops both source-scoped filters.
     expect(
       accountFilterHref({
@@ -129,7 +154,7 @@ describe("accountFilterHref", () => {
         iqStages: ["bind_requested"],
         brokerGates: ["G4"],
       }),
-    ).toBe("/pending-orders?source=broker&range=all-time&brokerGate=G4");
+    ).toBe("/pending-orders?source=broker&brokerGate=G4");
   });
 
   it("writes carriers sorted and escaped, on every source", () => {
@@ -142,7 +167,7 @@ describe("accountFilterHref", () => {
         carriers: ["next insurance us inc", "hiscox ins co"],
       }),
     ).toBe(
-      "/pending-orders?range=all-time&carrier=hiscox+ins+co%2Cnext+insurance+us+inc",
+      "/pending-orders?carrier=hiscox+ins+co%2Cnext+insurance+us+inc",
     );
     // Carriers are source-free: a source change carries them through.
     expect(
@@ -153,7 +178,7 @@ describe("accountFilterHref", () => {
         range: "all-time",
         carriers: ["hiscox ins co"],
       }),
-    ).toBe("/pending-orders?source=broker&range=all-time&carrier=hiscox+ins+co");
+    ).toBe("/pending-orders?source=broker&carrier=hiscox+ins+co");
   });
 
   it("drops the carrier param when the selection is not carried", () => {
@@ -180,7 +205,7 @@ describe("accountFilterHref", () => {
         sort: { date: "oldest", revenue: "revenue-asc" },
       }),
     ).toBe(
-      "/pending-orders?range=all-time&state=CA%2CNY&sort=revenue-asc",
+      "/pending-orders?state=CA%2CNY&sort=revenue-asc",
     );
     // Clear filters passes empty state and the default sort — both params go.
     expect(
@@ -205,7 +230,7 @@ describe("accountFilterHref", () => {
         sort: { date: "newest", revenue: "revenue-desc" },
       }),
     ).toBe(
-      "/pending-orders?source=broker&range=all-time&state=CA&sort=revenue-desc%2Cnewest",
+      "/pending-orders?source=broker&state=CA&sort=revenue-desc%2Cnewest",
     );
   });
 
@@ -219,7 +244,7 @@ describe("accountFilterHref", () => {
         iqStages: ["bind_requested", "step:none"],
       }),
     ).toBe(
-      "/pending-orders?source=iq&range=all-time&iqStage=bind_requested%2Cstep%3Anone",
+      "/pending-orders?source=iq&iqStage=step%3Anone%2Cbind_requested",
     );
     expect(
       accountFilterHref({
@@ -233,7 +258,7 @@ describe("accountFilterHref", () => {
         range: "all-time",
         iqStages: ["bind_requested"],
       }),
-    ).toBe("/pending-orders?source=broker&range=all-time");
+    ).toBe("/pending-orders?source=broker");
   });
 });
 

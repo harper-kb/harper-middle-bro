@@ -103,10 +103,14 @@ function boundPolicy(
   };
 }
 
-function json(value: unknown, status = 200): Response {
+function json(
+  value: unknown,
+  status = 200,
+  headers: Record<string, string> = {},
+): Response {
   return new Response(JSON.stringify(value), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
 }
 
@@ -663,6 +667,58 @@ describe("minimal order detail states", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("Quote-10617.pdf")).toBeTruthy();
+  });
+
+  it("retries a cold quota miss once at Retry-After", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json(
+          { error: "Order detail is temporarily unavailable." },
+          503,
+          { "Retry-After": "2" },
+        ),
+      )
+      .mockResolvedValueOnce(json(detail(FIRST.orderId)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderHarness();
+    fireEvent.click(screen.getByRole("button", { name: "Open first" }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      screen.getByText("Live order detail is busy. Retrying automatically."),
+    ).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Quote-10617.pdf")).toBeTruthy();
+  });
+
+  it("labels cached order detail while background refresh runs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json(detail(FIRST.orderId, { stale: true }))),
+    );
+    renderHarness();
+    fireEvent.click(screen.getByRole("button", { name: "Open first" }));
+
+    expect(
+      await screen.findByText(
+        "Showing the last available order detail while live data refreshes.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Quote-10617.pdf")).toBeTruthy();
   });
 
   it("exposes only the authorized order route in the quote action", async () => {

@@ -39,4 +39,6 @@ export interface OrderDetailResponse {
   harperFeeCents: number | null;
   boundPolicies: OrderDetailBoundPolicy[];
   fetchedAt: string;
+  /** True when this response came from the local cache during revalidation. */
+  stale?: boolean;
 }

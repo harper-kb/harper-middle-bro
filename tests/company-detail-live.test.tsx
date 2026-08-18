@@ -223,6 +223,53 @@ describe("payment history summary", () => {
       screen.getByRole("button", { name: "Hide payment history" }),
     ).toBeTruthy();
   });
+
+  it("retries a cold quota miss once at the server Retry-After window", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "Payment history is temporarily unavailable.",
+          }),
+          {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json",
+              "Retry-After": "2",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(EMPTY_PAYMENTS), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PaymentHistory companyId={919472} initial={null} />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(
+      screen.getByText("Live payment data is busy. Retrying automatically."),
+    ).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("No payment history.")).toBeTruthy();
+  });
 });
 
 describe("customer local-time behavior", () => {

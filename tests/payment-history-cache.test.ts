@@ -8,12 +8,10 @@ import Database from "better-sqlite3";
  * - a fresh page is served from the durable cache (the SSR preview warms the
  *   exact offset-0 key the first expand reads) — including by a *new process*
  *   over the same database, which the old in-memory map always lost;
- * - a page inside the SWR window returns instantly flagged `stale: true`
- *   while a background refetch replaces it for the next read;
+ * - any older page returns instantly flagged `stale: true` while a background
+ *   refetch replaces it for the next read;
  * - concurrent identical requests share one in-flight fetch;
- * - a transient failure is retried once; a failure with a recent-enough
- *   persisted page answers stale instead of erroring, and truly old data
- *   never serves — the failure surfaces;
+ * - a known quota refusal is never retried inside the same blocked window;
  * - the overview reads local SQLite once the book mirror has synced, and
  *   falls back to the legacy live read until then.
  */
@@ -135,21 +133,16 @@ describe("payment history cache", () => {
     expect(query).toHaveBeenCalledTimes(2);
   });
 
-  it("retries a transient failure once before giving up", async () => {
+  it("does not retry a cold request inside a known quota window", async () => {
     const { module, query } = await loadModule();
-    let failures = 1;
-    query.mockImplementation(async (sql: string) => {
-      if (failures > 0) {
-        failures -= 1;
-        throw new Error("supabase_management_http_429");
-      }
-      return respondByQuery(sql);
+    query.mockImplementation(async () => {
+      throw new Error("supabase_management_http_429");
     });
 
-    const page = await module.loadPaymentHistory({ companyId: 925148 });
-    expect(page.items).toHaveLength(1);
-    expect(page.stale).toBe(false);
-    expect(query).toHaveBeenCalledTimes(2);
+    await expect(
+      module.loadPaymentHistory({ companyId: 925148 }),
+    ).rejects.toThrow("supabase_management_http_429");
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   it("survives a process restart: a new module over the same database serves the persisted page", async () => {
@@ -211,20 +204,21 @@ describe("payment history cache", () => {
     expect(stale.stale).toBe(true);
   });
 
-  it("never serves data older than the error-fallback window", async () => {
+  it("serves any-age cached data instantly while it revalidates", async () => {
     const { module, query } = await loadModule();
     query.mockImplementation(async (sql: string) => respondByQuery(sql));
-    await module.loadPaymentHistory({ companyId: 925148 });
+    const fresh = await module.loadPaymentHistory({ companyId: 925148 });
 
-    // Past the 24h last-resort window entirely.
+    // Well past the old 24h fallback ceiling.
     vi.setSystemTime(new Date("2026-08-18T21:30:00.000Z"));
     query.mockImplementation(async () => {
       throw new Error("supabase_management_http_502");
     });
 
-    await expect(
-      module.loadPaymentHistory({ companyId: 925148 }),
-    ).rejects.toThrow("supabase_management_http_502");
+    const stale = await module.loadPaymentHistory({ companyId: 925148 });
+    expect(stale.items).toEqual(fresh.items);
+    expect(stale.stale).toBe(true);
+    expect(query).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -235,7 +229,7 @@ describe("company overview retry", () => {
     query.mockImplementation(async (sql: string) => {
       if (failures > 0) {
         failures -= 1;
-        throw new Error("supabase_management_http_429");
+        throw new Error("supabase_management_http_502");
       }
       return respondByQuery(sql);
     });

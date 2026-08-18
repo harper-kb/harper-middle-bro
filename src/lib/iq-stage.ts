@@ -67,6 +67,11 @@ const FILTER_ID_SET = new Set<string>([
   ...IQ_STAGE_TAG_IDS,
   IQ_STAGE_UNRECOGNIZED,
 ]);
+const IQ_STAGE_FILTER_ORDER: readonly IqStageFilterId[] = [
+  IQ_STAGE_NO_STATUS,
+  ...IQ_STAGE_TAG_IDS,
+  IQ_STAGE_UNRECOGNIZED,
+];
 
 export type IqStageIdentity = {
   id: IqStageFilterId;
@@ -109,22 +114,24 @@ export function isIqStageFilterId(raw: string): raw is IqStageFilterId {
  * Unknown tokens are dropped; only stable filter ids survive.
  */
 export function parseIqStages(raw: string | null | undefined): IqStageFilterId[] {
-  if (raw === undefined || raw === null || raw.trim() === "") return [];
+  // Runtime shapes the page types don't promise (e.g. a repeated ?iqStage=
+  // param arriving as an array) parse as no selection rather than throwing.
+  if (typeof raw !== "string" || raw.trim() === "") return [];
   const seen = new Set<IqStageFilterId>();
-  const out: IqStageFilterId[] = [];
   for (const part of raw.split(",")) {
     const id = part.trim();
-    if (!isIqStageFilterId(id) || seen.has(id)) continue;
+    if (!isIqStageFilterId(id)) continue;
     seen.add(id);
-    out.push(id);
   }
-  return out;
+  return IQ_STAGE_FILTER_ORDER.filter((id) => seen.has(id));
 }
 
 /** Serialize selected stages for the URL. Empty → omit param. */
-export function serializeIqStages(stages: readonly IqStageFilterId[]): string | undefined {
-  if (stages.length === 0) return undefined;
-  return stages.join(",");
+export function serializeIqStages(
+  stages: readonly IqStageFilterId[],
+): string | undefined {
+  const canonical = IQ_STAGE_FILTER_ORDER.filter((id) => stages.includes(id));
+  return canonical.length > 0 ? canonical.join(",") : undefined;
 }
 
 /** True when the stored tag column matches a selected filter id. */

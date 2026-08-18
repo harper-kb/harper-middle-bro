@@ -1,8 +1,15 @@
 import fs from "fs";
 import path from "path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NavSections } from "@/components/Nav";
+import { RecordsFilterProvider } from "@/app/all-accounts/RecordsFilterProvider";
+import { parseRecordsFilterState } from "@/app/all-accounts/records-filter-state";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  usePathname: () => "/pending-orders",
+}));
 
 describe("Records navigation counts", () => {
   it("renders formatted order counts for every Records child", () => {
@@ -39,5 +46,38 @@ describe("Records navigation counts", () => {
     );
     expect(css).toContain(".nav-record-link:hover .nav-record-count");
     expect(css).toContain(".nav-record-link:focus-visible .nav-record-count");
+  });
+
+  it("carries compatible canonical filters through every sidebar child", () => {
+    const state = parseRecordsFilterState("pending", {
+      source: "iq",
+      iqStage: "bind_requested",
+      range: "this-week",
+      carrier: "hiscox ins co",
+      state: "CA",
+      q: "acme",
+      page: "4",
+    });
+    const html = renderToStaticMarkup(
+      <RecordsFilterProvider state={state}>
+        <NavSections
+          path="/pending-orders"
+          presence="active"
+          recordCounts={null}
+          collapsed={{}}
+          onToggle={() => {}}
+        />
+      </RecordsFilterProvider>,
+    );
+
+    expect(html).toContain(
+      'href="/all-accounts?source=iq&amp;iqStage=bind_requested&amp;carrier=hiscox+ins+co&amp;state=CA&amp;q=acme"',
+    );
+    expect(html).toContain(
+      'href="/bound-orders?source=iq&amp;range=this-week&amp;carrier=hiscox+ins+co&amp;state=CA&amp;q=acme"',
+    );
+    expect(html).toContain(
+      'href="/lost-orders?source=iq&amp;carrier=hiscox+ins+co&amp;state=CA&amp;q=acme"',
+    );
   });
 });

@@ -30,6 +30,12 @@ import { LatestDatabaseSync } from "@/components/LatestDatabaseSync";
 import { OperationsStatsBar } from "@/components/OperationsStatsBar";
 import { TopNavHeightSync } from "@/components/TopNavHeightSync";
 import type { RecordsNavigationCountsResponse } from "@/app/api/navigation-counts/route";
+import { useOptionalRecordsFilters } from "@/app/all-accounts/RecordsFilterProvider";
+import {
+  recordsFilterHref,
+  withRecordsView,
+  type RecordsView,
+} from "@/app/all-accounts/records-filter-state";
 
 /** Left sidebar navigation: account views | service | Manager. */
 
@@ -39,6 +45,7 @@ type NavItem = {
   href: string;
   label: string;
   recordCountKey?: RecordCountKey;
+  recordsView?: RecordsView;
 };
 
 type NavGroup = {
@@ -58,21 +65,25 @@ const NAV_GROUPS: NavGroup[] = [
         href: "/all-accounts",
         label: "All Accounts",
         recordCountKey: "allOrders",
+        recordsView: "all",
       },
       {
         href: "/pending-orders",
         label: "Pending Orders",
         recordCountKey: "pendingOrders",
+        recordsView: "pending",
       },
       {
         href: "/bound-orders",
         label: "Bound Orders",
         recordCountKey: "boundOrders",
+        recordsView: "bound",
       },
       {
         href: "/lost-orders",
         label: "Lost Orders",
         recordCountKey: "lostOrders",
+        recordsView: "lost",
       },
     ],
     autoExpandOnActive: true,
@@ -262,6 +273,7 @@ export function NavSections({
   path,
   presence,
   recordCounts,
+  recordsHrefs,
   collapsed,
   onToggle,
   onNavigate,
@@ -269,10 +281,13 @@ export function NavSections({
   path: string;
   presence: Presence;
   recordCounts: RecordsNavigationCountsResponse | null;
+  recordsHrefs?: Partial<Record<RecordsView, string>>;
   collapsed: Record<string, boolean>;
   onToggle: (id: string) => void;
   onNavigate?: () => void;
 }) {
+  const records = useOptionalRecordsFilters();
+
   return (
     <nav className="flex flex-col gap-4">
       {NAV_GROUPS.map((group) => {
@@ -295,14 +310,41 @@ export function NavSections({
               <ul className="mt-1 space-y-0.5">
                 {group.items.map((item) => {
                   const active = isActivePath(path, item.href);
+                  const recordsView = item.recordsView;
+                  const href =
+                    records && recordsView
+                      ? recordsFilterHref(
+                          withRecordsView(records.state, recordsView),
+                        )
+                      : recordsView
+                        ? (recordsHrefs?.[recordsView] ?? item.href)
+                        : item.href;
                   const count = item.recordCountKey
                     ? recordCounts?.[item.recordCountKey]
                     : undefined;
                   return (
                     <li key={item.href}>
                       <Link
-                        href={item.href}
-                        onClick={onNavigate}
+                        href={href}
+                        onClick={(event) => {
+                          onNavigate?.();
+                          if (
+                            !records ||
+                            !recordsView ||
+                            event.defaultPrevented ||
+                            event.metaKey ||
+                            event.ctrlKey ||
+                            event.shiftKey ||
+                            event.altKey ||
+                            event.button !== 0
+                          ) {
+                            return;
+                          }
+                          event.preventDefault();
+                          records.switchView(recordsView, {
+                            trigger: "sidebar",
+                          });
+                        }}
                         aria-current={active ? "page" : undefined}
                         className={`${itemClass(active)}${
                           item.recordCountKey ? " nav-record-link" : ""
@@ -504,9 +546,12 @@ function AccountRail({
 export function Nav({
   active,
   operator,
+  recordsHrefs,
 }: {
   active: string;
   operator?: Operator | null;
+  /** Canonical per-view destinations carried onto non-Records surfaces. */
+  recordsHrefs?: Partial<Record<RecordsView, string>>;
 }) {
   const pathname = usePathname();
   const path = pathname ?? active;
@@ -556,6 +601,7 @@ export function Nav({
             path={path}
             presence={presence}
             recordCounts={recordCounts}
+            recordsHrefs={recordsHrefs}
             collapsed={collapsed}
             onToggle={toggle}
           />
@@ -626,6 +672,7 @@ export function Nav({
                 path={path}
                 presence={presence}
                 recordCounts={recordCounts}
+                recordsHrefs={recordsHrefs}
                 collapsed={collapsed}
                 onToggle={toggle}
                 onNavigate={() => setMobileOpen(false)}

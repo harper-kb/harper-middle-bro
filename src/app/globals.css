@@ -37,6 +37,17 @@
   --warning-soft: rgba(154, 107, 19, 0.12);
   --info: #356b86;
   --info-soft: rgba(53, 107, 134, 0.12);
+  /* Service Spine's one semantic status scale. Every queue card, column,
+     issue state and timeline accent resolves through these aliases. */
+  --spine-open: var(--success);
+  --spine-blocked: var(--danger);
+  --spine-waiting-customer: var(--warning);
+  --spine-waiting-third-party: var(--info);
+  --spine-closure-review: var(--success);
+  --spine-closed: var(--muted);
+  --spine-muted: #58666e;
+  --spine-danger-ink: #9f352f;
+  --spine-warning-ink: #765208;
   /* Notes are operational content, not statuses. Producer stays distinctly
      orange (never Lost/error red); Service stays on the desk's blue axis. */
   --note-producer: #d97706;
@@ -173,6 +184,9 @@
   --warning-soft: rgba(230, 189, 107, 0.13);
   --info: #8fc4df;
   --info-soft: rgba(143, 196, 223, 0.13);
+  --spine-muted: #b5bcbe;
+  --spine-danger-ink: var(--danger);
+  --spine-warning-ink: var(--warning);
   --note-producer: #f2a65a;
   /* Lifted well clear of the dark surfaces; the derived Broker roles follow. */
   --broker: #b7abe8;
@@ -903,6 +917,74 @@ textarea {
 /* ——— Collapsed account-row summary ———
    A compact read-before-opening layer. The open row uses a restrained orange
    surface and inset rail rather than a heavy card or shadow. */
+.interactive-record-surface {
+  transition:
+    background-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.interactive-record-surface--clickable {
+  cursor: pointer;
+}
+
+.interactive-record-surface--selected {
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.interactive-record-surface--deemphasized {
+  filter: blur(0.7px) saturate(0.9);
+}
+
+.interactive-record-surface--deemphasized:hover,
+.interactive-record-surface--deemphasized:focus-within {
+  filter: none;
+}
+
+@media (hover: hover) {
+  .interactive-record-surface--clickable:not(
+      .interactive-record-surface--selected
+    ):hover {
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-hover));
+    box-shadow: inset 3px 0 0
+      color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+}
+
+.interactive-record-surface--clickable:not(
+    .interactive-record-surface--selected
+  ):focus-visible,
+.interactive-record-surface--clickable:not(
+    .interactive-record-surface--selected
+  ):has([data-interactive-record-trigger]:focus-visible) {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-hover));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interactive-record-surface {
+    transition-duration: 1ms;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .interactive-record-surface--deemphasized {
+    filter: saturate(0.75);
+  }
+}
+
+@media (prefers-contrast: more) {
+  .interactive-record-surface--clickable:not(
+      .interactive-record-surface--selected
+    ):hover {
+    box-shadow: inset 4px 0 0 var(--accent);
+  }
+
+  .interactive-record-surface--deemphasized {
+    filter: none;
+  }
+}
+
 .account-list-row {
   /* One choreography, four tracks. The phase machine in
      use-account-row-transition.ts holds the row in `expanding`/`collapsing`
@@ -6248,6 +6330,617 @@ html.idle-brand-overlay-open {
 
 @media print {
   .daily-stats-snapshot-backdrop {
+    display: none !important;
+  }
+}
+
+/* ——— Service Spine operational workspace ——— */
+.spine-page,
+.spine-drawer-panel {
+  --muted: var(--spine-muted);
+}
+
+.spine-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 4.65rem;
+}
+
+.spine-freshness {
+  display: flex;
+  min-height: 2.5rem;
+  flex: none;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.spine-health-summary {
+  border-top: 1px solid var(--rule);
+  padding-top: 0.75rem;
+}
+
+.spine-health-grid {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.spine-queue-grid {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.spine-queue-metric,
+.spine-workload-card {
+  border: 1px solid var(--rule);
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--surface) 78%, var(--surface-raised));
+}
+
+.spine-queue-metric {
+  position: relative;
+  display: flex;
+  min-width: 8.5rem;
+  min-height: 3.75rem;
+  flex: 1 1 9rem;
+  align-items: center;
+  gap: 0.65rem;
+  overflow: hidden;
+  padding: 0.65rem 0.75rem;
+}
+
+.spine-queue-metric::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--spine-tone);
+  content: "";
+}
+
+.spine-workload-card {
+  position: relative;
+  min-width: 18rem;
+  flex: 0 1 20rem;
+}
+
+.spine-workload-summary {
+  display: grid;
+  min-height: 3.75rem;
+  cursor: pointer;
+  list-style: none;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.8rem;
+}
+
+.spine-workload-summary::-webkit-details-marker {
+  display: none;
+}
+
+.spine-workload-summary:focus-visible {
+  border-radius: inherit;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.spine-workload-card[open] {
+  z-index: 50;
+  border-color: var(--border-strong);
+}
+
+.spine-workload-card[open] .spine-workload-chevron {
+  transform: rotate(90deg);
+}
+
+.spine-workload-chevron {
+  transition: transform 160ms var(--acct-ease);
+}
+
+.spine-workload-popover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  width: min(20rem, calc(100vw - 2rem));
+  border: 1px solid var(--border-strong);
+  border-radius: 0.8rem;
+  background: var(--surface-raised);
+  padding: 0.8rem 0.9rem;
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--shadow-color) 70%, transparent);
+}
+
+.spine-system-details[open] > summary > span {
+  transform: rotate(90deg);
+}
+
+.spine-system-details > summary > span {
+  transition: transform 160ms var(--acct-ease);
+}
+
+.spine-workspace-toolbar {
+  position: sticky;
+  top: var(
+    --top-nav-bottom,
+    calc(var(--top-nav-offset) + var(--top-nav-height))
+  );
+  z-index: var(--z-records-context);
+  border: 1px solid var(--rule);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--background) 88%, var(--surface-raised));
+  padding: 0.6rem;
+  isolation: isolate;
+  -webkit-backdrop-filter: blur(14px) saturate(0.9);
+  backdrop-filter: blur(14px) saturate(0.9);
+  transition:
+    border-color 180ms var(--acct-ease),
+    border-radius 180ms var(--acct-ease),
+    box-shadow 180ms var(--acct-ease),
+    background-color 180ms var(--acct-ease);
+}
+
+.spine-workspace-toolbar[data-stuck="true"] {
+  border-color: var(--border-strong);
+  border-radius: 0 0 0.85rem 0.85rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow:
+    0 6px 14px -10px var(--shadow-color),
+    0 18px 30px -24px var(--shadow-color);
+}
+
+.spine-workspace-toolbar.records-filter-control--open {
+  z-index: var(--z-records-filter-control);
+}
+
+.spine-toolbar-layout {
+  display: grid;
+  grid-template-columns: minmax(13rem, 20rem) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.spine-search {
+  display: flex;
+  min-height: 2.5rem;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.65rem;
+  background: var(--surface-raised);
+  padding: 0 0.65rem;
+  color: var(--muted);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.spine-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--rule));
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  color: var(--ink);
+}
+
+.spine-toolbar-button {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.65rem;
+  background: var(--surface-raised);
+  padding: 0.45rem 0.7rem;
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 650;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.spine-toolbar-button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.spine-toolbar-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.spine-toolbar-button--active {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--rule));
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface-raised));
+}
+
+.spine-active-chips {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.spine-active-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.spine-active-chip {
+  display: inline-flex;
+  min-height: 2rem;
+  flex: none;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--rule));
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-raised));
+  padding: 0.3rem 0.5rem;
+  color: var(--accent-ink);
+  font-size: 0.675rem;
+  font-weight: 650;
+}
+
+.spine-active-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--rule));
+  background: var(--accent-soft);
+}
+
+.spine-active-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.spine-toolbar-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.spine-filter-popover {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 5;
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: min(30rem, 80vh);
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.9rem;
+  background: var(--surface-raised);
+  box-shadow: 0 22px 60px color-mix(in srgb, var(--shadow-color) 85%, transparent);
+}
+
+.spine-filter-copy {
+  color: color-mix(in srgb, var(--muted) 82%, var(--foreground));
+}
+
+.spine-board-scroll {
+  overflow-x: auto;
+  padding-bottom: 0.75rem;
+  scroll-padding-inline: 0.25rem 2rem;
+  scroll-snap-type: x proximity;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.spine-board-scroll:focus-visible {
+  border-radius: 0.75rem;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.spine-board-column {
+  display: flex;
+  width: 22rem;
+  height: min(
+    45rem,
+    calc(100dvh - var(--top-nav-bottom, var(--top-nav-height)) - 8.5rem)
+  );
+  min-height: 29rem;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--surface) 82%, var(--surface-raised));
+}
+
+.spine-column-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.spine-issue-card {
+  border: 1px solid var(--rule);
+  border-radius: 0.8rem;
+  background: var(--surface-raised);
+  padding: 0.8rem;
+  box-shadow: 0 1px 0 var(--inset-highlight) inset;
+}
+
+.spine-table-shell {
+  max-height: min(
+    45rem,
+    calc(100dvh - var(--top-nav-bottom, var(--top-nav-height)) - 8.5rem)
+  );
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--rule);
+  border-radius: 0.9rem;
+  background: var(--surface-raised);
+}
+
+.spine-drawer-backdrop {
+  background: color-mix(in srgb, var(--overlay) 88%, transparent);
+  -webkit-backdrop-filter: blur(5px) saturate(0.78);
+  backdrop-filter: blur(5px) saturate(0.78);
+  animation: spine-backdrop-in 220ms var(--acct-ease) both;
+}
+
+.spine-drawer-panel {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: flex;
+  width: min(46rem, 94vw);
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  box-shadow: -24px 0 70px color-mix(in srgb, var(--shadow-color) 75%, transparent);
+  outline: none;
+  animation: spine-drawer-in 240ms var(--acct-ease) both;
+}
+
+.spine-drawer-header {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+  padding: 0.9rem 1.25rem;
+}
+
+.spine-drawer-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  min-width: max-content;
+  align-items: center;
+  gap: 0.15rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface-raised) 96%, transparent);
+  padding: 0.35rem 0.75rem 0;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.spine-drawer-tab {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.35rem;
+  border-bottom: 2px solid transparent;
+  padding: 0.45rem 0.7rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.spine-drawer-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+}
+
+.spine-drawer-tab:hover {
+  color: var(--ink);
+}
+
+.spine-drawer-tab:focus-visible {
+  border-radius: 0.5rem;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.spine-drawer-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--rule);
+  background: var(--surface);
+  padding: 0.55rem max(1rem, env(safe-area-inset-right))
+    max(0.55rem, env(safe-area-inset-bottom)) 1.25rem;
+}
+
+@keyframes spine-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.35rem) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes spine-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes spine-drawer-in {
+  from {
+    opacity: 0.82;
+    transform: translateX(2.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 82rem) {
+  .spine-health-grid {
+    flex-wrap: wrap;
+  }
+
+  .spine-queue-grid {
+    flex-basis: 100%;
+  }
+
+  .spine-workload-card {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 68rem) {
+  .spine-toolbar-layout {
+    grid-template-columns: minmax(12rem, 1fr) auto auto;
+    grid-template-areas:
+      "search filters actions"
+      "chips chips chips";
+  }
+
+  .spine-search {
+    grid-area: search;
+  }
+
+  .spine-toolbar-layout > :nth-child(2) {
+    grid-area: filters;
+  }
+
+  .spine-active-chips {
+    grid-area: chips;
+  }
+
+  .spine-toolbar-actions {
+    grid-area: actions;
+  }
+}
+
+@media (max-width: 47.999rem) {
+  .spine-page-header {
+    min-height: 0;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .spine-freshness {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .spine-queue-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .spine-queue-metric {
+    min-width: 0;
+    min-height: 3.75rem;
+  }
+
+  .spine-workspace-toolbar {
+    margin-inline: -0.25rem;
+  }
+
+  .spine-toolbar-layout {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "search search"
+      "filters actions"
+      "chips chips";
+  }
+
+  .spine-toolbar-actions {
+    min-width: 0;
+  }
+
+  .spine-toolbar-actions label {
+    display: none;
+  }
+
+  .spine-board-scroll {
+    margin-inline: -0.25rem;
+    scroll-snap-type: x mandatory;
+  }
+
+  .spine-board-column {
+    width: min(22rem, calc(100vw - 2rem));
+    height: calc(
+      100dvh - var(--top-nav-bottom, var(--top-nav-height)) - 8.5rem
+    );
+    min-height: 27rem;
+  }
+
+  .spine-drawer-panel {
+    width: 100%;
+    border-left: 0;
+  }
+
+  .spine-drawer-header {
+    padding: 0.8rem 1rem;
+  }
+
+  .spine-drawer-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding-left: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spine-filter-popover,
+  .spine-drawer-backdrop,
+  .spine-drawer-panel {
+    animation: none;
+  }
+
+  .spine-system-details > summary > span {
+    transition: none;
+  }
+
+  .spine-workload-chevron {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .spine-workspace-toolbar,
+  .spine-drawer-backdrop,
+  .spine-drawer-tabs {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .spine-drawer-backdrop {
+    background: var(--overlay);
+  }
+}
+
+@media print {
+  .spine-workspace-toolbar {
+    position: static;
+  }
+
+  .spine-drawer-backdrop {
     display: none !important;
   }
 }

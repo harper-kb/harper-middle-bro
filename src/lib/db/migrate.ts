@@ -446,6 +446,109 @@ export function migrate(db: Database.Database) {
     `CREATE INDEX IF NOT EXISTS book_orders_account_harper
        ON book_orders(account_id, harper_order_id)`,
   );
+
+  // ── Service Spine mirror (docs/service-spine/step-bro-design.md §3.1) ──────
+  // Owned exclusively by the spine refresher (service-spine-refresh.ts);
+  // deliberately absent from seed.ts so seed wipes can never touch it. All
+  // timestamps are ISO-normalized at ingest so lexicographic ORDER BY is
+  // chronological. Deliberately no FOREIGN KEYs: rows are replaced wholesale
+  // by the refresher, and reconcile deletes must never abort on ordering.
+  db.exec(`
+    -- service.issues, one row per issue. pending_order is the source cohort
+    -- CASE result (1 pending / 0 active / NULL others-or-unknown). wave is
+    -- derived from correlation_key at upsert (waveOf) so DISTINCT and filter
+    -- stay indexed SQL. search_haystack is the precomputed lowercase source
+    -- search law (buildSpineSearchHaystack), recomputed on every upsert.
+    CREATE TABLE IF NOT EXISTS spine_issues (
+      id INTEGER PRIMARY KEY,
+      company_id INTEGER,
+      company_name TEXT,
+      issue_type TEXT NOT NULL DEFAULT '',
+      goal TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT '',
+      priority TEXT NOT NULL DEFAULT '',
+      blocking TEXT,
+      origin TEXT,
+      correlation_key TEXT,
+      wave TEXT,
+      sla_due_at TEXT,
+      latest_summary TEXT,
+      last_communication_summary TEXT,
+      resolution_summary TEXT,
+      opened_at TEXT,
+      updated_at TEXT,
+      resolved_at TEXT,
+      pending_order INTEGER,
+      search_haystack TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS spine_issues_status ON spine_issues(status);
+    CREATE INDEX IF NOT EXISTS spine_issues_recency
+      ON spine_issues(updated_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS spine_issues_company
+      ON spine_issues(company_id, status);
+
+    -- service.tasks. detail/draft_ref/hta_card_ref jsonb deliberately not
+    -- mirrored (PII, unrendered by any surface).
+    CREATE TABLE IF NOT EXISTS spine_tasks (
+      id INTEGER PRIMARY KEY,
+      issue_id INTEGER NOT NULL,
+      company_id INTEGER,
+      title TEXT NOT NULL DEFAULT '',
+      owner_kind TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT '',
+      assignee TEXT,
+      lane_skill TEXT,
+      gate_label TEXT,
+      sla_due_at TEXT,
+      created_at TEXT,
+      updated_at TEXT,
+      completed_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS spine_tasks_issue ON spine_tasks(issue_id);
+    CREATE INDEX IF NOT EXISTS spine_tasks_owner
+      ON spine_tasks(owner_kind, status);
+
+    -- service.task_links (a task's outward refs), reached through tasks.
+    CREATE TABLE IF NOT EXISTS spine_task_links (
+      id INTEGER PRIMARY KEY,
+      task_id INTEGER NOT NULL,
+      link_kind TEXT NOT NULL DEFAULT '',
+      link_ref TEXT,
+      created_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS spine_task_links_task
+      ON spine_task_links(task_id);
+
+    -- Per-issue rollup of the 160k-row issue_events ledger, which is
+    -- deliberately NOT mirrored. Kept current incrementally by event deltas
+    -- (id watermark, applied exactly once) and rebuilt wholesale by the
+    -- 30-minute reconcile's single GROUP BY.
+    CREATE TABLE IF NOT EXISTS spine_issue_stats (
+      issue_id INTEGER PRIMARY KEY,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      last_event_at TEXT,
+      has_draft INTEGER NOT NULL DEFAULT 0,
+      closure_proposed INTEGER NOT NULL DEFAULT 0
+    );
+
+    -- public.internal_agents directory (id::text), for assignee resolution.
+    CREATE TABLE IF NOT EXISTS spine_agents (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      email TEXT,
+      active INTEGER NOT NULL DEFAULT 0
+    );
+
+    -- Watermarks, whole-ledger event totals, sync bookkeeping.
+    CREATE TABLE IF NOT EXISTS spine_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
   backfillSrNumbers(db);
 }
 

@@ -145,12 +145,22 @@ export const AccountRow = memo(function AccountRow({
     <li
       className={`account-list-row account-list-row--${phase} border-b border-[var(--rule)] last:border-b-0 ${
         open ? "account-list-row--open" : ""
-      } ${deemphasized ? "account-list-row--deemphasized" : ""}`}
+      } ${
+        deemphasized
+          ? "account-list-row--deemphasized interactive-record-surface--deemphasized"
+          : ""
+      }`}
     >
       <div
-        className={`account-list-row-header ${
-          open ? "account-list-row-header--open" : ""
-        } ${canExpand ? "account-list-row-header--clickable" : ""}`}
+        className={`account-list-row-header interactive-record-surface ${
+          open
+            ? "account-list-row-header--open interactive-record-surface--selected"
+            : ""
+        } ${
+          canExpand
+            ? "account-list-row-header--clickable interactive-record-surface--clickable"
+            : ""
+        }`}
         // Pointer affordance only. The chevron below stays the labelled,
         // focusable control that carries aria-expanded for the keyboard.
         onClick={(event) => {

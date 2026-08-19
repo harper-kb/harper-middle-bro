@@ -92,6 +92,14 @@ function renderRow(
 afterEach(cleanup);
 
 describe("opening an account from the row", () => {
+  it("uses the shared interactive record surface", () => {
+    const header = renderRow(vi.fn());
+    expect(header.classList.contains("interactive-record-surface")).toBe(true);
+    expect(
+      header.classList.contains("interactive-record-surface--clickable"),
+    ).toBe(true);
+  });
+
   it("opens when the row's own surface is clicked", () => {
     const onToggle = vi.fn();
     const header = renderRow(onToggle);

@@ -9,6 +9,7 @@ import {
 import { registerPolicyFormLoader } from "../carriers/policy-store";
 import { migrateCarrierKnowledgeTable } from "../carriers/carrier-knowledge-store";
 import { scheduleBookRefresh } from "./book-refresh";
+import { scheduleServiceSpineRefresh } from "./service-spine-refresh";
 import { backfillSrNumbers, ensureColumn, migrate } from "./migrate";
 import {
   backfillDecisions,
@@ -58,6 +59,7 @@ export function getDb(): Database.Database {
   backfillMessageMetadata(db);
   backfillDecisions(db);
   scheduleBookRefresh(db);
+  scheduleServiceSpineRefresh(db);
   return db;
 }
 

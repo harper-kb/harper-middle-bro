@@ -92,6 +92,7 @@ const NAV_GROUPS: NavGroup[] = [
     id: "service",
     label: "Service",
     items: [
+      { href: "/service-spine", label: "Service Spine" },
       { href: "/coi", label: "COI Studio" },
       { href: "/docusign-board", label: "DocuSign Board" },
       { href: "/iq-bind-orders", label: "IQ Bind Bench" },
